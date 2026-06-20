@@ -170,11 +170,7 @@ The skill is auto-discovered on next invocation.
 ln -s $(pwd)/skills/gcyphrq ~/.claude/skills/gcyphrq
 ```
 
-Or point Claude to it directly from your project:
-
-```bash
-claude --skill skills/gcyphrq/SKILL.md
-```
+The skill is auto-discovered on next invocation.
 
 ### OpenCode
 

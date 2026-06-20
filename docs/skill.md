@@ -45,18 +45,21 @@ Pi will recognize the skill automatically. You can invoke it with `/skill:gcyphr
 
 ### Claude (Claude Code / MCP)
 
+Claude Code auto-discovers skills placed in its skill directories.
+
 ```bash
-# Install gcyphrq CLI globally
-npm install -g gcyphrq
+# Copy the skill globally
+mkdir -p ~/.claude/skills/gcyphrq
+curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md \
+  -o ~/.claude/skills/gcyphrq/SKILL.md
+
+# Or project-level (available only in this project)
+mkdir -p .claude/skills/gcyphrq
+curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md \
+  -o .claude/skills/gcyphrq/SKILL.md
 ```
 
-Then add the skill content to your Claude custom instructions or system prompt:
-
-1. Fetch the SKILL.md: `curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md`
-2. Paste its contents into Claude's custom instructions under a section like `## gcyphrq Skill`
-3. Ensure `gcyphrq` is on Claude's PATH (from `npm install -g` above)
-
-Claude can now use `gcyphrq` directly in terminal commands when you ask graph-related questions.
+Claude Code will recognize the skill automatically when you ask graph-related questions.
 
 ### OpenCode
 
