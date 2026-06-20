@@ -12,7 +12,7 @@
       <ul>
         {% for item in site.nav %}
         <li>
-          <a href="{{ item.url | relative_url }}" {% if item.external %}target="_blank" rel="noopener noreferrer"{% endif %} class="{% if page.url == item.url %}active{% endif %}">
+          <a href="{{ item.url | relative_url }}" {% if item.external %}target="_blank" rel="noopener noreferrer"{% endif %} class="{% if page.url == item.url | relative_url %}active{% endif %}">
             {{ item.title }}{% if item.external %} <span class="external-icon">↗</span>{% endif %}
           </a>
         </li>
