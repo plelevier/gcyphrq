@@ -303,45 +303,6 @@ a:hover { text-decoration: underline; }
 .callout p { margin-bottom: 0; }
 .callout p + p { margin-top: 0.5rem; }
 
-/* === Sidebar TOC === */
-.doc-layout {
-  display: grid;
-  grid-template-columns: 1fr 220px;
-  gap: 3rem;
-}
-
-@media (max-width: 900px) {
-  .doc-layout { grid-template-columns: 1fr; }
-  .toc-sidebar { display: none; }
-}
-
-.toc-sidebar { position: sticky; top: calc(var(--header-height) + 2rem); align-self: start; }
-
-.toc-sidebar h4 {
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-secondary);
-  margin-bottom: 0.75rem;
-}
-
-.toc-sidebar ul { list-style: none; padding: 0; }
-.toc-sidebar li { margin-bottom: 0.3rem; }
-.toc-sidebar a {
-  font-size: 0.85rem;
-  color: var(--color-text-secondary);
-  display: block;
-  padding: 0.15rem 0 0.15rem 0.75rem;
-  border-left: 2px solid var(--color-border);
-  transition: border-color 0.15s;
-}
-
-.toc-sidebar a:hover, .toc-sidebar a.active {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  text-decoration: none;
-}
-
 /* === Breadcrumb === */
 .breadcrumb {
   font-size: 0.85rem;

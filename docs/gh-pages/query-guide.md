@@ -16,22 +16,7 @@ This guide covers all supported Cypher syntax and query patterns available in th
 
 ## Supported Features
 
-| Feature | Status |
-|---|---|
-| `MATCH` with node labels and properties | <span class="badge badge-success">✅</span> |
-| Variable-length paths `*min..max` | <span class="badge badge-success">✅</span> |
-| Directional edges `->`, `<-`, `-` | <span class="badge badge-success">✅</span> |
-| `OPTIONAL MATCH` | <span class="badge badge-success">✅</span> |
-| `RETURN` with property access and aliases | <span class="badge badge-success">✅</span> |
-| `WITH` + implicit grouping | <span class="badge badge-success">✅</span> |
-| `count()`, `sum()` aggregations | <span class="badge badge-success">✅</span> |
-| `WHERE` (on `WITH`) with `>`, `<`, `=`, `CONTAINS` | <span class="badge badge-success">✅</span> |
-| `CREATE`, `SET`, `DELETE` mutations | <span class="badge badge-success">✅</span> |
-| Multiple chained clauses | <span class="badge badge-success">✅</span> |
-| `ORDER BY` (single/multi-column, ASC/DESC) | <span class="badge badge-success">✅</span> |
-| `SKIP` | <span class="badge badge-success">✅</span> |
-| `LIMIT` | <span class="badge badge-success">✅</span> |
-| Subqueries, `CALL`, APOC | <span class="badge badge-danger">❌</span> |
+See the [Home page](/) for the full feature support table.
 
 <div class="callout">
   <p><strong>Single MATCH per stage:</strong> The engine processes one MATCH clause at a time. Chained MATCHes within the same stage are not supported — use multiple stages separated by <code>WITH</code> instead.</p>
