@@ -1,8 +1,8 @@
 # gcyphrq
 
-A command-line tool that executes [Cypher](https://en.wikipedia.org/wiki/Cypher_(query_language)) graph queries against an in-memory graph built on [Graphology](https://graphology.github.io/).
+A Cypher graph query engine for in-memory graphs built on [Graphology](https://graphology.github.io/).
 
-Parse a graph from a JSON file (or stdin), run a Cypher query, and get raw JSON results — all from the terminal.
+Available as a **CLI tool** and as a **library** for Node.js / TypeScript projects.
 
 ## Features
 
@@ -10,7 +10,8 @@ Parse a graph from a JSON file (or stdin), run a Cypher query, and get raw JSON 
 - **Variable-length paths** — e.g. `-[r:FRIEND*1..3]->`
 - **Aggregations** — `count()`, `sum()` with implicit grouping via `WITH`
 - **Directional filtering** — `->`, `<-`, `-`
-- **Raw JSON output** — pipe-friendly, works with `jq` and other CLI tools
+- **Library or CLI** — use as a dependency in your project or run from the terminal
+- **TypeScript support** — full type declarations shipped with the package
 
 ## Installation
 
@@ -67,8 +68,53 @@ See the [`examples/`](examples/) directory for sample graphs.
 
 ## Documentation
 
+- **[Library API](docs/LIBRARY-API.md)** — how to use gcyphrq as a library (Node.js / TypeScript)
 - **[Query Guide](docs/QUERY-GUIDE.md)** — full Cypher syntax reference, supported features, and query examples
 - **[Example Graphs](examples/README.md)** — graph file format and available examples
+
+## Using as a Library
+
+Install gcyphrq as a dependency:
+
+```bash
+npm install gcyphrq
+```
+
+### One-shot query
+
+```ts
+import { executeQuery } from 'gcyphrq';
+
+const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
+```
+
+### Multiple queries on the same graph
+
+```ts
+import { createGraph, GraphEngine, parseCypher } from 'gcyphrq';
+
+const graph = createGraph(graphData);
+const engine = new GraphEngine(graph);
+
+const users = engine.execute(parseCypher('MATCH (u:User) RETURN u.name'));
+const counts = engine.execute(parseCypher('MATCH (u:User) RETURN count(u)'));
+```
+
+### Building a graph programmatically
+
+```ts
+import { Graph, GraphEngine, parseCypher } from 'gcyphrq';
+
+const graph = new Graph();
+graph.addNode('alice', { label: 'User', name: 'Alice' });
+graph.addNode('bob', { label: 'User', name: 'Bob' });
+graph.addEdge('alice', 'bob', { type: 'FRIEND' });
+
+const engine = new GraphEngine(graph);
+const results = engine.execute(parseCypher('MATCH (u:User) RETURN u.name'));
+```
+
+See the [Library API documentation](docs/LIBRARY-API.md) for the full reference.
 
 ## Running without installing
 
