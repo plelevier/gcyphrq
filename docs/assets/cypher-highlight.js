@@ -23,8 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.type = 'button';
     btn.title = 'Copy';
     btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
-    block.classList.add('highlight-wrapper');
-    block.parentNode.insertBefore(btn, block.nextSibling);
+
     // Wrap block + btn in a relative container
     const wrapper = document.createElement('div');
     wrapper.className = 'code-block-wrapper';
@@ -34,10 +33,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     btn.addEventListener('click', () => {
       const code = block.querySelector('code') || block;
-      navigator.clipboard.writeText(code.textContent.trim()).then(() => {
+      const text = code.textContent.trim();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          btn.classList.add('copied');
+          setTimeout(() => btn.classList.remove('copied'), 1500);
+        });
+      } else {
+        // Fallback for non-HTTPS (local dev)
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
         btn.classList.add('copied');
         setTimeout(() => btn.classList.remove('copied'), 1500);
-      });
+      }
     });
   });
 });

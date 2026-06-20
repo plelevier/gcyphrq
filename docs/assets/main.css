@@ -212,10 +212,10 @@ a:hover { text-decoration: underline; }
   width: 26px;
   height: 26px;
   padding: 0;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.04);
+  border: 1px solid rgba(0,0,0,0.08);
   border-radius: 4px;
-  color: rgba(255,255,255,0.5);
+  color: rgba(0,0,0,0.35);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s, color 0.15s, background 0.15s;
@@ -226,13 +226,13 @@ a:hover { text-decoration: underline; }
 }
 
 .code-copy-btn:hover {
-  color: #fff;
-  background: rgba(255,255,255,0.15);
+  color: rgba(0,0,0,0.7);
+  background: rgba(0,0,0,0.07);
 }
 
 .code-copy-btn.copied {
   color: #059669;
-  border-color: rgba(5,150,105,0.4);
+  border-color: rgba(5,150,105,0.3);
 }
 
 /* Cypher keyword highlighting */
