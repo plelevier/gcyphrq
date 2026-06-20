@@ -177,3 +177,11 @@ Get page 2 of services sorted by name (10 per page):
 ```bash
 gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s.name ORDER BY s.name ASC SKIP 10 LIMIT 10'
 ```
+
+### 19. Average, min, max aggregations
+
+Compute average, minimum, and maximum across all users:
+
+```bash
+gcyphrq -g examples/social-graph.json -e 'MATCH (u:User) RETURN avg(u.age) AS avgAge, min(u.age) AS minAge, max(u.age) AS maxAge'
+```

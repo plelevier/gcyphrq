@@ -203,6 +203,23 @@ export class AdvancedCypherGraphologyEngine {
             const val = (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''];
             return acc + (typeof val === 'number' ? val : 0);
           }, 0);
+        } else if (expr.aggregationType === 'AVG') {
+          const numericValues = rows
+            .map((r) => (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''])
+            .filter((v): v is number => typeof v === 'number');
+          newContext[p.alias] = numericValues.length > 0
+            ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length
+            : null;
+        } else if (expr.aggregationType === 'MIN') {
+          const numericValues = rows
+            .map((r) => (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''])
+            .filter((v): v is number => typeof v === 'number');
+          newContext[p.alias] = numericValues.length > 0 ? Math.min(...numericValues) : null;
+        } else if (expr.aggregationType === 'MAX') {
+          const numericValues = rows
+            .map((r) => (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''])
+            .filter((v): v is number => typeof v === 'number');
+          newContext[p.alias] = numericValues.length > 0 ? Math.max(...numericValues) : null;
         }
       });
 
@@ -321,6 +338,23 @@ export class AdvancedCypherGraphologyEngine {
             return acc + (typeof val === 'number' ? val : 0);
           }, 0);
           result[p.alias] = sum as CypherValue;
+        } else if (expr.aggregationType === 'AVG') {
+          const numericValues = contexts
+            .map((r) => (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''])
+            .filter((v): v is number => typeof v === 'number');
+          result[p.alias] = (numericValues.length > 0
+            ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length
+            : null) as CypherValue;
+        } else if (expr.aggregationType === 'MIN') {
+          const numericValues = contexts
+            .map((r) => (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''])
+            .filter((v): v is number => typeof v === 'number');
+          result[p.alias] = (numericValues.length > 0 ? Math.min(...numericValues) : null) as CypherValue;
+        } else if (expr.aggregationType === 'MAX') {
+          const numericValues = contexts
+            .map((r) => (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''])
+            .filter((v): v is number => typeof v === 'number');
+          result[p.alias] = (numericValues.length > 0 ? Math.max(...numericValues) : null) as CypherValue;
         }
       });
 

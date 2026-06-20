@@ -172,6 +172,91 @@ describe('AdvancedCypherGraphologyEngine', () => {
       const aliceResult = results.find(r => r.name === 'Alice');
       expect(aliceResult?.totalAge).toBe(25); // Bob's age
     });
+
+    it('aggregates with AVG', () => {
+      const ast = parseCypher(
+        'MATCH (a:User)-[r:FRIEND]->(b:User) WITH a.name AS name, avg(b.age) AS avgAge RETURN name, avgAge'
+      );
+      const results = engine.execute(ast);
+      const aliceResult = results.find(r => r.name === 'Alice');
+      expect(aliceResult?.avgAge).toBe(25); // Only Bob (age 25)
+    });
+
+    it('aggregates with AVG across multiple values', () => {
+      // Alice has 2 undirected connections: Bob (age 25) and Dave (age 28)
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"})-[r]-(other:User) WITH a.name AS name, avg(other.age) AS avgAge RETURN name, avgAge'
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.avgAge).toBe(26.5); // (25 + 28) / 2
+    });
+
+    it('aggregates with MIN', () => {
+      const ast = parseCypher(
+        'MATCH (a:User)-[r:FRIEND]->(b:User) WITH a.name AS name, min(b.age) AS minAge RETURN name, minAge'
+      );
+      const results = engine.execute(ast);
+      const aliceResult = results.find(r => r.name === 'Alice');
+      expect(aliceResult?.minAge).toBe(25); // Bob's age
+    });
+
+    it('aggregates with MIN across multiple values', () => {
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"})-[r]-(other:User) WITH a.name AS name, min(other.age) AS minAge RETURN name, minAge'
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.minAge).toBe(25); // min(25, 28)
+    });
+
+    it('aggregates with MAX', () => {
+      const ast = parseCypher(
+        'MATCH (a:User)-[r:FRIEND]->(b:User) WITH a.name AS name, max(b.age) AS maxAge RETURN name, maxAge'
+      );
+      const results = engine.execute(ast);
+      const aliceResult = results.find(r => r.name === 'Alice');
+      expect(aliceResult?.maxAge).toBe(25); // Bob's age
+    });
+
+    it('aggregates with MAX across multiple values', () => {
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"})-[r]-(other:User) WITH a.name AS name, max(other.age) AS maxAge RETURN name, maxAge'
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.maxAge).toBe(28); // max(25, 28)
+    });
+
+    it('AVG returns null when no numeric values in group', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', value: null });
+      const e = new AdvancedCypherGraphologyEngine(g);
+      const ast = parseCypher('MATCH (n:Item) WITH n.label AS label, avg(n.value) AS avgVal RETURN label, avgVal');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.avgVal).toBeNull();
+    });
+
+    it('MIN returns null when no numeric values in group', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', value: null });
+      const e = new AdvancedCypherGraphologyEngine(g);
+      const ast = parseCypher('MATCH (n:Item) WITH n.label AS label, min(n.value) AS minVal RETURN label, minVal');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.minVal).toBeNull();
+    });
+
+    it('MAX returns null when no numeric values in group', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', value: null });
+      const e = new AdvancedCypherGraphologyEngine(g);
+      const ast = parseCypher('MATCH (n:Item) WITH n.label AS label, max(n.value) AS maxVal RETURN label, maxVal');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.maxVal).toBeNull();
+    });
   });
 
   describe('execute - WRITE', () => {
@@ -261,6 +346,37 @@ describe('AdvancedCypherGraphologyEngine', () => {
       const results = engine.execute(ast);
       expect(results.length).toBe(1);
       expect(results[0]!.totalAge).toBe(118);
+    });
+
+    it('aggregates with AVG in RETURN without WITH', () => {
+      const ast = parseCypher('MATCH (u:User) RETURN avg(u.age) AS avgAge');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.avgAge).toBe(29.5); // (30 + 25 + 35 + 28) / 4
+    });
+
+    it('aggregates with MIN in RETURN without WITH', () => {
+      const ast = parseCypher('MATCH (u:User) RETURN min(u.age) AS minAge');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.minAge).toBe(25); // Bob
+    });
+
+    it('aggregates with MAX in RETURN without WITH', () => {
+      const ast = parseCypher('MATCH (u:User) RETURN max(u.age) AS maxAge');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.maxAge).toBe(35); // Charlie
+    });
+
+    it('aggregates with multiple functions in RETURN without WITH', () => {
+      const ast = parseCypher('MATCH (u:User) RETURN count(u) AS total, avg(u.age) AS avgAge, min(u.age) AS minAge, max(u.age) AS maxAge');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.total).toBe(4);
+      expect(results[0]!.avgAge).toBe(29.5);
+      expect(results[0]!.minAge).toBe(25);
+      expect(results[0]!.maxAge).toBe(35);
     });
 
     it('handles multiple matches from different start nodes', () => {

@@ -62,7 +62,7 @@ src/
 | `OPTIONAL MATCH` | ✅ |
 | `RETURN` with property access and aliases | ✅ |
 | `WITH` + implicit grouping | ✅ |
-| `count()`, `sum()` aggregations | ✅ |
+| `count()`, `sum()`, `avg()`, `min()`, `max()` aggregations | ✅ |
 | `WHERE` (on `WITH`) with `>`, `<`, `=`, `CONTAINS` | ✅ |
 | `CREATE`, `SET`, `DELETE` mutations | ✅ |
 | Multiple chained clauses | ✅ (single MATCH per stage) |

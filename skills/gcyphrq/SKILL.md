@@ -68,7 +68,7 @@ gcyphrq -g <graph.json> -e 'MATCH (n) RETURN n.name' | jq '.[].n'
 | `RETURN` with property access | `RETURN n.name` | ✅ |
 | `RETURN` with aliases | `RETURN n AS node` | ✅ |
 | `WITH` pipelining | `WITH n, count(m) AS c` | ✅ |
-| Aggregations | `count()`, `sum()` | ✅ |
+| Aggregations | `count()`, `sum()`, `avg()`, `min()`, `max()` | ✅ |
 | `WHERE` on `WITH` | `WHERE c > 5` | ✅ |
 | `WHERE` operators | `>`, `<`, `=`, `CONTAINS` | ✅ |
 | `CREATE` nodes | `CREATE (n:Label {key: val})` | ✅ |
@@ -182,7 +182,7 @@ Errors go to stderr with `Error: ` prefix and exit code 1.
 - **Single MATCH per stage** — the engine processes one MATCH clause at a time. Chained `MATCH (a) MATCH (b)` is not supported.
 - **No subqueries** — `CALL {}`, APOC procedures, and other extensions are not available.
 - **WHERE only on WITH** — `WHERE` filtering works in `WITH` clauses, not directly on `MATCH`.
-- **Aggregations limited to count/sum** — `avg()`, `min()`, `max()` are not implemented.
+- **Aggregation edge cases** — `avg()`, `min()`, `max()` return null when no numeric values exist.
 - **Property access in RETURN** — returns the full node object or a single property. Nested property access beyond one level is not supported.
 - **ORDER BY on RETURN and WITH** — supported on both, multi-column with ASC/DESC.
 - **SKIP on RETURN and WITH** — supported on both. Use with ORDER BY + LIMIT for pagination.

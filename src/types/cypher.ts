@@ -76,7 +76,7 @@ export interface LiteralExpression {
 
 export interface AggregationExpression {
   type: 'Aggregation';
-  aggregationType: 'COUNT' | 'SUM';
+  aggregationType: 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX';
   variable: string;
   property: string | undefined;
 }
