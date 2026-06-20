@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import type {
   AdvancedCypherAST,
+  AggregationExpression,
   MatchClause,
   OrderByItem,
   WithClause,
@@ -199,26 +200,17 @@ export class AdvancedCypherGraphologyEngine {
           const nonNullRows = rows.filter((r) => r[expr.variable] !== null);
           newContext[p.alias] = nonNullRows.length;
         } else if (expr.aggregationType === 'SUM') {
-          newContext[p.alias] = rows.reduce((acc, r) => {
-            const val = (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''];
-            return acc + (typeof val === 'number' ? val : 0);
-          }, 0);
+          newContext[p.alias] = this.extractNumericValues(rows, expr).reduce((a, b) => a + b, 0);
         } else if (expr.aggregationType === 'AVG') {
-          const numericValues = rows
-            .map((r) => (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''])
-            .filter((v): v is number => typeof v === 'number');
+          const numericValues = this.extractNumericValues(rows, expr);
           newContext[p.alias] = numericValues.length > 0
             ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length
             : null;
         } else if (expr.aggregationType === 'MIN') {
-          const numericValues = rows
-            .map((r) => (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''])
-            .filter((v): v is number => typeof v === 'number');
+          const numericValues = this.extractNumericValues(rows, expr);
           newContext[p.alias] = numericValues.length > 0 ? Math.min(...numericValues) : null;
         } else if (expr.aggregationType === 'MAX') {
-          const numericValues = rows
-            .map((r) => (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''])
-            .filter((v): v is number => typeof v === 'number');
+          const numericValues = this.extractNumericValues(rows, expr);
           newContext[p.alias] = numericValues.length > 0 ? Math.max(...numericValues) : null;
         }
       });
@@ -333,27 +325,17 @@ export class AdvancedCypherGraphologyEngine {
           const nonNullRows = contexts.filter((r) => r[expr.variable] !== null);
           result[p.alias] = nonNullRows.length as CypherValue;
         } else if (expr.aggregationType === 'SUM') {
-          const sum = contexts.reduce((acc, r) => {
-            const val = (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''];
-            return acc + (typeof val === 'number' ? val : 0);
-          }, 0);
-          result[p.alias] = sum as CypherValue;
+          result[p.alias] = this.extractNumericValues(contexts, expr).reduce((a, b) => a + b, 0) as CypherValue;
         } else if (expr.aggregationType === 'AVG') {
-          const numericValues = contexts
-            .map((r) => (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''])
-            .filter((v): v is number => typeof v === 'number');
+          const numericValues = this.extractNumericValues(contexts, expr);
           result[p.alias] = (numericValues.length > 0
             ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length
             : null) as CypherValue;
         } else if (expr.aggregationType === 'MIN') {
-          const numericValues = contexts
-            .map((r) => (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''])
-            .filter((v): v is number => typeof v === 'number');
+          const numericValues = this.extractNumericValues(contexts, expr);
           result[p.alias] = (numericValues.length > 0 ? Math.min(...numericValues) : null) as CypherValue;
         } else if (expr.aggregationType === 'MAX') {
-          const numericValues = contexts
-            .map((r) => (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''])
-            .filter((v): v is number => typeof v === 'number');
+          const numericValues = this.extractNumericValues(contexts, expr);
           result[p.alias] = (numericValues.length > 0 ? Math.max(...numericValues) : null) as CypherValue;
         }
       });
@@ -488,6 +470,16 @@ export class AdvancedCypherGraphologyEngine {
     // Note: mixed-type coercion differs from Neo4j (which throws). Here we coerce
     // to string for pragmatic compatibility in exploratory queries.
     return String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
+  }
+
+  /**
+   * Extract numeric values from a list of contexts for a given aggregation expression.
+   * Maps each context to the property value and filters out non-numeric entries.
+   */
+  private extractNumericValues(rows: QueryContext[], expr: AggregationExpression): number[] {
+    return rows
+      .map((r) => (r[expr.variable] as CypherNode | undefined)?.[expr.property ?? ''])
+      .filter((v): v is number => typeof v === 'number');
   }
 
   private matchNodeCriteria(nodeAttr: Record<string, unknown>, pattern: NodePattern): boolean {
