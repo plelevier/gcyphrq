@@ -21,22 +21,18 @@ plugins: []
 
 # Navigation
 nav:
-  - title: Home
-    url: /
   - title: Getting Started
     url: /getting-started/
   - title: CLI Reference
     url: /cli/
-  - title: Query Guide
-    url: /query-guide/
   - title: Library API
     url: /library-api/
+  - title: Query Guide
+    url: /query-guide/
   - title: Examples
     url: /examples/
   - title: Skill Guide
     url: /skill/
-  - title: Benchmark
-    url: /benchmark/
   - title: GitHub
     url: https://github.com/plelevier/gcyphrq
     external: true
