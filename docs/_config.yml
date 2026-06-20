@@ -35,10 +35,12 @@ nav:
     url: /examples/
   - title: Skill Guide
     url: /skill/
+  - title: Benchmark
+    url: /benchmark/
   - title: GitHub
     url: https://github.com/plelevier/gcyphrq
     external: true
 
 # Site settings
-version: 0.10.0
+version: 0.11.0
 node_version: ">=20"

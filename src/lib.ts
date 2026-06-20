@@ -122,18 +122,29 @@ function buildGraphIndexesInternal(data: GraphFile, graph: GraphInstance): Graph
 
     // Label index
     if (label && typeof label === 'string') {
-      if (!labelIndex.has(label)) labelIndex.set(label, new Set());
-      labelIndex.get(label)!.add(id);
+      let labelSet = labelIndex.get(label);
+      if (!labelSet) {
+        labelSet = new Set();
+        labelIndex.set(label, labelSet);
+      }
+      labelSet.add(id);
     }
 
     // Property index (index all non-id, non-label scalar properties)
     for (const [key, value] of Object.entries(props)) {
       if (value === null || value === undefined || typeof value === 'object') continue;
-      if (!propertyIndex.has(key)) propertyIndex.set(key, new Map());
-      const valMap = propertyIndex.get(key)!;
+      let valMap = propertyIndex.get(key);
+      if (!valMap) {
+        valMap = new Map();
+        propertyIndex.set(key, valMap);
+      }
       const valKey = String(value);
-      if (!valMap.has(valKey)) valMap.set(valKey, new Set());
-      valMap.get(valKey)!.add(id);
+      let nodeSet = valMap.get(valKey);
+      if (!nodeSet) {
+        nodeSet = new Set();
+        valMap.set(valKey, nodeSet);
+      }
+      nodeSet.add(id);
     }
   }
 
@@ -142,16 +153,30 @@ function buildGraphIndexesInternal(data: GraphFile, graph: GraphInstance): Graph
     const edgeType = (attrs.type && typeof attrs.type === 'string') ? attrs.type : '__UNTYPED__';
 
     // Outgoing: source → [target]
-    if (!edgeOut.has(edgeType)) edgeOut.set(edgeType, new Map());
-    const outMap = edgeOut.get(edgeType)!;
-    if (!outMap.has(source)) outMap.set(source, []);
-    outMap.get(source)!.push({ target, edgeId });
+    let outMap = edgeOut.get(edgeType);
+    if (!outMap) {
+      outMap = new Map();
+      edgeOut.set(edgeType, outMap);
+    }
+    let outList = outMap.get(source);
+    if (!outList) {
+      outList = [];
+      outMap.set(source, outList);
+    }
+    outList.push({ target, edgeId });
 
     // Incoming: target → [source]
-    if (!edgeIn.has(edgeType)) edgeIn.set(edgeType, new Map());
-    const inMap = edgeIn.get(edgeType)!;
-    if (!inMap.has(target)) inMap.set(target, []);
-    inMap.get(target)!.push({ source, edgeId });
+    let inMap = edgeIn.get(edgeType);
+    if (!inMap) {
+      inMap = new Map();
+      edgeIn.set(edgeType, inMap);
+    }
+    let inList = inMap.get(target);
+    if (!inList) {
+      inList = [];
+      inMap.set(target, inList);
+    }
+    inList.push({ source, edgeId });
   });
 
   return {
@@ -186,6 +211,11 @@ function buildGraphIndexesInternal(data: GraphFile, graph: GraphInstance): Graph
  */
 export function createGraph(data: GraphFile): GraphInstance {
   const validated = validateGraphData(data);
+  return buildGraph(validated);
+}
+
+/** Build a Graphology graph from already-validated data (internal helper). */
+function buildGraph(validated: GraphFile): GraphInstance {
   const graph = new Graph();
 
   for (const node of validated.nodes) {
@@ -262,7 +292,7 @@ export function parseCypher(query: string): AdvancedCypherAST {
  */
 export function executeQuery(graphData: GraphFile, query: string): ResultRow[] {
   const validated = validateGraphData(graphData);
-  const graph = createGraph(graphData);
+  const graph = buildGraph(validated);
   const indexes = buildGraphIndexesInternal(validated, graph);
   const engine = new AdvancedCypherGraphologyEngine(graph, indexes);
   const ast = _parseCypher(query);
@@ -275,6 +305,8 @@ export function executeQuery(graphData: GraphFile, query: string): ResultRow[] {
  * The Cypher query engine. Accepts a `GraphInstance` and executes parsed ASTs.
  *
  * For best performance, pass pre-computed indexes as the second argument.
+ * Note: indexes are invalidated after any CREATE/SET/DELETE mutation so that
+ * subsequent MATCH/WITH stages see the updated graph state via full-graph scan.
  *
  * @example
  * ```ts

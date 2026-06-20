@@ -107,25 +107,29 @@ export class AdvancedCypherGraphologyEngine {
    * Falls back to full-graph scan when indexes are absent.
    */
   private getMatchingNodeIds(pattern: NodePattern): string[] {
-    if (!this.indexes) {
+    const indexes = this.indexes;
+    if (!indexes) {
       // No indexes — full-graph scan (backward compat)
       return this.graph.filterNodes((_node: string, attr: Record<string, unknown>) =>
         this.matchNodeCriteria(attr, pattern),
       );
     }
 
-    const { labelIndex, propertyIndex } = this.indexes;
-    const hasLabel = pattern.label !== undefined;
-    const hasProps = pattern.properties !== undefined && Object.keys(pattern.properties).length > 0;
+    const { labelIndex, propertyIndex } = indexes;
+    const label = pattern.label;
+    const props = pattern.properties;
+    const propKeys = props ? Object.keys(props) : [];
+    const hasLabel = label !== undefined;
+    const hasProps = propKeys.length > 0;
 
-    if (hasLabel && hasProps) {
+    if (hasLabel && hasProps && props) {
       // Intersect label index with property index
-      const labelSet = labelIndex.get(pattern.label!);
+      const labelSet = labelIndex.get(label);
       if (!labelSet || labelSet.size === 0) return [];
 
-      const propKeys = Object.keys(pattern.properties!);
-      const firstKey = propKeys[0]!;
-      const firstVal = String(pattern.properties![firstKey]);
+      const firstKey = propKeys[0];
+      if (!firstKey) return [];
+      const firstVal = String(props[firstKey]);
       const propSet = propertyIndex.get(firstKey)?.get(firstVal);
 
       if (!propSet || propSet.size === 0) return [];
@@ -139,19 +143,19 @@ export class AdvancedCypherGraphologyEngine {
 
       return candidates.filter((id) => {
         const attrs = this.graph.getNodeAttributes(id);
-        return propKeys.slice(1).every((k) => attrs[k] === pattern.properties![k]);
+        return propKeys.slice(1).every((k) => attrs[k] === props[k]);
       });
     }
 
     if (hasLabel) {
-      const labelSet = labelIndex.get(pattern.label!);
+      const labelSet = labelIndex.get(label);
       return labelSet ? [...labelSet] : [];
     }
 
-    if (hasProps) {
-      const propKeys = Object.keys(pattern.properties!);
-      const firstKey = propKeys[0]!;
-      const firstVal = String(pattern.properties![firstKey]);
+    if (hasProps && props) {
+      const firstKey = propKeys[0];
+      if (!firstKey) return [];
+      const firstVal = String(props[firstKey]);
       const propSet = propertyIndex.get(firstKey)?.get(firstVal);
       if (!propSet) return [];
 
@@ -159,7 +163,7 @@ export class AdvancedCypherGraphologyEngine {
 
       return [...propSet].filter((id) => {
         const attrs = this.graph.getNodeAttributes(id);
-        return propKeys.slice(1).every((k) => attrs[k] === pattern.properties![k]);
+        return propKeys.slice(1).every((k) => attrs[k] === props[k]);
       });
     }
 
@@ -322,11 +326,12 @@ export class AdvancedCypherGraphologyEngine {
   private buildNeighborGetter(
     relation: MatchClause['relationPattern'],
   ): (nodeId: string, cb: (neighborId: string, edgeId: string) => void) => void {
-    const hasIndex = this.indexes && relation.type !== undefined;
-    const edgeType = relation.type!;
+    const indexes = this.indexes;
+    const edgeType = relation.type;
+    const hasIndex = indexes !== undefined && edgeType !== undefined;
 
-    if (hasIndex && relation.direction === 'OUT') {
-      const adj = this.indexes!.edgeTypeIndex.out.get(edgeType);
+    if (hasIndex && edgeType && relation.direction === 'OUT') {
+      const adj = indexes.edgeTypeIndex.out.get(edgeType);
       return (nodeId, cb) => {
         const neighbors = adj?.get(nodeId);
         if (!neighbors) return;
@@ -336,8 +341,8 @@ export class AdvancedCypherGraphologyEngine {
       };
     }
 
-    if (hasIndex && relation.direction === 'IN') {
-      const adj = this.indexes!.edgeTypeIndex.in.get(edgeType);
+    if (hasIndex && edgeType && relation.direction === 'IN') {
+      const adj = indexes.edgeTypeIndex.in.get(edgeType);
       return (nodeId, cb) => {
         const neighbors = adj?.get(nodeId);
         if (!neighbors) return;
@@ -347,9 +352,9 @@ export class AdvancedCypherGraphologyEngine {
       };
     }
 
-    if (hasIndex && relation.direction === 'UNDIRECTED') {
-      const adjOut = this.indexes!.edgeTypeIndex.out.get(edgeType);
-      const adjIn = this.indexes!.edgeTypeIndex.in.get(edgeType);
+    if (hasIndex && edgeType && relation.direction === 'UNDIRECTED') {
+      const adjOut = indexes.edgeTypeIndex.out.get(edgeType);
+      const adjIn = indexes.edgeTypeIndex.in.get(edgeType);
       return (nodeId, cb) => {
         const outNeighbors = adjOut?.get(nodeId);
         if (outNeighbors) {
@@ -476,7 +481,8 @@ export class AdvancedCypherGraphologyEngine {
         }
         if (typeof val === 'number') {
           if (!numericCache.has(key)) numericCache.set(key, []);
-          numericCache.get(key)!.push(val);
+          const arr = numericCache.get(key);
+          if (arr) arr.push(val);
         }
       }
     }
@@ -508,6 +514,8 @@ export class AdvancedCypherGraphologyEngine {
   }
 
   // ── 3. WRITE MUTATIONS STAGE (CREATE, SET, DELETE) ─────────────────────────
+  // NOTE: indexes are invalidated after mutations so subsequent MATCH/WITH
+  // stages fall back to full-graph scan and see the updated graph state.
 
   private executeWrite(
     clause: WriteClause,
@@ -517,8 +525,9 @@ export class AdvancedCypherGraphologyEngine {
     // (The caller's array reference is mutated; this is safe because the engine
     // is the sole owner of the contexts array between stages.)
     for (let i = 0; i < contexts.length; i++) {
-      if (isContextChain(contexts[i]!)) {
-        contexts[i] = materialiseChain(contexts[i]!);
+      const ctx = contexts[i];
+      if (ctx && isContextChain(ctx)) {
+        contexts[i] = materialiseChain(ctx);
       }
     }
     const materialised = contexts as QueryContext[];
@@ -565,6 +574,10 @@ export class AdvancedCypherGraphologyEngine {
         }
       }
     }
+
+    // Invalidate indexes so subsequent stages use full-graph scan
+    // (indexes are a snapshot at construction time and cannot be incrementally updated)
+    this.indexes = undefined;
   }
 
   // ── 4. RETURN PROJECTION STAGE ─────────────────────────────────────────────
@@ -688,7 +701,8 @@ export class AdvancedCypherGraphologyEngine {
     keyed.sort((a, b) => {
       for (let i = 0; i < orderBy.length; i++) {
         const cmp = this.compareValues(a.keys[i], b.keys[i]);
-        if (cmp !== 0) return orderBy[i]!.direction === 'DESC' ? -cmp : cmp;
+        const item = orderBy[i];
+        if (cmp !== 0 && item) return item.direction === 'DESC' ? -cmp : cmp;
       }
       return 0;
     });
@@ -721,8 +735,9 @@ export class AdvancedCypherGraphologyEngine {
 
   private matchNodeCriteria(nodeAttr: Record<string, unknown>, pattern: NodePattern): boolean {
     if (pattern.label !== undefined && nodeAttr.label !== pattern.label) return false;
-    if (pattern.properties) {
-      return Object.keys(pattern.properties).every((k) => nodeAttr[k] === pattern.properties![k]);
+    const props = pattern.properties;
+    if (props) {
+      return Object.keys(props).every((k) => nodeAttr[k] === props[k]);
     }
     return true;
   }
