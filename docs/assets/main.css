@@ -190,7 +190,7 @@ a:hover { text-decoration: underline; }
   line-height: 1.5;
 }
 
-.highlight { padding: 0.6rem 0.75rem; }
+.highlight { padding: 0.6rem; }
 
 /* Rouge syntax highlighting (light theme) */
 .highlight .c, .highlight .c1, .highlight .cm, .highlight .cp { color: #52525b; font-style: italic; }
