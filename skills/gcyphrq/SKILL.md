@@ -189,4 +189,4 @@ Errors go to stderr with `Error: ` prefix and exit code 1.
 
 ## References
 
-- `references/queries.md` — Detailed query examples for cloud-infra.json. Load this file when the user asks about specific infrastructure questions (service dependencies, blast radius, monitoring coverage, replication, etc.) and you need concrete query patterns to adapt.
+- `references/queries.md` — Detailed query examples organized by use case. Load this file when the user asks about specific graph questions (service dependencies, blast radius, monitoring coverage, replication, etc.) and you need concrete query patterns to adapt.
