@@ -61,6 +61,8 @@ Graphs are described as JSON files with two arrays:
 }
 ```
 
+This format follows the [Graphology](https://graphology.github.io/) project's JSON representation for graphs.
+
 See the [`examples/`](examples/) directory for sample graphs.
 
 ## Documentation
