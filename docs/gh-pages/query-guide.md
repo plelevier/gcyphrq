@@ -1,0 +1,299 @@
+---
+layout: default
+title: Query Guide
+description: Full Cypher syntax reference, supported features, and query patterns for gcyphrq.
+---
+
+<div class="breadcrumb">
+  <a href="{{ '/' | relative_url }}">Home</a> <span>›</span> Query Guide
+</div>
+
+# Query Guide
+
+This guide covers all supported Cypher syntax and query patterns available in the `gcyphrq` engine.
+
+---
+
+## Supported Features
+
+See the [Home page](/) for the full feature support table.
+
+<div class="callout">
+  <p><strong>Single MATCH per stage:</strong> The engine processes one MATCH clause at a time. Chained MATCHes within the same stage are not supported — use multiple stages separated by <code>WITH</code> instead.</p>
+</div>
+
+---
+
+## MATCH
+
+### Basic node match
+
+```text
+MATCH (u:User) RETURN u
+```
+
+### Match with property filter
+
+```text
+MATCH (u:User {name: 'Alice'}) RETURN u
+```
+
+### Match with relationships
+
+```text
+MATCH (u:User)-[:FRIEND]->(f:User) RETURN u, f
+```
+
+### Variable-length paths
+
+```text
+MATCH (u:User)-[r:FRIEND*1..3]-(f:User) RETURN u, r, f
+```
+
+The `*min..max` syntax specifies the minimum and maximum path length. Use `*1..3` for 1 to 3 hops, `*2..2` for exactly 2 hops, etc.
+
+### Directional edges
+
+| Syntax | Meaning |
+|---|---|
+| `-[:TYPE]->` | Outbound only (from source to target) |
+| `<-[:TYPE]-` | Inbound only (from target to source) |
+| `-[:TYPE]-` | Undirected (either direction) |
+
+```text
+// Outbound only
+MATCH (u:User {name: 'Alice'})-[r:FRIEND]->(f:User) RETURN f
+
+// Inbound only
+MATCH (u:User {name: 'Alice'})<-[r:FRIEND]-(f:User) RETURN f
+
+// Any direction
+MATCH (u:User {name: 'Alice'})-[r:FRIEND]-(f:User) RETURN f
+```
+
+---
+
+## OPTIONAL MATCH
+
+Performs a left outer join — returns results even when no matching path exists (with nulls for unmatched variables):
+
+```text
+MATCH (u:User)
+OPTIONAL MATCH (u)-[r:HAS_CARD]->(c:Card)
+RETURN u, c
+```
+
+---
+
+## RETURN
+
+### Return full nodes
+
+```text
+MATCH (u:User) RETURN u
+```
+
+### Return specific properties
+
+```text
+MATCH (u:User) RETURN u.name, u.age
+```
+
+### Return with aliases
+
+```text
+MATCH (u:User) RETURN u.name AS userName, u.age AS userAge
+```
+
+---
+
+## WITH + Implicit Grouping
+
+Use `WITH` to pipe results through intermediate stages. When you include both aggregated and non-aggregated variables, implicit grouping occurs:
+
+```text
+MATCH (u:User)-[:FRIEND]->(f)
+WITH u, count(f) AS friendCount
+WHERE friendCount > 1
+RETURN u.name, friendCount
+```
+
+### Supported aggregations
+
+| Function | Description |
+|---|---|
+| `count(x)` | Count non-null values |
+| `sum(x)` | Sum numeric values |
+
+---
+
+## WHERE (on WITH)
+
+Filter results after a `WITH` clause:
+
+```text
+MATCH (s:Service)-[]->(t)
+WITH s, count(t) AS outDegree
+WHERE outDegree > 2
+RETURN s.name, outDegree
+```
+
+### Supported operators
+
+| Operator | Example |
+|---|---|
+| `=` | `WHERE count = 5` |
+| `>` | `WHERE count > 5` |
+| `<` | `WHERE count < 5` |
+| `CONTAINS` | `WHERE name CONTAINS "api"` |
+
+---
+
+## ORDER BY
+
+Sort results by one or more properties. Default direction is `ASC` (ascending).
+
+```text
+// Single column, ascending (default)
+MATCH (u:User) RETURN u.name ORDER BY u.name
+
+// Single column, descending
+MATCH (u:User) RETURN u.name, u.age ORDER BY u.age DESC
+
+// Multiple columns
+MATCH (u:User) RETURN u.name, u.age ORDER BY u.age ASC, u.name DESC
+```
+
+---
+
+## LIMIT
+
+Return only the first N results:
+
+```text
+MATCH (u:User) RETURN u.name LIMIT 5
+
+// Combined with ORDER BY for top-N
+MATCH (u:User) RETURN u.name, u.age ORDER BY u.age DESC LIMIT 3
+```
+
+---
+
+## SKIP
+
+Skip the first N results:
+
+```text
+MATCH (u:User) RETURN u.name SKIP 5
+
+// Pagination: page 2 with 10 results per page
+MATCH (u:User) RETURN u.name ORDER BY u.name ASC SKIP 10 LIMIT 10
+```
+
+---
+
+## Mutations
+
+### CREATE
+
+Create a new node:
+
+```text
+CREATE (l:Log {timestamp: 12345})
+RETURN l
+```
+
+### SET
+
+Update a node property:
+
+```text
+MATCH (u:User {name: 'Alice'})
+SET u.age = 31
+RETURN u
+```
+
+### DELETE
+
+Remove a node from the graph:
+
+```text
+MATCH (f:User {name: 'Bob'})
+DELETE f
+```
+
+---
+
+## Query Patterns
+
+### Blast radius analysis
+
+Find all nodes affected by a failure (up to N hops):
+
+```text
+MATCH (kafka:Infrastructure {name: "Kafka Cluster"})-[r*1..2]-(affected)
+RETURN kafka, r, affected
+```
+
+### Dependency chain
+
+Trace the full request path from entry point to databases:
+
+```text
+MATCH (api:Service {name: "API Gateway"})-[r*2..4]->(db:Database)
+RETURN api, r, db
+```
+
+### Collaborative filtering
+
+Find items recommended based on what "friends of friends" bought:
+
+```text
+MATCH (u:User {id: 'usr_abc'})-[:FRIEND*2..2]-(peer:User)-[:BOUGHT]->(item:Product)
+OPTIONAL MATCH (u)-[already_owns:BOUGHT]->(item)
+WITH item, already_owns
+WHERE already_owns IS NULL
+RETURN item
+```
+
+### What-if impact simulation
+
+Inject speculative properties mid-pipeline:
+
+```text
+MATCH (s:Server {id: 'srv_A'})-[:DEPENDS_ON*1..3]->(downstream:Application)
+SET s.capacity = 90
+WITH downstream, s
+WHERE downstream.min_required_capacity > s.capacity
+RETURN downstream.name AS at_risk_application, s.capacity AS simulated_capacity
+```
+
+### Top-N by degree
+
+Find the N nodes with the most connections:
+
+```text
+MATCH (s:Service)-[]->(target)
+WITH s, count(target) AS outDegree
+ORDER BY outDegree DESC
+LIMIT 3
+RETURN s.name, outDegree
+```
+
+---
+
+## Unsupported Features
+
+The following Cypher features are **not** supported by the engine:
+
+- **Subqueries** — `CALL {}` syntax
+- **APOC procedures** — `CALL apoc.*`
+- **Multiple MATCH in same stage** — use `WITH` to chain stages
+- **MERGE** — use `CREATE` or `MATCH` + `CREATE` instead
+- **FOREACH** — not implemented
+- **UNION** — not implemented
+
+## Next Steps
+
+- **[Library API](library-api)** — Use gcyphrq programmatically in your code
+- **[Examples](examples)** — 18 ready-to-run queries against the bundled cloud infrastructure graph

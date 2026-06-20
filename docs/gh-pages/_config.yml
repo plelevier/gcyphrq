@@ -1,0 +1,42 @@
+title: gcyphrq
+description: A Cypher graph query engine for in-memory graphs built on Graphology. Available as a CLI tool and Node.js library.
+url: "https://plelevier.github.io"
+baseurl: "/gcyphrq"
+repository: "plelevier/gcyphrq"
+
+permalink: pretty
+
+markdown: kramdown
+kramdown:
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    css_class: 'highlight'
+    span:
+      line_numbers: false
+    block:
+      line_numbers: false
+      start_line: 1
+
+plugins: []
+
+# Navigation
+nav:
+  - title: Home
+    url: /
+  - title: Getting Started
+    url: /getting-started/
+  - title: CLI Reference
+    url: /cli/
+  - title: Query Guide
+    url: /query-guide/
+  - title: Library API
+    url: /library-api/
+  - title: Examples
+    url: /examples/
+  - title: GitHub
+    url: https://github.com/plelevier/gcyphrq
+    external: true
+
+# Site settings
+version: 0.10.0
+node_version: ">=20"
