@@ -25,7 +25,7 @@ export interface GraphIndexes {
   /** label → set of node IDs */
   labelIndex: Map<string, Set<string>>;
   /** propertyKey → propertyValue → set of node IDs */
-  propertyIndex: Map<string, Map<string | number, Set<string>>>;
+  propertyIndex: Map<string, Map<string, Set<string>>>;
   /**
    * Edge-type adjacency index.
    * out[type][source] = set of { target, edgeId } for outgoing edges

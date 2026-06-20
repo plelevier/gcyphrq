@@ -186,93 +186,6 @@ class ErrorCollector implements BaseErrorListener {
   reportContextSensitivity(): void {}
 }
 
-// ── Tree index (optimisation #6) ────────────────────────────────────────────
-// Flat index: maps context class names → arrays of node indices.
-// Provides positional navigation for the main parseCypher flow; individual
-// child lookups are still O(n) within a parent's children but avoids repeated
-// tree traversal for the top-level clause extraction path.
-
-interface TreeIndex {
-  nodes: ParseTreeNode[];
-  byName: Map<string, number[]>;
-}
-
-/**
- * Build a flat index from a parse tree. Walks the tree once (BFS),
- * recording each node's index and building a name→indices map.
- */
-function buildTreeIndex(root: ParseTreeNode): TreeIndex {
-  const nodes: ParseTreeNode[] = [];
-  const byName = new Map<string, number[]>();
-  const queue: ParseTreeNode[] = [root];
-  let idx = 0;
-
-  while (queue.length > 0) {
-    const node = queue.shift()!;
-    const pos = idx++;
-    nodes.push(node);
-
-    const name = node.constructor.name;
-    if (!byName.has(name)) byName.set(name, []);
-    byName.get(name)!.push(pos);
-
-    if (node.children) {
-      for (let i = 0; i < node.children.length; i++) {
-        queue.push(node.children[i] as ParseTreeNode);
-      }
-    }
-  }
-
-  return { nodes, byName };
-}
-
-/** Find children of a specific type within a parent's direct children. */
-function idxFindChildren(idx: TreeIndex, parentPos: number, name: string): number[] {
-  const node = idx.nodes[parentPos];
-  if (!node?.children) return [];
-  const results: number[] = [];
-  for (let i = 0; i < node.children.length; i++) {
-    if (node.children[i]!.constructor.name === name) {
-      // Find the child's position in the flat index
-      const childName = node.children[i]!.constructor.name;
-      const positions = idx.byName.get(childName);
-      if (positions) {
-        for (const p of positions) {
-          if (idx.nodes[p] === node.children[i]) {
-            results.push(p);
-            break;
-          }
-        }
-      }
-    }
-  }
-  return results;
-}
-
-/** Find first child of a specific type. Returns flat index position or -1. */
-function idxFindChild(idx: TreeIndex, parentPos: number, name: string): number {
-  const node = idx.nodes[parentPos];
-  if (!node?.children) return -1;
-  for (let i = 0; i < node.children.length; i++) {
-    if (node.children[i]!.constructor.name === name) {
-      // Linear scan through the position list for this type
-      const positions = idx.byName.get(name);
-      if (positions) {
-        for (const p of positions) {
-          if (idx.nodes[p] === node.children[i]) return p;
-        }
-      }
-      return -1;
-    }
-  }
-  return -1;
-}
-
-/** Get the ParseTreeNode at a flat index position. */
-function idxNode(idx: TreeIndex, pos: number): ParseTreeNode | null {
-  return idx.nodes[pos] ?? null;
-}
-
 // ── Tree helpers ─────────────────────────────────────────────────────────────
 
 type TreeNode = ParseTreeNode | null | undefined;
@@ -938,51 +851,37 @@ export function parseCypher(query: string): AdvancedCypherAST {
     throw new Error(`Failed to parse Cypher query: ${collector.errors.join('; ')}`);
   }
 
-  // Build flat tree index for O(1) type-based lookups (optimisation #6)
-  const idx = buildTreeIndex(tree);
-
   const stages: AdvancedCypherAST['stages'] = [];
   let returnClause: ReturnClause | undefined;
 
-  // Navigate to singleQuery using index lookups
-  // Tree structure: CypherContext → CypherPartContext → CypherQueryContext → ...
-  const rootPos = 0;
-  const cypherPartPos = idxFindChild(idx, rootPos, 'CypherPartContext');
-  if (cypherPartPos < 0) return { type: 'Query', stages, return: returnClause };
-  const cypherQueryPos = idxFindChild(idx, cypherPartPos, Ctx.CypherQuery);
-  if (cypherQueryPos < 0) return { type: 'Query', stages, return: returnClause };
-  const statementPos = idxFindChild(idx, cypherQueryPos, Ctx.Statement);
-  if (statementPos < 0) return { type: 'Query', stages, return: returnClause };
-  const queryCtxPos = idxFindChild(idx, statementPos, Ctx.Query);
-  if (queryCtxPos < 0) return { type: 'Query', stages, return: returnClause };
-  const regularQueryPos = idxFindChild(idx, queryCtxPos, Ctx.RegularQuery);
-  if (regularQueryPos < 0) return { type: 'Query', stages, return: returnClause };
-  const singleQueryPos = idxFindChild(idx, regularQueryPos, Ctx.SingleQuery);
-  if (singleQueryPos < 0) return { type: 'Query', stages, return: returnClause };
+  const cypherPart = tree.children?.[0];
+  const cypherQuery = findChild(cypherPart, Ctx.CypherQuery);
+  const statement = findChild(cypherQuery, Ctx.Statement);
+  const queryCtx = findChild(statement, Ctx.Query);
+  const regularQuery = findChild(queryCtx, Ctx.RegularQuery);
+  const singleQuery = findChild(regularQuery, Ctx.SingleQuery);
 
-  const singleQuery = idxNode(idx, singleQueryPos);
-  if (!singleQuery) return { type: 'Query', stages, return: returnClause };
+  if (!singleQuery) {
+    return { type: 'Query', stages, return: returnClause };
+  }
 
-  const clausePositions = idxFindChildren(idx, singleQueryPos, Ctx.Clause);
+  const clauses = findAllChildren(singleQuery, Ctx.Clause);
 
-  for (const clausePos of clausePositions) {
-    const clause = idxNode(idx, clausePos);
-    if (!clause) continue;
-
-    if (idxFindChild(idx, clausePos, Ctx.MatchClause) >= 0) {
+  for (const clause of clauses) {
+    if (findChild(clause, Ctx.MatchClause)) {
       stages.push({ type: 'MATCH', clause: extractMatchClause(clause) });
-    } else if (idxFindChild(idx, clausePos, Ctx.ReturnClause) >= 0) {
+    } else if (findChild(clause, Ctx.ReturnClause)) {
       returnClause = extractReturnClause(clause);
-    } else if (idxFindChild(idx, clausePos, Ctx.WithClause) >= 0) {
+    } else if (findChild(clause, Ctx.WithClause)) {
       const withClause = extractWithClause(clause);
       if (withClause) stages.push({ type: 'WITH', clause: withClause });
-    } else if (idxFindChild(idx, clausePos, Ctx.SetClause) >= 0) {
+    } else if (findChild(clause, Ctx.SetClause)) {
       const writeClause = extractWriteClause(clause);
       if (writeClause) stages.push({ type: 'WRITE', clause: writeClause });
-    } else if (idxFindChild(idx, clausePos, Ctx.CreateClause) >= 0) {
+    } else if (findChild(clause, Ctx.CreateClause)) {
       const writeClause = extractWriteClause(clause);
       if (writeClause) stages.push({ type: 'WRITE', clause: writeClause });
-    } else if (idxFindChild(idx, clausePos, Ctx.DeleteClause) >= 0) {
+    } else if (findChild(clause, Ctx.DeleteClause)) {
       const writeClause = extractWriteClause(clause);
       if (writeClause) stages.push({ type: 'WRITE', clause: writeClause });
     }

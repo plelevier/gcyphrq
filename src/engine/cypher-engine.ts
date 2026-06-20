@@ -570,7 +570,6 @@ export class AdvancedCypherGraphologyEngine {
   // ── 4. RETURN PROJECTION STAGE ─────────────────────────────────────────────
   // Optimisations applied:
   //   #5  Single-pass aggregation
-  //   #8  Top-k selection when ORDER BY + LIMIT present (O(n log k) vs O(n log n))
   //   #11 Pre-computed sort keys (Schwartzian transform)
 
   private executeReturn(
@@ -606,18 +605,9 @@ export class AdvancedCypherGraphologyEngine {
     } else {
       const materialised = contexts.map((c) => materialiseChain(c));
 
-      // ORDER BY + LIMIT: use top-k selection (optimisation #8)
-      // when LIMIT is small relative to total rows
       let workingContexts = materialised;
       if (clause.orderBy && clause.orderBy.length > 0) {
-        const limit = clause.limit ?? workingContexts.length;
-        if (limit < workingContexts.length * 0.5 && workingContexts.length > 100) {
-          // Top-k selection: O(n log k) instead of O(n log n)
-          workingContexts = this.topKSelection(workingContexts, clause.orderBy, limit);
-        } else {
-          // Full sort for small datasets or large LIMIT
-          workingContexts = this.applyOrderByToContexts(workingContexts, clause.orderBy);
-        }
+        workingContexts = this.applyOrderByToContexts(workingContexts, clause.orderBy);
       }
 
       // SKIP applied after ORDER BY, before LIMIT
@@ -640,62 +630,6 @@ export class AdvancedCypherGraphologyEngine {
     }
 
     return results;
-  }
-
-  // ── Top-k selection (optimisation #8) ──────────────────────────────────────
-  // Uses quickselect partition to find top-k elements in O(n) average,
-  // then sorts only the selected k elements in O(k log k).
-
-  private topKSelection(
-    contexts: QueryContext[],
-    orderBy: OrderByItem[],
-    k: number,
-  ): QueryContext[] {
-    if (k >= contexts.length) return this.applyOrderByToContexts(contexts, orderBy);
-    if (k <= 0) return [];
-
-    const arr = [...contexts];
-
-    const compare = (a: QueryContext, b: QueryContext) => {
-      for (const item of orderBy) {
-        const aVal = this.evaluateExpression(item.expression, a);
-        const bVal = this.evaluateExpression(item.expression, b);
-        const cmp = this.compareValues(aVal, bVal);
-        if (cmp !== 0) return item.direction === 'DESC' ? -cmp : cmp;
-      }
-      return 0;
-    };
-
-    const partition = (lo: number, hi: number): number => {
-      const mid = (lo + hi) >> 1;
-      [arr[mid]!, arr[hi]!] = [arr[hi]!, arr[mid]!];
-      let i = lo;
-      for (let j = lo; j < hi; j++) {
-        if (compare(arr[j]!, arr[hi]!) <= 0) {
-          [arr[i]!, arr[j]!] = [arr[j]!, arr[i]!];
-          i++;
-        }
-      }
-      [arr[i]!, arr[hi]!] = [arr[hi]!, arr[i]!];
-      return i;
-    };
-
-    // Iterative quickselect (avoids recursion depth limits on large datasets)
-    let lo = 0;
-    let hi = arr.length - 1;
-    while (lo < hi) {
-      const p = partition(lo, hi);
-      if (p === k) break;
-      if (p < k) {
-        lo = p + 1;
-      } else {
-        hi = p - 1;
-      }
-    }
-
-    // Sort only the top k elements
-    arr.slice(0, k).sort(compare);
-    return arr.slice(0, k);
   }
 
   // ── Expression evaluation ──────────────────────────────────────────────────
@@ -765,7 +699,8 @@ export class AdvancedCypherGraphologyEngine {
   /**
    * Compare two values for sorting. Handles nulls, numbers, strings, booleans.
    * null < boolean < number < string < object
-   * (optimisation #10: single stringification pass)
+   * Mixed-type coercion differs from Neo4j (which throws). Here we stringify
+   * for pragmatic compatibility in exploratory queries.
    */
   private compareValues(a: CypherValue | undefined, b: CypherValue | undefined): number {
     if (a === null || a === undefined) {

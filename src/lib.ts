@@ -113,7 +113,7 @@ function validateGraphData(data: unknown): GraphFile {
  */
 function buildGraphIndexesInternal(data: GraphFile, graph: GraphInstance): GraphIndexes {
   const labelIndex = new Map<string, Set<string>>();
-  const propertyIndex = new Map<string, Map<string | number, Set<string>>>();
+  const propertyIndex = new Map<string, Map<string, Set<string>>>();
   const edgeOut = new Map<string, Map<string, Array<{ target: string; edgeId: string }>>>();
   const edgeIn = new Map<string, Map<string, Array<{ source: string; edgeId: string }>>>();
 
