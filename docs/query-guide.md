@@ -28,25 +28,25 @@ See the [Home page](/) for the full feature support table.
 
 ### Basic node match
 
-```text
+```cypher
 MATCH (u:User) RETURN u
 ```
 
 ### Match with property filter
 
-```text
+```cypher
 MATCH (u:User {name: 'Alice'}) RETURN u
 ```
 
 ### Match with relationships
 
-```text
+```cypher
 MATCH (u:User)-[:FRIEND]->(f:User) RETURN u, f
 ```
 
 ### Variable-length paths
 
-```text
+```cypher
 MATCH (u:User)-[r:FRIEND*1..3]-(f:User) RETURN u, r, f
 ```
 
@@ -60,7 +60,7 @@ The `*min..max` syntax specifies the minimum and maximum path length. Use `*1..3
 | `<-[:TYPE]-` | Inbound only (from target to source) |
 | `-[:TYPE]-` | Undirected (either direction) |
 
-```text
+```cypher
 // Outbound only
 MATCH (u:User {name: 'Alice'})-[r:FRIEND]->(f:User) RETURN f
 
@@ -77,7 +77,7 @@ MATCH (u:User {name: 'Alice'})-[r:FRIEND]-(f:User) RETURN f
 
 Performs a left outer join — returns results even when no matching path exists (with nulls for unmatched variables):
 
-```text
+```cypher
 MATCH (u:User)
 OPTIONAL MATCH (u)-[r:HAS_CARD]->(c:Card)
 RETURN u, c
@@ -89,19 +89,19 @@ RETURN u, c
 
 ### Return full nodes
 
-```text
+```cypher
 MATCH (u:User) RETURN u
 ```
 
 ### Return specific properties
 
-```text
+```cypher
 MATCH (u:User) RETURN u.name, u.age
 ```
 
 ### Return with aliases
 
-```text
+```cypher
 MATCH (u:User) RETURN u.name AS userName, u.age AS userAge
 ```
 
@@ -111,7 +111,7 @@ MATCH (u:User) RETURN u.name AS userName, u.age AS userAge
 
 Use `WITH` to pipe results through intermediate stages. When you include both aggregated and non-aggregated variables, implicit grouping occurs:
 
-```text
+```cypher
 MATCH (u:User)-[:FRIEND]->(f)
 WITH u, count(f) AS friendCount
 WHERE friendCount > 1
@@ -131,7 +131,7 @@ RETURN u.name, friendCount
 
 Filter results after a `WITH` clause:
 
-```text
+```cypher
 MATCH (s:Service)-[]->(t)
 WITH s, count(t) AS outDegree
 WHERE outDegree > 2
@@ -153,7 +153,7 @@ RETURN s.name, outDegree
 
 Sort results by one or more properties. Default direction is `ASC` (ascending).
 
-```text
+```cypher
 // Single column, ascending (default)
 MATCH (u:User) RETURN u.name ORDER BY u.name
 
@@ -170,7 +170,7 @@ MATCH (u:User) RETURN u.name, u.age ORDER BY u.age ASC, u.name DESC
 
 Return only the first N results:
 
-```text
+```cypher
 MATCH (u:User) RETURN u.name LIMIT 5
 
 // Combined with ORDER BY for top-N
@@ -183,7 +183,7 @@ MATCH (u:User) RETURN u.name, u.age ORDER BY u.age DESC LIMIT 3
 
 Skip the first N results:
 
-```text
+```cypher
 MATCH (u:User) RETURN u.name SKIP 5
 
 // Pagination: page 2 with 10 results per page
@@ -198,7 +198,7 @@ MATCH (u:User) RETURN u.name ORDER BY u.name ASC SKIP 10 LIMIT 10
 
 Create a new node:
 
-```text
+```cypher
 CREATE (l:Log {timestamp: 12345})
 RETURN l
 ```
@@ -207,7 +207,7 @@ RETURN l
 
 Update a node property:
 
-```text
+```cypher
 MATCH (u:User {name: 'Alice'})
 SET u.age = 31
 RETURN u
@@ -217,7 +217,7 @@ RETURN u
 
 Remove a node from the graph:
 
-```text
+```cypher
 MATCH (f:User {name: 'Bob'})
 DELETE f
 ```
@@ -230,7 +230,7 @@ DELETE f
 
 Find all nodes affected by a failure (up to N hops):
 
-```text
+```cypher
 MATCH (kafka:Infrastructure {name: "Kafka Cluster"})-[r*1..2]-(affected)
 RETURN kafka, r, affected
 ```
@@ -239,7 +239,7 @@ RETURN kafka, r, affected
 
 Trace the full request path from entry point to databases:
 
-```text
+```cypher
 MATCH (api:Service {name: "API Gateway"})-[r*2..4]->(db:Database)
 RETURN api, r, db
 ```
@@ -248,7 +248,7 @@ RETURN api, r, db
 
 Find items recommended based on what "friends of friends" bought:
 
-```text
+```cypher
 MATCH (u:User {id: 'usr_abc'})-[:FRIEND*2..2]-(peer:User)-[:BOUGHT]->(item:Product)
 OPTIONAL MATCH (u)-[already_owns:BOUGHT]->(item)
 WITH item, already_owns
@@ -260,7 +260,7 @@ RETURN item
 
 Inject speculative properties mid-pipeline:
 
-```text
+```cypher
 MATCH (s:Server {id: 'srv_A'})-[:DEPENDS_ON*1..3]->(downstream:Application)
 SET s.capacity = 90
 WITH downstream, s
@@ -272,7 +272,7 @@ RETURN downstream.name AS at_risk_application, s.capacity AS simulated_capacity
 
 Find the N nodes with the most connections:
 
-```text
+```cypher
 MATCH (s:Service)-[]->(target)
 WITH s, count(target) AS outDegree
 ORDER BY outDegree DESC

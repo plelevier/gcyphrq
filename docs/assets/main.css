@@ -190,7 +190,66 @@ a:hover { text-decoration: underline; }
   line-height: 1.5;
 }
 
-.highlight { padding: 0.6rem 0.75rem; }
+.highlight { padding: 0.6rem; }
+
+/* Copy button */
+.code-block-wrapper {
+  position: relative;
+  margin: 1rem 0;
+}
+
+.code-block-wrapper .highlight {
+  margin: 0;
+}
+
+.code-copy-btn {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: rgba(0,0,0,0.04);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 4px;
+  color: rgba(0,0,0,0.35);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.code-block-wrapper:hover .code-copy-btn {
+  opacity: 1;
+}
+
+/* Always visible on touch devices where :hover doesn't work */
+@media (hover: none) {
+  .code-copy-btn {
+    opacity: 1;
+  }
+}
+
+.code-copy-btn:hover {
+  color: rgba(0,0,0,0.7);
+  background: rgba(0,0,0,0.07);
+}
+
+.code-copy-btn.copied {
+  color: #059669;
+  border-color: rgba(5,150,105,0.3);
+}
+
+/* Cypher keyword highlighting */
+.highlight .cy-kw   { color: #7c3aed; font-weight: 600; }
+.highlight .cy-fn   { color: #2563eb; }
+.highlight .cy-label { color: #d97706; }
+.highlight .cy-rel  { color: #0d9488; font-weight: 600; }
+.highlight .cy-str  { color: #059669; }
+.highlight .cy-num  { color: #d97706; }
+.highlight .cy-cmt  { color: #52525b; font-style: italic; }
 
 /* Rouge syntax highlighting (light theme) */
 .highlight .c, .highlight .c1, .highlight .cm, .highlight .cp { color: #52525b; font-style: italic; }
