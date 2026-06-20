@@ -192,6 +192,49 @@ a:hover { text-decoration: underline; }
 
 .highlight { padding: 0.6rem; }
 
+/* Copy button */
+.code-block-wrapper {
+  position: relative;
+  margin: 1rem 0;
+}
+
+.code-block-wrapper .highlight {
+  margin: 0;
+}
+
+.code-copy-btn {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px;
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.code-block-wrapper:hover .code-copy-btn {
+  opacity: 1;
+}
+
+.code-copy-btn:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.15);
+}
+
+.code-copy-btn.copied {
+  color: #059669;
+  border-color: rgba(5,150,105,0.4);
+}
+
 /* Cypher keyword highlighting */
 .cy-kw  { color: #7c3aed; font-weight: 600; }
 .cy-fn  { color: #2563eb; }
