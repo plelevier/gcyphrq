@@ -100,6 +100,41 @@ describe('parseCypher', () => {
       const agg = proj.expression as { type: 'Aggregation'; aggregationType: string };
       expect(agg.aggregationType).toBe('SUM');
     });
+
+    it('parses RETURN with aggregation (AVG)', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN avg(n.age) AS avgAge');
+      const proj = ast.return!.projections[0]!;
+      expect(proj.expression.type).toBe('Aggregation');
+      const agg = proj.expression as { type: 'Aggregation'; aggregationType: string; variable: string; property: string };
+      expect(agg.aggregationType).toBe('AVG');
+      expect(agg.variable).toBe('n');
+      expect(agg.property).toBe('age');
+    });
+
+    it('parses RETURN with aggregation (MIN)', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN min(n.age) AS minAge');
+      const proj = ast.return!.projections[0]!;
+      expect(proj.expression.type).toBe('Aggregation');
+      const agg = proj.expression as { type: 'Aggregation'; aggregationType: string };
+      expect(agg.aggregationType).toBe('MIN');
+    });
+
+    it('parses RETURN with aggregation (MAX)', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN max(n.age) AS maxAge');
+      const proj = ast.return!.projections[0]!;
+      expect(proj.expression.type).toBe('Aggregation');
+      const agg = proj.expression as { type: 'Aggregation'; aggregationType: string };
+      expect(agg.aggregationType).toBe('MAX');
+    });
+
+    it('parses multiple aggregations in one RETURN', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN count(n) AS cnt, avg(n.age) AS avgAge, min(n.age) AS minAge, max(n.age) AS maxAge');
+      expect(ast.return!.projections.length).toBe(4);
+      expect(ast.return!.projections[0]!.expression.type).toBe('Aggregation');
+      expect(ast.return!.projections[1]!.expression.type).toBe('Aggregation');
+      expect(ast.return!.projections[2]!.expression.type).toBe('Aggregation');
+      expect(ast.return!.projections[3]!.expression.type).toBe('Aggregation');
+    });
   });
 
   describe('WITH clause', () => {

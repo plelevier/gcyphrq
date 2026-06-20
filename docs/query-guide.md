@@ -123,7 +123,10 @@ RETURN u.name, friendCount
 | Function | Description |
 |---|---|
 | `count(x)` | Count non-null values |
-| `sum(x)` | Sum numeric values |
+| `sum(x.prop)` | Sum numeric values |
+| `avg(x.prop)` | Average of numeric values (null if no values) |
+| `min(x.prop)` | Minimum numeric value (null if no values) |
+| `max(x.prop)` | Maximum numeric value (null if no values) |
 
 ---
 

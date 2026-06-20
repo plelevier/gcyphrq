@@ -28,7 +28,7 @@ description: A Cypher graph query engine for in-memory graphs built on Grapholog
   </div>
   <div class="feature-card">
     <h3>📊 Aggregations</h3>
-    <p>Group and aggregate with <code>count()</code>, <code>sum()</code> and implicit grouping via <code>WITH</code> pipelining.</p>
+    <p>Group and aggregate with <code>count()</code>, <code>sum()</code>, <code>avg()</code>, <code>min()</code>, <code>max()</code> and implicit grouping via <code>WITH</code> pipelining.</p>
   </div>
   <div class="feature-card">
     <h3>✏️ Mutations</h3>
@@ -72,7 +72,7 @@ const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 | `OPTIONAL MATCH` | <span class="badge badge-success">✅</span> |
 | `RETURN` with aliases | <span class="badge badge-success">✅</span> |
 | `WITH` + implicit grouping | <span class="badge badge-success">✅</span> |
-| `count()`, `sum()` aggregations | <span class="badge badge-success">✅</span> |
+| `count()`, `sum()`, `avg()`, `min()`, `max()` aggregations | <span class="badge badge-success">✅</span> |
 | `WHERE` with `>`, `<`, `=`, `CONTAINS` | <span class="badge badge-success">✅</span> |
 | `CREATE`, `SET`, `DELETE` mutations | <span class="badge badge-success">✅</span> |
 | `ORDER BY` (single/multi-column) | <span class="badge badge-success">✅</span> |
@@ -86,4 +86,4 @@ Two example graphs are bundled with the package:
 - **`social-graph.json`** — A small social network with three users connected by `FRIEND` relationships
 - **`cloud-infra.json`** — A full startup cloud infrastructure with 52 nodes and 110 edges
 
-See the [Examples](examples) page for 18 ready-to-run queries against the cloud infrastructure graph.
+See the [Examples](examples) page for 19 ready-to-run queries against the cloud infrastructure graph.

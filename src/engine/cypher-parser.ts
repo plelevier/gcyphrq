@@ -294,7 +294,7 @@ function evaluateExpression(exprCtx: TreeNode): Expression | undefined {
     if (funcName && argName) {
       return {
         type: 'Aggregation' as const,
-        aggregationType: funcName.toUpperCase() as 'COUNT' | 'SUM',
+        aggregationType: funcName.toUpperCase() as 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX',
         variable: argName,
         property: argProperty,
       };

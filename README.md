@@ -8,7 +8,7 @@ Available as a **CLI tool** and as a **library** for Node.js / TypeScript projec
 
 - **Cypher query engine** — supports `MATCH`, `OPTIONAL MATCH`, `WITH`, `RETURN`, `CREATE`, `SET`, `DELETE`
 - **Variable-length paths** — e.g. `-[r:FRIEND*1..3]->`
-- **Aggregations** — `count()`, `sum()` with implicit grouping via `WITH`
+- **Aggregations** — `count()`, `sum()`, `avg()`, `min()`, `max()` with implicit grouping via `WITH`
 - **Directional filtering** — `->`, `<-`, `-`
 - **Library or CLI** — use as a dependency in your project or run from the terminal
 - **TypeScript support** — full type declarations shipped with the package
