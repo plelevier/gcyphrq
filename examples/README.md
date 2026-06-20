@@ -129,3 +129,35 @@ Rank services by how many direct dependencies they have:
 ```bash
 gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[]->(target) WITH s, count(target) AS outDegree WHERE outDegree > 2 RETURN s, outDegree'
 ```
+
+### 13. Sort services by name (ORDER BY)
+
+Return all services sorted alphabetically by name:
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s.name ORDER BY s.name ASC'
+```
+
+### 14. Top-N services by connection count (ORDER BY + LIMIT)
+
+Find the 3 services with the most outgoing connections:
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[]->(target) WITH s, count(target) AS outDegree ORDER BY outDegree DESC LIMIT 3 RETURN s.name, outDegree'
+```
+
+### 15. Limit results to first N (LIMIT)
+
+Return only the first 5 databases in the infrastructure:
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (d:Database) RETURN d.name LIMIT 5'
+```
+
+### 16. Sort by multiple columns
+
+Sort services first by type (ascending), then by name (descending):
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s.type, s.name ORDER BY s.type ASC, s.name DESC'
+```

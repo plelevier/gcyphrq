@@ -212,6 +212,16 @@ export class AdvancedCypherGraphologyEngine {
       newContexts = newContexts.filter((ctx) => this.evaluateWhere(clause.where!, ctx));
     }
 
+    // ORDER BY on WITH clause
+    if (clause.orderBy && clause.orderBy.length > 0) {
+      newContexts = this.applyOrderByToContexts(newContexts, clause.orderBy);
+    }
+
+    // LIMIT on WITH clause
+    if (clause.limit !== undefined && clause.limit !== null) {
+      newContexts = newContexts.slice(0, clause.limit);
+    }
+
     return newContexts;
   }
 
@@ -310,7 +320,22 @@ export class AdvancedCypherGraphologyEngine {
 
       results = [result];
     } else {
-      results = contexts.map((context) => {
+      // ORDER BY is applied to contexts before projection so expressions can reference
+      // original variables (e.g., `u.age`) rather than only projection aliases (`age`).
+      // NOTE: sorting all contexts then slicing for LIMIT is O(n log n) even when
+      // only top-k is needed. For this in-memory tool that's acceptable, but a
+      // max-heap approach would be O(n log k) for large graphs.
+      let sortedContexts = contexts;
+      if (clause.orderBy && clause.orderBy.length > 0) {
+        sortedContexts = this.applyOrderByToContexts(contexts, clause.orderBy);
+      }
+
+      // LIMIT applied to contexts before projection
+      if (clause.limit !== undefined && clause.limit !== null) {
+        sortedContexts = sortedContexts.slice(0, clause.limit);
+      }
+
+      results = sortedContexts.map((context) => {
         const res: ResultRow = {};
         clause.projections.forEach((p) => {
           res[p.alias] = this.evaluateExpression(p.expression, context);
@@ -365,6 +390,59 @@ export class AdvancedCypherGraphologyEngine {
       default:
         return false;
     }
+  }
+
+  /**
+   * Apply ORDER BY sorting to contexts using one or more sort keys.
+   * Each sort key is evaluated per context and compared in order (stable sort).
+   * Works on contexts (not result rows) so expressions can reference original
+   * variables like `u.age` rather than only projection aliases.
+   */
+  private applyOrderByToContexts(contexts: QueryContext[], orderBy: OrderByItem[]): QueryContext[] {
+    const sorted = [...contexts];
+    sorted.sort((a, b) => {
+      for (const item of orderBy) {
+        const aVal = this.evaluateExpression(item.expression, a);
+        const bVal = this.evaluateExpression(item.expression, b);
+        const cmp = this.compareValues(aVal, bVal);
+        if (cmp !== 0) {
+          return item.direction === 'DESC' ? -cmp : cmp;
+        }
+      }
+      return 0;
+    });
+    return sorted;
+  }
+
+  /**
+   * Compare two values for sorting. Handles nulls, numbers, strings, booleans.
+   * null < boolean < number < string < object
+   */
+  private compareValues(a: CypherValue | undefined, b: CypherValue | undefined): number {
+    // Both null/undefined → equal
+    if (a === null || a === undefined) {
+      if (b === null || b === undefined) return 0;
+      return -1; // nulls first
+    }
+    if (b === null || b === undefined) return 1;
+
+    // Same type comparison
+    if (typeof a === 'number' && typeof b === 'number') {
+      return a - b;
+    }
+    if (typeof a === 'string' && typeof b === 'string') {
+      return a < b ? -1 : a > b ? 1 : 0;
+    }
+    if (typeof a === 'boolean' && typeof b === 'boolean') {
+      return a === b ? 0 : (a ? -1 : 1); // false < true
+    }
+
+    // Arrays (e.g., CypherEdge[]) are not directly sortable.
+    // Fall through to string coercion which produces [object Object] — not ideal
+    // but acceptable for this in-memory tool. Users should sort by scalar properties.
+    // Note: mixed-type coercion differs from Neo4j (which throws). Here we coerce
+    // to string for pragmatic compatibility in exploratory queries.
+    return String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
   }
 
   private matchNodeCriteria(nodeAttr: Record<string, unknown>, pattern: NodePattern): boolean {

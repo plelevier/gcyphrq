@@ -57,6 +57,8 @@ The execution engine is optimized for the following Cypher features:
 - **Full Path Edge Extraction**: Binding a variable to a deep path relationship returns the entire array sequence of traversed edges.
 - **Directional Enforcement**: Standard ASCII arrow directionality rules apply (`->`, `<-`, `-`).
 - **Implicit Grouping & Aggregations**: Supports `WITH` pipelining alongside `count()` and `sum()`.
+- **ORDER BY**: Supports single or multiple sort keys with `ASC` (default) or `DESC` direction.
+- **LIMIT**: Truncates results to a specified count.
 - **Mutations**: Supports `CREATE`, `SET`, and `DELETE`.
 
 ---
@@ -103,7 +105,32 @@ WHERE friendCount > 5
 RETURN u, friendCount
 ```
 
-### 5. Write Mutations (Create, Update, Delete)
+### 6. Ordering Results (ORDER BY)
+Sort results by one or more properties. Default direction is `ASC` (ascending).
+
+```cypher
+// Sort by name ascending (default)
+MATCH (u:User) RETURN u.name ORDER BY u.name
+
+// Sort by age descending
+MATCH (u:User) RETURN u.name, u.age ORDER BY u.age DESC
+
+// Sort by multiple columns (primary then secondary)
+MATCH (u:User) RETURN u.name, u.age ORDER BY u.age ASC, u.name DESC
+```
+
+### 7. Limiting Results (LIMIT)
+Return only the first N results.
+
+```cypher
+// Return at most 5 users
+MATCH (u:User) RETURN u.name LIMIT 5
+
+// Combine ORDER BY + LIMIT for top-N queries
+MATCH (u:User) RETURN u.name, u.age ORDER BY u.age DESC LIMIT 3
+```
+
+### 8. Write Mutations (Create, Update, Delete)
 To chain match lookup conditions alongside operational updates on the graph state:
 
 ```cypher

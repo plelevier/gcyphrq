@@ -66,7 +66,8 @@ src/
 | `WHERE` (on `WITH`) with `>`, `<`, `=`, `CONTAINS` | ✅ |
 | `CREATE`, `SET`, `DELETE` mutations | ✅ |
 | Multiple chained clauses | ✅ (single MATCH per stage) |
-| `ORDER BY`, `LIMIT` | ⚠️ parsed but not fully implemented |
+| `ORDER BY` (single/multi-column, ASC/DESC) | ✅ |
+| `LIMIT` | ✅ |
 | Subqueries, `CALL`, APOC | ❌ |
 
 ## Key Conventions

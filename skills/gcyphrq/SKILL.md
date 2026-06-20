@@ -182,6 +182,7 @@ Errors go to stderr with `Error: ` prefix and exit code 1.
 - **WHERE only on WITH** — `WHERE` filtering works in `WITH` clauses, not directly on `MATCH`.
 - **Aggregations limited to count/sum** — `avg()`, `min()`, `max()` are not implemented.
 - **Property access in RETURN** — returns the full node object or a single property. Nested property access beyond one level is not supported.
+- **ORDER BY on RETURN and WITH** — `ORDER BY` is supported on both `RETURN` and `WITH` clauses. Multi-column sorting with ASC/DESC is supported.
 
 ## Architecture
 
