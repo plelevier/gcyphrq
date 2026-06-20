@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { GraphError, createGraph, parseCypher, GraphEngine } from './lib';
-import type { GraphFile } from './lib-types';
+import type { GraphFile } from './lib';
 
 // ── CLI Help ─────────────────────────────────────────────────────────────────
 

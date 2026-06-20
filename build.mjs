@@ -1,6 +1,6 @@
 import { build } from 'esbuild';
 import { chmod, mkdir } from 'fs/promises';
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 
 // ── CLI entry point (bundled) ────────────────────────────────────────────────
 
@@ -32,4 +32,10 @@ await build({
 
 // Generate TypeScript declarations for the library using tsc
 await mkdir('dist', { recursive: true });
-execSync('npx tsc --project tsconfig.lib.json', { stdio: 'inherit' });
+const tscResult = spawnSync('npx', ['tsc', '--project', 'tsconfig.lib.json'], {
+  stdio: 'inherit',
+  encoding: 'utf-8',
+});
+if (tscResult.status !== 0) {
+  process.exit(tscResult.status ?? 1);
+}

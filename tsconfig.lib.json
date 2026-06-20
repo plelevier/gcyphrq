@@ -14,6 +14,6 @@
     "emitDeclarationOnly": true,
     "skipLibCheck": true
   },
-  "include": ["src/lib.ts", "src/lib-types.ts", "src/graph.ts", "src/types/cypher.ts", "src/types/antlr4.d.ts", "src/engine/cypher-parser.ts", "src/engine/cypher-engine.ts"],
+  "include": ["src/lib.ts", "src/types/antlr4.d.ts"],
   "exclude": ["test"]
 }

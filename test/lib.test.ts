@@ -28,7 +28,7 @@ import type {
   OrderByItem,
   Stage,
   Direction,
-} from '../src/lib-types';
+} from '../src/lib';
 
 const sampleGraph: GraphFile = {
   nodes: [
@@ -187,19 +187,41 @@ describe('GraphError', () => {
   });
 
   it('is thrown by createGraph on invalid data', () => {
-    try {
-      createGraph({ nodes: [], edges: [] });
-      expect.fail('should have thrown');
-    } catch (err) {
-      // Empty graph is valid, so test with truly invalid data
-    }
+    expect(() => createGraph({ nodes: [{}], edges: [] } as unknown as GraphFile)).toThrow(GraphError);
+  });
+});
 
-    try {
-      createGraph({ nodes: [{}], edges: [] } as unknown as GraphFile);
-      expect.fail('should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(GraphError);
-    }
+describe('mutations', () => {
+  it('supports CREATE mutation via GraphEngine', () => {
+    const graph = new Graph();
+    graph.addNode('a', { label: 'User', name: 'Alice' });
+    const engine = new GraphEngine(graph);
+
+    engine.execute(parseCypher('CREATE (n:User {name: "Charlie"}) RETURN n'));
+
+    const results = engine.execute(parseCypher('MATCH (u:User) RETURN u.name'));
+    const names = results.map((r) => r.name).sort();
+    expect(names).toEqual(['Alice', 'Charlie']);
+  });
+
+  it('supports SET mutation via GraphEngine', () => {
+    const graph = createGraph(sampleGraph);
+    const engine = new GraphEngine(graph);
+
+    engine.execute(parseCypher('MATCH (u:User {name: "Alice"}) SET u.age = 31 RETURN u'));
+
+    const results = engine.execute(parseCypher('MATCH (u:User {name: "Alice"}) RETURN u.age'));
+    expect(results).toEqual([{ age: 31 }]);
+  });
+
+  it('supports mutation followed by query via executeQuery', () => {
+    const graph = createGraph(sampleGraph);
+    const engine = new GraphEngine(graph);
+
+    engine.execute(parseCypher('CREATE (n:User {name: "Diana", age: 28})'));
+
+    const count = engine.execute(parseCypher('MATCH (u:User) RETURN count(u)'));
+    expect(count).toEqual([{ 'COUNT(u)': 4 }]);
   });
 });
 

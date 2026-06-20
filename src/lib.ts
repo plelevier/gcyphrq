@@ -1,10 +1,29 @@
 // ── Public API for using gcyphrq as a library ────────────────────────────────
 
-import type { GraphFileNode, GraphFileEdge, GraphFile } from './lib-types';
 import { parseCypher as _parseCypher } from './engine/cypher-parser';
 import { AdvancedCypherGraphologyEngine } from './engine/cypher-engine';
 import { Graph, type GraphInstance } from './graph';
 import type { AdvancedCypherAST, ResultRow } from './types/cypher';
+
+// ── Graph file format types ──────────────────────────────────────────────────
+
+export interface GraphFileNode {
+  id: string;
+  label?: string;
+  [key: string]: unknown;
+}
+
+export interface GraphFileEdge {
+  source: string;
+  target: string;
+  type?: string;
+  [key: string]: unknown;
+}
+
+export interface GraphFile {
+  nodes: GraphFileNode[];
+  edges: GraphFileEdge[];
+}
 
 /**
  * Thrown when graph data validation fails or a query cannot be executed.
@@ -20,7 +39,7 @@ export class GraphError extends Error {
 
 function validateGraphData(data: unknown): GraphFile {
   if (!data || typeof data !== 'object') {
-    throw new GraphError('Invalid graph data: expected an object with "nodes" and "edges" arrays.');
+    throw new GraphError('Invalid graph data: expected a JSON object with "nodes" and "edges" arrays.');
   }
 
   const obj = data as Record<string, unknown>;
@@ -102,7 +121,7 @@ function validateGraphData(data: unknown): GraphFile {
  * });
  * ```
  *
- * @see {@link https://graphology.github.io/ | Graphology}
+ * @see https://graphology.github.io/
  */
 export function createGraph(data: GraphFile): GraphInstance {
   const validated = validateGraphData(data);
@@ -217,19 +236,15 @@ export { Graph };
  * const results = executeQuery(graphData, 'MATCH (u:User) RETURN u');
  * ```
  *
- * @see {@link https://github.com/plelevier/gcyphrq | GitHub}
- * @see {@link https://graphology.github.io/ | Graphology}
+ * @see https://github.com/plelevier/gcyphrq
+ * @see https://graphology.github.io/
  */
+
+// Re-export GraphInstance from graph.ts for type-only use
+export type { GraphInstance } from './graph';
+
+// Re-export all AST, expression, and result types from types/cypher.ts
 export type {
-  // Core types
-  GraphFile,
-  GraphFileNode,
-  GraphFileEdge,
-
-  // Graph
-  GraphInstance,
-
-  // AST types
   AdvancedCypherAST,
   Stage,
   MatchClause,
@@ -242,8 +257,6 @@ export type {
   NodePattern,
   RelationPattern,
   Direction,
-
-  // Expression types
   Expression,
   PropertyAccessExpression,
   LiteralExpression,
@@ -251,12 +264,10 @@ export type {
   BinaryExpression,
   Projection,
   OrderByItem,
-
-  // Result types
   ResultRow,
   QueryContext,
   CypherNode,
   CypherEdge,
   CypherValue,
   CypherLiteral,
-} from './lib-types';
+} from './types/cypher';
