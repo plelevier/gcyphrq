@@ -98,11 +98,20 @@ export interface Projection {
 export interface WithClause {
   projections: Projection[];
   where: BinaryExpression | undefined;
+  orderBy: OrderByItem[] | undefined;
+  skip: number | undefined;
+  limit: number | undefined;
+}
+
+export interface OrderByItem {
+  expression: Expression;
+  direction: 'ASC' | 'DESC';
 }
 
 export interface ReturnClause {
   projections: Projection[];
-  orderBy: { property: string; direction: 'ASC' | 'DESC' } | undefined;
+  orderBy: OrderByItem[] | undefined;
+  skip: number | undefined;
   limit: number | undefined;
 }
 

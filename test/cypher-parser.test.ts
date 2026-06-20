@@ -118,6 +118,35 @@ describe('parseCypher', () => {
       expect(withStage.clause.where).toBeDefined();
       expect(withStage.clause.where!.operator).toBe('>');
     });
+
+    it('parses WITH with ORDER BY', () => {
+      const ast = parseCypher(
+        'MATCH (n:User) WITH n.name AS name, count(n) AS cnt ORDER BY cnt DESC RETURN name, cnt',
+      );
+      const withStage = ast.stages[1]! as { type: 'WITH'; clause: WithClause };
+      expect(withStage.clause.orderBy).toBeDefined();
+      expect(withStage.clause.orderBy!.length).toBe(1);
+      expect(withStage.clause.orderBy![0]!.direction).toBe('DESC');
+    });
+
+    it('parses WITH with ORDER BY and LIMIT', () => {
+      const ast = parseCypher(
+        'MATCH (n:User) WITH n.name AS name, count(n) AS cnt ORDER BY cnt DESC LIMIT 5 RETURN name, cnt',
+      );
+      const withStage = ast.stages[1]! as { type: 'WITH'; clause: WithClause };
+      expect(withStage.clause.orderBy!.length).toBe(1);
+      expect(withStage.clause.limit).toBe(5);
+    });
+
+    it('parses WITH with multiple ORDER BY columns', () => {
+      const ast = parseCypher(
+        'MATCH (n:User) WITH n.name AS name, count(n) AS cnt ORDER BY cnt DESC, name ASC RETURN name, cnt',
+      );
+      const withStage = ast.stages[1]! as { type: 'WITH'; clause: WithClause };
+      expect(withStage.clause.orderBy!.length).toBe(2);
+      expect(withStage.clause.orderBy![0]!.direction).toBe('DESC');
+      expect(withStage.clause.orderBy![1]!.direction).toBe('ASC');
+    });
   });
 
   describe('WRITE clauses', () => {
@@ -213,6 +242,112 @@ describe('parseCypher', () => {
 
     it('throws on multi-hop pattern (more than one chain)', () => {
       expect(() => parseCypher('MATCH (a)-[]->(b)-[]->(c) RETURN a')).toThrow(/not supported/i);
+    });
+  });
+
+  describe('ORDER BY clause', () => {
+    it('parses ORDER BY with single expression ASC', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN n.name ORDER BY n.name ASC');
+      expect(ast.return!.orderBy).toBeDefined();
+      expect(ast.return!.orderBy!.length).toBe(1);
+      expect(ast.return!.orderBy![0]!.direction).toBe('ASC');
+      expect(ast.return!.orderBy![0]!.expression.type).toBe('PropertyAccess');
+    });
+
+    it('parses ORDER BY with single expression DESC', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN n.name ORDER BY n.name DESC');
+      expect(ast.return!.orderBy![0]!.direction).toBe('DESC');
+    });
+
+    it('parses ORDER BY with default ASC (no explicit direction)', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN n.name ORDER BY n.name');
+      expect(ast.return!.orderBy![0]!.direction).toBe('ASC');
+    });
+
+    it('parses ORDER BY with multiple sort items', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN n.name, n.age ORDER BY n.name ASC, n.age DESC');
+      expect(ast.return!.orderBy).toBeDefined();
+      expect(ast.return!.orderBy!.length).toBe(2);
+      expect(ast.return!.orderBy![0]!.direction).toBe('ASC');
+      expect(ast.return!.orderBy![1]!.direction).toBe('DESC');
+    });
+  });
+
+  describe('LIMIT clause', () => {
+    it('parses LIMIT with integer value', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN n.name LIMIT 10');
+      expect(ast.return!.limit).toBe(10);
+    });
+
+    it('parses LIMIT 1', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN n LIMIT 1');
+      expect(ast.return!.limit).toBe(1);
+    });
+
+    it('returns undefined limit when no LIMIT clause', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN n.name');
+      expect(ast.return!.limit).toBeUndefined();
+    });
+  });
+
+  describe('ORDER BY + LIMIT combined', () => {
+    it('parses ORDER BY and LIMIT together', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN n.name ORDER BY n.name ASC LIMIT 5');
+      expect(ast.return!.orderBy!.length).toBe(1);
+      expect(ast.return!.orderBy![0]!.direction).toBe('ASC');
+      expect(ast.return!.limit).toBe(5);
+    });
+  });
+
+  describe('SKIP clause', () => {
+    it('parses SKIP with integer value', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN n.name SKIP 10');
+      expect(ast.return!.skip).toBe(10);
+    });
+
+    it('parses SKIP 0', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN n.name SKIP 0');
+      expect(ast.return!.skip).toBe(0);
+    });
+
+    it('returns undefined skip when no SKIP clause', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN n.name');
+      expect(ast.return!.skip).toBeUndefined();
+    });
+  });
+
+  describe('SKIP + LIMIT combined', () => {
+    it('parses SKIP and LIMIT together', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN n.name SKIP 5 LIMIT 10');
+      expect(ast.return!.skip).toBe(5);
+      expect(ast.return!.limit).toBe(10);
+    });
+
+    it('parses ORDER BY + SKIP + LIMIT', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN n.name ORDER BY n.name ASC SKIP 2 LIMIT 5');
+      expect(ast.return!.orderBy!.length).toBe(1);
+      expect(ast.return!.skip).toBe(2);
+      expect(ast.return!.limit).toBe(5);
+    });
+  });
+
+  describe('SKIP on WITH clause', () => {
+    it('parses WITH with SKIP', () => {
+      const ast = parseCypher(
+        'MATCH (n:User) WITH n.name AS name SKIP 3 RETURN name',
+      );
+      const withStage = ast.stages[1]! as { type: 'WITH'; clause: WithClause };
+      expect(withStage.clause.skip).toBe(3);
+    });
+
+    it('parses WITH with ORDER BY + SKIP + LIMIT', () => {
+      const ast = parseCypher(
+        'MATCH (n:User) WITH n.name AS name, count(n) AS cnt ORDER BY cnt DESC SKIP 1 LIMIT 5 RETURN name, cnt',
+      );
+      const withStage = ast.stages[1]! as { type: 'WITH'; clause: WithClause };
+      expect(withStage.clause.orderBy!.length).toBe(1);
+      expect(withStage.clause.skip).toBe(1);
+      expect(withStage.clause.limit).toBe(5);
     });
   });
 

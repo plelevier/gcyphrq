@@ -3,6 +3,7 @@ import type {
   AdvancedCypherAST,
   MatchClause,
   NodePattern,
+  OrderByItem,
   RelationPattern,
   Direction,
   WithClause,
@@ -69,10 +70,14 @@ const Ctx = {
   RegularQuery: 'RegularQueryContext',
   Query: 'QueryContext',
   RightArrowHead: 'RightArrowHeadContext',
+  Limit: 'LimitContext',
+  Order: 'OrderContext',
+  Skip: 'SkipContext',
   ReturnBody: 'ReturnBodyContext',
   ReturnClause: 'ReturnClauseContext',
   ReturnItem: 'ReturnItemContext',
   ReturnItems: 'ReturnItemsContext',
+  SortItem: 'SortItemContext',
   SetClause: 'SetClauseContext',
   SetItem: 'SetItemContext',
   SingleQuery: 'SingleQueryContext',
@@ -609,14 +614,64 @@ function extractReturnBody(returnBody: ParseTreeNode | null): Projection[] {
   return projections;
 }
 
+function extractOrderBy(returnBody: ParseTreeNode | null): OrderByItem[] | undefined {
+  const orderCtx = findChild(returnBody, Ctx.Order);
+  if (!orderCtx) return undefined;
+
+  const sortItems = findAllChildren(orderCtx, Ctx.SortItem);
+  if (sortItems.length === 0) return undefined;
+
+  const items: OrderByItem[] = [];
+  for (const sortItem of sortItems) {
+    const exprCtx = findChild(sortItem, Ctx.Expression);
+    const expr = evaluateExpression(exprCtx);
+    if (!expr) continue;
+
+    // Check for explicit ASC/DESC direction (default is ASC)
+    const hasDesc = hasTerminal(sortItem, 'DESC');
+    const direction = hasDesc ? 'DESC' : 'ASC';
+
+    items.push({ expression: expr, direction });
+  }
+
+  return items.length > 0 ? items : undefined;
+}
+
+function extractLimit(returnBody: ParseTreeNode | null): number | undefined {
+  const limitCtx = findChild(returnBody, Ctx.Limit);
+  if (!limitCtx) return undefined;
+
+  const exprCtx = findChild(limitCtx, Ctx.Expression);
+  const expr = evaluateExpression(exprCtx);
+  if (expr && expr.type === 'Literal' && typeof expr.value === 'number') {
+    return expr.value;
+  }
+  return undefined;
+}
+
+function extractSkip(returnBody: ParseTreeNode | null): number | undefined {
+  const skipCtx = findChild(returnBody, Ctx.Skip);
+  if (!skipCtx) return undefined;
+
+  const exprCtx = findChild(skipCtx, Ctx.Expression);
+  const expr = evaluateExpression(exprCtx);
+  if (expr && expr.type === 'Literal' && typeof expr.value === 'number') {
+    return expr.value;
+  }
+  return undefined;
+}
+
 function extractReturnClause(clauseCtx: ParseTreeNode): ReturnClause | undefined {
   const returnCtx = findChild(clauseCtx, Ctx.ReturnClause);
   if (!returnCtx) return undefined;
 
   const returnBody = findChild(returnCtx, Ctx.ReturnBody);
   const projections = extractReturnBody(returnBody);
+  const orderBy = extractOrderBy(returnBody);
+  const skip = extractSkip(returnBody);
+  const limit = extractLimit(returnBody);
 
-  return { projections, orderBy: undefined, limit: undefined };
+  return { projections, orderBy, skip, limit };
 }
 
 function extractWithClause(clauseCtx: ParseTreeNode): WithClause | undefined {
@@ -625,12 +680,15 @@ function extractWithClause(clauseCtx: ParseTreeNode): WithClause | undefined {
 
   const returnBody = findChild(withCtx, Ctx.ReturnBody);
   const projections = extractReturnBody(returnBody);
+  const orderBy = extractOrderBy(returnBody);
+  const skip = extractSkip(returnBody);
+  const limit = extractLimit(returnBody);
 
   const whereCtx = findChild(withCtx, Ctx.Where);
   const whereExpr = findChild(whereCtx, Ctx.Expression);
   const where = whereExpr ? extractComparison(whereExpr) : undefined;
 
-  return { projections, where };
+  return { projections, where, orderBy, skip, limit };
 }
 
 function extractComparison(exprCtx: TreeNode): BinaryExpression | undefined {
