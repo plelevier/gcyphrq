@@ -35,7 +35,11 @@ body {
 a { color: var(--color-accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-.container { max-width: var(--max-width); margin: 0 auto; padding: 0 1.5rem; }
+.container { max-width: var(--max-width); margin: 0 auto; padding: 0 2.5rem; }
+
+@media (max-width: 768px) {
+  .container { padding: 0 1.25rem; }
+}
 
 /* === Header === */
 .site-header {
@@ -138,6 +142,13 @@ a:hover { text-decoration: underline; }
   font-size: 0.9rem;
 }
 
+@media (max-width: 768px) {
+  .content table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
 .content th {
   text-align: left;
   padding: 0.6rem 0.8rem;
@@ -167,7 +178,7 @@ a:hover { text-decoration: underline; }
 .highlight, pre.highlight {
   background: var(--color-code-bg) !important;
   border-radius: 8px;
-  margin: 1.25rem 0;
+  margin: 1rem 0;
   overflow-x: auto;
 }
 
@@ -179,7 +190,7 @@ a:hover { text-decoration: underline; }
   line-height: 1.6;
 }
 
-.highlight { padding: 1.25rem 1.5rem; }
+.highlight { padding: 0.85rem 1rem; }
 
 /* Rouge syntax highlighting (Catppuccin Mocha inspired) */
 .highlight .c, .highlight .c1, .highlight .cm, .highlight .cp { color: #6c7086; font-style: italic; }
