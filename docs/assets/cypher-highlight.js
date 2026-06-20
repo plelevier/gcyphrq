@@ -1,10 +1,14 @@
 // Lightweight Cypher keyword highlighter + copy buttons for code blocks
 document.addEventListener('DOMContentLoaded', () => {
   // Highlight Cypher keywords
+  // Rouge wraps code blocks: div.language-cypher > div.highlight > pre.highlight > code
+  // We must only replace the <code> innerHTML to preserve the .highlight wrapper (background + CSS)
   document.querySelectorAll('.language-cypher').forEach(el => {
-    const text = el.textContent;
+    const code = el.querySelector('code');
+    if (!code) return;
+    const text = code.textContent;
     const tokens = tokenize(text);
-    el.innerHTML = tokens.map(t => {
+    code.innerHTML = tokens.map(t => {
       if (t.type === 'keyword') return `<span class="cy-kw">${t.text}</span>`;
       if (t.type === 'function') return `<span class="cy-fn">${t.text}</span>`;
       if (t.type === 'label') return `<span class="cy-label">${t.text}</span>`;
@@ -17,7 +21,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Add copy button to every code block
-  document.querySelectorAll('.highlight').forEach(block => {
+  // Target the outermost .highlight div (the one that is a direct child of .highlighter-rouge)
+  document.querySelectorAll('.highlighter-rouge > .highlight').forEach(block => {
     const btn = document.createElement('button');
     btn.className = 'code-copy-btn';
     btn.type = 'button';
