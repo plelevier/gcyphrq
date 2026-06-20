@@ -175,7 +175,11 @@ export class AdvancedCypherGraphologyEngine {
       keysSimple.forEach((p) => {
         groupKeyObj[p.alias] = this.evaluateExpression(p.expression, context);
       });
-      const groupKeyStr = JSON.stringify(groupKeyObj, Object.keys(groupKeyObj).sort());
+      // Build a deterministic key string by sorting top-level keys.
+      // NOTE: do NOT use a replacer array (JSON.stringify(obj, ['a'])) because
+      // it filters properties at ALL nesting levels, turning nested objects into {}.
+      const sortedKeys = Object.keys(groupKeyObj).sort();
+      const groupKeyStr = sortedKeys.map((k) => JSON.stringify([k, groupKeyObj[k]])).join(',');
 
       if (!groups.has(groupKeyStr)) {
         groups.set(groupKeyStr, { simpleValues: groupKeyObj, rows: [] });
