@@ -28,6 +28,9 @@ Both `-e` (query) and `-g` (graph file or `-` for stdin) are required.
 ```
 src/
 ├── index.ts                 # CLI entry: arg parsing, graph loading, orchestration
+├── lib.ts                   # Public library API (createGraph, executeQuery, parseCypher, etc.)
+├── graph.ts                 # Graphology wrapper: typed GraphInstance interface + runtime API check
+├── indexes.ts               # Pre-computed indexes for O(1) label/property/edge-type lookups
 ├── engine/
 │   ├── cypher-parser.ts     # ANTLR4-based Cypher → AST (wraps @neo4j-cypher/antlr4)
 │   └── cypher-engine.ts     # AST execution engine on top of Graphology graphs
@@ -38,10 +41,21 @@ src/
 
 ### Data flow
 
-1. `index.ts` parses CLI args, loads a JSON graph file, builds a Graphology graph
-2. `cypher-parser.ts` uses ANTLR4 to parse a Cypher string into an `AdvancedCypherAST`
-3. `cypher-engine.ts` walks the AST stages sequentially over the graph
-4. Results are emitted as raw JSON to stdout
+1. `index.ts` parses CLI args, loads a JSON graph file, and delegates to `lib.ts`
+2. `lib.ts` validates graph data, constructs a `GraphInstance` (via `graph.ts`), and builds pre-computed indexes (via `indexes.ts`)
+3. `cypher-parser.ts` uses ANTLR4 to parse a Cypher string into an `AdvancedCypherAST`
+4. `cypher-engine.ts` walks the AST stages sequentially over the graph, using indexes for fast lookups
+5. Results are emitted as raw JSON to stdout
+
+### Library API (`lib.ts`)
+
+The tool can also be used as a library in Node.js / TypeScript projects:
+
+- **`createGraph(data)`** — Validate graph data and build a `GraphInstance`
+- **`buildGraphIndexes(data, graph)`** — Build pre-computed indexes for fast query execution
+- **`parseCypher(query)`** — Parse a Cypher string into an AST
+- **`executeQuery(graphData, query)`** — One-shot convenience: graph data + query → results
+- **`GraphEngine`** — The query engine class (alias for `AdvancedCypherGraphologyEngine`)
 
 ### Graph file format
 
