@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Graph, type GraphInstance } from '../src/graph';
 import { AdvancedCypherGraphologyEngine } from '../src/engine/cypher-engine';
 import { parseCypher } from '../src/engine/cypher-parser';
+import { buildGraphIndexes } from '../src/indexes';
 import type { CypherNode, GraphIndexes } from '../src/types/cypher';
 
 /** Cast a result-row value to CypherNode for test assertions. */
@@ -10,7 +11,7 @@ function node<T extends Record<string, unknown>>(row: T, key: keyof T): CypherNo
 }
 
 /** Build simple indexes from a Graphology graph (for mutation tests). */
-function buildSimpleIndexes(graph: GraphInstance): GraphIndexes {
+function buildIndexesFromGraph(graph: GraphInstance): GraphIndexes {
   const labelIndex = new Map<string, Set<string>>();
   const propertyIndex = new Map<string, Map<string, Set<string>>>();
   const edgeOut = new Map<string, Map<string, Array<{ target: string; edgeId: string }>>>();
@@ -1001,7 +1002,7 @@ describe('AdvancedCypherGraphologyEngine', () => {
       mutGraph = new Graph();
       mutGraph.addNode('a', { label: 'Node', name: 'A' });
       mutGraph.addNode('b', { label: 'Node', name: 'B' });
-      const indexes = buildSimpleIndexes(mutGraph);
+      const indexes = buildIndexesFromGraph(mutGraph);
       mutEngine = new AdvancedCypherGraphologyEngine(mutGraph, indexes);
     });
 

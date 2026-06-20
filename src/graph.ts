@@ -10,9 +10,11 @@ export interface GraphInstance {
   filterNodes(fn: (id: string, attrs: Record<string, unknown>) => boolean): string[];
   forEachOutboundEdge(id: string, cb: (e: string, a: Record<string, unknown>, s: string, t: string) => void): void;
   forEachInboundEdge(id: string, cb: (e: string, a: Record<string, unknown>, s: string, t: string) => void): void;
-  /** Iterate edges incident to a specific node. */
+  /**
+   * Iterate edges incident to a specific node, or all edges when no node ID is given.
+   * (Wraps Graphology's `forEachEdge` which accepts an optional node parameter.)
+   */
   forEachEdge(id: string, cb: (e: string, a: Record<string, unknown>, s: string, t: string) => void): void;
-  /** Iterate over all edges in the graph (no node filter). */
   forEachEdge(cb: (e: string, a: Record<string, unknown>, s: string, t: string) => void): void;
   setNodeAttribute(id: string, attr: string, value: unknown): void;
   hasNode(id: string): boolean;

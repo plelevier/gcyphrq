@@ -20,11 +20,14 @@ export interface CypherEdge {
  * Pre-computed indexes for fast node/edge lookup during query execution.
  * Built once at graph construction time, used by the engine to avoid
  * full-graph scans during MATCH, WHERE, and traversal.
+ *
+ * Note: property values are coerced to strings via `String(value)`, so
+ * `true`/`false` become `"true"`/`"false"` and `0` becomes `"0"`.
  */
 export interface GraphIndexes {
   /** label → set of node IDs */
   labelIndex: Map<string, Set<string>>;
-  /** propertyKey → propertyValue → set of node IDs */
+  /** propertyKey → propertyValue → set of node IDs (values are string-coerced) */
   propertyIndex: Map<string, Map<string, Set<string>>>;
   /**
    * Edge-type adjacency index.

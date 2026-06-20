@@ -13,7 +13,9 @@ import { resolve } from 'path';
 import { Graph, type GraphInstance } from './src/graph';
 import { AdvancedCypherGraphologyEngine } from './src/engine/cypher-engine';
 import { parseCypher } from './src/engine/cypher-parser';
-import type { GraphFile, GraphIndexes } from './src/lib';
+import { buildGraphIndexes } from './src/indexes';
+import type { GraphFile } from './src/lib';
+import type { GraphIndexes } from './src/types/cypher';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -30,48 +32,6 @@ function loadGraph(path: string): { data: GraphFile; graph: GraphInstance } {
     graph.addEdge(source, target, attrs);
   }
   return { data, graph };
-}
-
-function buildIndexes(data: GraphFile, graph: GraphInstance): GraphIndexes {
-  const labelIndex = new Map<string, Set<string>>();
-  const propertyIndex = new Map<string, Map<string, Set<string>>>();
-  const edgeOut = new Map<string, Map<string, Array<{ target: string; edgeId: string }>>>();
-  const edgeIn = new Map<string, Map<string, Array<{ source: string; edgeId: string }>>>();
-
-  for (const node of data.nodes) {
-    const { id, label, ...props } = node;
-    if (label && typeof label === 'string') {
-      let s = labelIndex.get(label);
-      if (!s) { s = new Set(); labelIndex.set(label, s); }
-      s.add(id);
-    }
-    for (const [key, value] of Object.entries(props)) {
-      if (value === null || value === undefined || typeof value === 'object') continue;
-      let vm = propertyIndex.get(key);
-      if (!vm) { vm = new Map(); propertyIndex.set(key, vm); }
-      const vk = String(value);
-      let ns = vm.get(vk);
-      if (!ns) { ns = new Set(); vm.set(vk, ns); }
-      ns.add(id);
-    }
-  }
-
-  graph.forEachEdge((edgeId, attrs, source, target) => {
-    const et = (attrs.type && typeof attrs.type === 'string') ? attrs.type : '__UNTYPED__';
-    let om = edgeOut.get(et);
-    if (!om) { om = new Map(); edgeOut.set(et, om); }
-    let ol = om.get(source);
-    if (!ol) { ol = []; om.set(source, ol); }
-    ol.push({ target, edgeId });
-
-    let im = edgeIn.get(et);
-    if (!im) { im = new Map(); edgeIn.set(et, im); }
-    let il = im.get(target);
-    if (!il) { il = []; im.set(target, il); }
-    il.push({ source, edgeId });
-  });
-
-  return { labelIndex, propertyIndex, edgeTypeIndex: { out: edgeOut, in: edgeIn } };
 }
 
 function benchmark(query: string, graph: GraphInstance, indexes?: GraphIndexes): { ms: number; rows: number } {
@@ -118,14 +78,14 @@ if (!queries.length) queries = defaultQueries;
 // ── Run ──────────────────────────────────────────────────────────────────────
 
 const { data, graph } = loadGraph(graphPath);
-const indexes = buildIndexes(data, graph);
+const indexes = buildGraphIndexes(data, graph);
 
 console.log(`Graph: ${data.nodes.length} nodes, ${data.edges.length} edges`);
 console.log('');
 
 const header = `${'Query'.padEnd(65)} | ${'No index'.padEnd(12)} | ${'Indexed'.padEnd(12)} | Speedup`;
 console.log(header);
-console.log('─'.repeat(header.length));
+console.log('\u2500'.repeat(header.length));
 
 for (const q of queries) {
   const short = q.length > 63 ? q.slice(0, 60) + '...' : q;
@@ -133,7 +93,7 @@ for (const q of queries) {
   const noIndex = benchmark(q, graph);
   const withIndex = benchmark(q, graph, indexes);
 
-  const speedup = noIndex.ms > 0 ? (noIndex.ms / withIndex.ms).toFixed(1) : '∞';
+  const speedup = noIndex.ms > 0 ? (noIndex.ms / withIndex.ms).toFixed(1) : '\u221e';
   const label = `${noIndex.rows} rows`;
 
   console.log(

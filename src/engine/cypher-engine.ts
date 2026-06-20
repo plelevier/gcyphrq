@@ -18,30 +18,39 @@ import type {
   GraphIndexes,
   Projection,
 } from '../types/cypher';
-import { Graph, type GraphInstance } from '../graph';
+import type { GraphInstance } from '../graph';
 
 // ── Context chain (optimisation #4) ──────────────────────────────────────────
 // Linked-chain contexts avoid copying the full context on every match.
 // Each chain points to a base context and stores only its own overrides.
 // Materialised only when needed (grouping, projection, WHERE).
+// Symbol keys prevent collision with user-defined graph properties.
+
+const CHAIN_BASE = Symbol('contextBase');
+const CHAIN_OVERRIDES = Symbol('contextOverrides');
 
 interface ContextChain {
-  __base: QueryContext | ContextChain | null;
-  __overrides: QueryContext;
+  [CHAIN_BASE]: QueryContext | ContextChain | null;
+  [CHAIN_OVERRIDES]: QueryContext;
 }
 
 function isContextChain(ctx: QueryContext | ContextChain): ctx is ContextChain {
-  return '__base' in ctx && '__overrides' in ctx;
+  return CHAIN_BASE in ctx && CHAIN_OVERRIDES in ctx;
 }
 
-/** Resolve a single value from a context chain, walking up to the base. */
+/** Resolve a single value from a context chain, walking up to the base (iterative). */
 function resolveChainValue(chain: QueryContext | ContextChain, key: string): CypherValue | undefined {
-  if (isContextChain(chain)) {
-    const val = chain.__overrides[key];
-    if (val !== undefined) return val;
-    return chain.__base !== null ? resolveChainValue(chain.__base, key) : undefined;
+  let current: QueryContext | ContextChain | null = chain;
+  while (current !== null) {
+    if (isContextChain(current)) {
+      const val = current[CHAIN_OVERRIDES][key];
+      if (val !== undefined) return val;
+      current = current[CHAIN_BASE];
+    } else {
+      return current[key];
+    }
   }
-  return (chain as QueryContext)[key];
+  return undefined;
 }
 
 /** Materialise a context chain into a flat QueryContext. */
@@ -52,8 +61,8 @@ function materialiseChain(chain: QueryContext | ContextChain): QueryContext {
   let current: QueryContext | ContextChain | null = chain;
   while (current !== null) {
     if (isContextChain(current)) {
-      stack.push(current.__overrides);
-      current = current.__base;
+      stack.push(current[CHAIN_OVERRIDES]);
+      current = current[CHAIN_BASE];
     } else {
       stack.push(current);
       break;
@@ -215,8 +224,8 @@ export class AdvancedCypherGraphologyEngine {
         if (!hasChains) {
           matchFoundForThisContext = true;
           outgoingContexts.push({
-            __base: context,
-            __overrides: { [sourcePattern.variable]: sourceNode },
+            [CHAIN_BASE]: context,
+            [CHAIN_OVERRIDES]: { [sourcePattern.variable]: sourceNode },
           });
           return;
         }
@@ -248,8 +257,8 @@ export class AdvancedCypherGraphologyEngine {
 
             const targetAttr = this.graph.getNodeAttributes(currentId);
             const chain: ContextChain = {
-              __base: context,
-              __overrides: {
+              [CHAIN_BASE]: context,
+              [CHAIN_OVERRIDES]: {
                 [sourcePattern.variable]: sourceNode,
                 [targetPattern.variable]: { id: currentId, ...targetAttr } as CypherNode,
               },
@@ -257,7 +266,7 @@ export class AdvancedCypherGraphologyEngine {
 
             if (relationPattern.variable) {
               // Snapshot edge history only on match (optimisation #1)
-              chain.__overrides[relationPattern.variable] = edgeHistory.map(
+              chain[CHAIN_OVERRIDES][relationPattern.variable] = edgeHistory.map(
                 (edgeId) => ({ id: edgeId, ...this.graph.getEdgeAttributes(edgeId) } as CypherEdge),
               );
             }
@@ -279,14 +288,14 @@ export class AdvancedCypherGraphologyEngine {
                 matchFoundForThisContext = true;
                 const targetAttr = this.graph.getNodeAttributes(currentId);
                 const chain: ContextChain = {
-                  __base: context,
-                  __overrides: {
+                  [CHAIN_BASE]: context,
+                  [CHAIN_OVERRIDES]: {
                     [sourcePattern.variable]: sourceNode,
                     [targetPattern.variable]: { id: currentId, ...targetAttr } as CypherNode,
                   },
                 };
                 if (relationPattern.variable) {
-                  chain.__overrides[relationPattern.variable] = [...edgeHistory, edgeId].map(
+                  chain[CHAIN_OVERRIDES][relationPattern.variable] = [...edgeHistory, edgeId].map(
                     (eid) => ({ id: eid, ...this.graph.getEdgeAttributes(eid) } as CypherEdge),
                   );
                 }
@@ -308,10 +317,10 @@ export class AdvancedCypherGraphologyEngine {
 
       if (optional && !matchFoundForThisContext) {
         const nullChain: ContextChain = {
-          __base: context,
-          __overrides: { [targetPattern.variable]: null },
+          [CHAIN_BASE]: context,
+          [CHAIN_OVERRIDES]: { [targetPattern.variable]: null },
         };
-        if (relationPattern.variable) nullChain.__overrides[relationPattern.variable] = [];
+        if (relationPattern.variable) nullChain[CHAIN_OVERRIDES][relationPattern.variable] = [];
         outgoingContexts.push(nullChain);
       }
     }
@@ -727,7 +736,7 @@ export class AdvancedCypherGraphologyEngine {
     if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
     if (typeof a === 'boolean' && typeof b === 'boolean') return a === b ? 0 : (a ? -1 : 1);
 
-    // Mixed types: stringify once (optimisation #10)
+    // Mixed types: stringify once
     const aStr = String(a);
     const bStr = String(b);
     return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
