@@ -2,7 +2,7 @@
 
 import { parseCypher as _parseCypher } from './engine/cypher-parser';
 import { AdvancedCypherGraphologyEngine } from './engine/cypher-engine';
-import { Graph, type GraphInstance } from './graph';
+import { Graph, wrapGraphInstance, type GraphInstance } from './graph';
 import type { AdvancedCypherAST, ResultRow, GraphIndexes } from './types/cypher';
 
 // ── Graph file format types ──────────────────────────────────────────────────
@@ -111,7 +111,7 @@ function validateGraphData(data: unknown): GraphFile {
  * The graph instance is required to get real Graphology edge IDs for the
  * edge-type adjacency index.
  */
-function buildGraphIndexes(data: GraphFile, graph: GraphInstance): GraphIndexes {
+function buildGraphIndexesInternal(data: GraphFile, graph: GraphInstance): GraphIndexes {
   const labelIndex = new Map<string, Set<string>>();
   const propertyIndex = new Map<string, Map<string | number, Set<string>>>();
   const edgeOut = new Map<string, Map<string, Array<{ target: string; edgeId: string }>>>();
@@ -198,7 +198,7 @@ export function createGraph(data: GraphFile): GraphInstance {
     graph.addEdge(source, target, attrs);
   }
 
-  return graph;
+  return wrapGraphInstance(graph);
 }
 
 /**
@@ -216,9 +216,9 @@ export function createGraph(data: GraphFile): GraphInstance {
  * const engine = new GraphEngine(graph, indexes);
  * ```
  */
-export function buildGraphIndexesExport(data: GraphFile, graph: GraphInstance): GraphIndexes {
+export function buildGraphIndexes(data: GraphFile, graph: GraphInstance): GraphIndexes {
   const validated = validateGraphData(data);
-  return buildGraphIndexes(validated, graph);
+  return buildGraphIndexesInternal(validated, graph);
 }
 
 // ── Query execution ──────────────────────────────────────────────────────────
@@ -263,7 +263,7 @@ export function parseCypher(query: string): AdvancedCypherAST {
 export function executeQuery(graphData: GraphFile, query: string): ResultRow[] {
   const validated = validateGraphData(graphData);
   const graph = createGraph(graphData);
-  const indexes = buildGraphIndexes(validated, graph);
+  const indexes = buildGraphIndexesInternal(validated, graph);
   const engine = new AdvancedCypherGraphologyEngine(graph, indexes);
   const ast = _parseCypher(query);
   return engine.execute(ast);

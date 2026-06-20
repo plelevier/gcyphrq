@@ -420,7 +420,7 @@ export class AdvancedCypherGraphologyEngine {
 
     let newContexts: QueryContext[] = [];
     groups.forEach(({ simpleValues, rows }) => {
-      newContexts.push(this.executeWithAggregations(simpleValues, rows, keysAggr));
+      newContexts.push(this.computeAggregations(simpleValues, rows, keysAggr));
     });
 
     if (clause.where) {
@@ -445,16 +445,16 @@ export class AdvancedCypherGraphologyEngine {
     return newContexts;
   }
 
-  /**
-   * Single-pass aggregation: compute COUNT, SUM, AVG, MIN, MAX in one row scan.
-   * (optimisation #5)
-   */
-  private executeWithAggregations(
-    simpleValues: QueryContext,
+  // ── Shared aggregation logic (optimisation #5) ─────────────────────────────
+  // Single-pass: compute COUNT, SUM, AVG, MIN, MAX for all aggregation
+  // variables in one row scan. Used by both executeWith and executeReturn.
+
+  private computeAggregations(
+    baseContext: QueryContext,
     rows: QueryContext[],
     aggrProjections: Projection[],
   ): QueryContext {
-    const newContext = { ...simpleValues };
+    const newContext = { ...baseContext };
 
     // Collect all unique aggregation variables for single-pass extraction
     const aggVars = new Map<string, AggregationExpression>();
@@ -472,8 +472,6 @@ export class AdvancedCypherGraphologyEngine {
     for (const row of rows) {
       for (const expr of aggVars.values()) {
         const key = `${expr.variable}:${expr.property ?? ''}`;
-        // For COUNT: check if the variable itself is non-null
-        // For SUM/AVG/MIN/MAX: extract the numeric property value
         const baseVal = row[expr.variable];
         const val = expr.property
           ? (baseVal as CypherNode | undefined)?.[expr.property]
@@ -605,58 +603,9 @@ export class AdvancedCypherGraphologyEngine {
         result[p.alias] = values[0] as CypherValue;
       });
 
-      // Single-pass aggregation for RETURN
-      const aggVars = new Map<string, AggregationExpression>();
-      keysAggr.forEach((p) => {
-        if (p.expression.type === 'Aggregation') {
-          const key = `${p.expression.variable}:${p.expression.property ?? ''}`;
-          aggVars.set(key, p.expression);
-        }
-      });
-
-      const numericCache = new Map<string, number[]>();
-      const nonNullCache = new Map<string, number>();
-
-      for (const row of materialised) {
-        for (const expr of aggVars.values()) {
-          const key = `${expr.variable}:${expr.property ?? ''}`;
-          const baseVal = row[expr.variable];
-          const val = expr.property
-            ? (baseVal as CypherNode | undefined)?.[expr.property]
-            : baseVal;
-          if (val !== null && val !== undefined) {
-            nonNullCache.set(key, (nonNullCache.get(key) ?? 0) + 1);
-          }
-          if (typeof val === 'number') {
-            if (!numericCache.has(key)) numericCache.set(key, []);
-            numericCache.get(key)!.push(val);
-          }
-        }
-      }
-
-      keysAggr.forEach((p) => {
-        const expr = p.expression;
-        if (expr.type !== 'Aggregation') return;
-        const key = `${expr.variable}:${expr.property ?? ''}`;
-        const numericValues = numericCache.get(key) ?? [];
-        const nonNullCount = nonNullCache.get(key) ?? 0;
-
-        if (expr.aggregationType === 'COUNT') {
-          result[p.alias] = nonNullCount as CypherValue;
-        } else if (expr.aggregationType === 'SUM') {
-          result[p.alias] = numericValues.reduce((a, b) => a + b, 0) as CypherValue;
-        } else if (expr.aggregationType === 'AVG') {
-          result[p.alias] = (numericValues.length > 0
-            ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length
-            : null) as CypherValue;
-        } else if (expr.aggregationType === 'MIN') {
-          result[p.alias] = (numericValues.length > 0 ? Math.min(...numericValues) : null) as CypherValue;
-        } else if (expr.aggregationType === 'MAX') {
-          result[p.alias] = (numericValues.length > 0 ? Math.max(...numericValues) : null) as CypherValue;
-        }
-      });
-
-      results = [result];
+      // Single-pass aggregation (shared with executeWith)
+      const aggResult = this.computeAggregations(result, materialised, keysAggr);
+      results = [aggResult as ResultRow];
     } else {
       const materialised = contexts.map((c) => materialiseChain(c));
 
@@ -710,7 +659,6 @@ export class AdvancedCypherGraphologyEngine {
 
     const arr = [...contexts];
 
-    // Quickselect partition
     const compare = (a: QueryContext, b: QueryContext) => {
       for (const item of orderBy) {
         const aVal = this.evaluateExpression(item.expression, a);
@@ -735,15 +683,18 @@ export class AdvancedCypherGraphologyEngine {
       return i;
     };
 
-    const select = (lo: number, hi: number) => {
-      if (lo >= hi) return;
+    // Iterative quickselect (avoids recursion depth limits on large datasets)
+    let lo = 0;
+    let hi = arr.length - 1;
+    while (lo < hi) {
       const p = partition(lo, hi);
-      if (p === k) return;
-      if (p < k) select(p + 1, hi);
-      else select(lo, p - 1);
-    };
-
-    select(0, arr.length - 1);
+      if (p === k) break;
+      if (p < k) {
+        lo = p + 1;
+      } else {
+        hi = p - 1;
+      }
+    }
 
     // Sort only the top k elements
     arr.slice(0, k).sort(compare);

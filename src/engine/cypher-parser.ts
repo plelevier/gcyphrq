@@ -253,7 +253,7 @@ function idxFindChild(idx: TreeIndex, parentPos: number, name: string): number {
   if (!node?.children) return -1;
   for (let i = 0; i < node.children.length; i++) {
     if (node.children[i]!.constructor.name === name) {
-      // Binary-search in the sorted position list for this type
+      // Linear scan through the position list for this type
       const positions = idx.byName.get(name);
       if (positions) {
         for (const p of positions) {

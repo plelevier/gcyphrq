@@ -21,16 +21,23 @@ export interface GraphInstance {
 
 const Graph = GraphModule as unknown as { new (): GraphInstance };
 
-// Add forEachEdgeAll to the Graphology prototype so it matches our GraphInstance interface.
-// Graphology's forEachEdge() without a node argument iterates ALL edges.
-(Graph as any).prototype.forEachEdgeAll = function (
-  cb: (edgeId: string, source: string, target: string, attrs: Record<string, unknown>) => void,
-) {
-  // Graphology signature: forEachEdge((edge, attributes, source, target) => {}) 
-  this.forEachEdge((edge: string, attrs: Record<string, unknown>, source: string, target: string) => {
-    cb(edge, source, target, attrs);
-  });
-};
+/**
+ * Wrap a Graphology instance to add `forEachEdgeAll` (iterate all edges).
+ * Graphology's `forEachEdge()` without a node argument iterates ALL edges,
+ * but its signature differs from our `forEachEdge(id, cb)` which iterates
+ * edges incident to a specific node. The wrapper provides a consistent API.
+ */
+function wrapGraphInstance(graph: GraphInstance): GraphInstance {
+  (graph as any).forEachEdgeAll = (
+    cb: (edgeId: string, source: string, target: string, attrs: Record<string, unknown>) => void,
+  ) => {
+    // Graphology signature: forEachEdge((edge, attributes, source, target) => {})
+    graph.forEachEdge((edge: string, attrs: Record<string, unknown>, source: string, target: string) => {
+      cb(edge, source, target, attrs);
+    });
+  };
+  return graph;
+}
 
 /**
  * Runtime smoke-test: verify that the Graphology instance exposes the
@@ -47,7 +54,6 @@ function assertGraphApi(graph: GraphInstance): void {
     'forEachOutboundEdge',
     'forEachInboundEdge',
     'forEachEdge',
-    'forEachEdgeAll',
     'setNodeAttribute',
     'hasNode',
     'dropNode',
@@ -75,4 +81,4 @@ if (process.env.NODE_ENV === 'development') {
   assertGraphApi(new Graph());
 }
 
-export { Graph, ensureGraphApiValid };
+export { Graph, wrapGraphInstance, ensureGraphApiValid };
