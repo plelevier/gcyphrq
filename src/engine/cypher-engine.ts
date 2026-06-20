@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import type {
   AdvancedCypherAST,
   MatchClause,
+  OrderByItem,
   WithClause,
   WriteClause,
   Expression,
@@ -217,6 +218,11 @@ export class AdvancedCypherGraphologyEngine {
       newContexts = this.applyOrderByToContexts(newContexts, clause.orderBy);
     }
 
+    // SKIP on WITH clause (after ORDER BY, before LIMIT)
+    if (clause.skip !== undefined && clause.skip !== null) {
+      newContexts = newContexts.slice(clause.skip);
+    }
+
     // LIMIT on WITH clause
     if (clause.limit !== undefined && clause.limit !== null) {
       newContexts = newContexts.slice(0, clause.limit);
@@ -328,6 +334,11 @@ export class AdvancedCypherGraphologyEngine {
       let sortedContexts = contexts;
       if (clause.orderBy && clause.orderBy.length > 0) {
         sortedContexts = this.applyOrderByToContexts(contexts, clause.orderBy);
+      }
+
+      // SKIP applied after ORDER BY, before LIMIT
+      if (clause.skip !== undefined && clause.skip !== null) {
+        sortedContexts = sortedContexts.slice(clause.skip);
       }
 
       // LIMIT applied to contexts before projection

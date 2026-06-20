@@ -67,6 +67,7 @@ src/
 | `CREATE`, `SET`, `DELETE` mutations | ✅ |
 | Multiple chained clauses | ✅ (single MATCH per stage) |
 | `ORDER BY` (single/multi-column, ASC/DESC) | ✅ |
+| `SKIP` | ✅ |
 | `LIMIT` | ✅ |
 | Subqueries, `CALL`, APOC | ❌ |
 

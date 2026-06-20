@@ -58,6 +58,7 @@ The execution engine is optimized for the following Cypher features:
 - **Directional Enforcement**: Standard ASCII arrow directionality rules apply (`->`, `<-`, `-`).
 - **Implicit Grouping & Aggregations**: Supports `WITH` pipelining alongside `count()` and `sum()`.
 - **ORDER BY**: Supports single or multiple sort keys with `ASC` (default) or `DESC` direction.
+- **SKIP**: Skips the first N results (useful for pagination).
 - **LIMIT**: Truncates results to a specified count.
 - **Mutations**: Supports `CREATE`, `SET`, and `DELETE`.
 
@@ -130,7 +131,21 @@ MATCH (u:User) RETURN u.name LIMIT 5
 MATCH (u:User) RETURN u.name, u.age ORDER BY u.age DESC LIMIT 3
 ```
 
-### 8. Write Mutations (Create, Update, Delete)
+### 8. Skipping Results (SKIP)
+Skip the first N results. Useful for pagination when combined with ORDER BY and LIMIT.
+
+```cypher
+// Skip first 5 users
+MATCH (u:User) RETURN u.name SKIP 5
+
+// Pagination: page 2 with 10 results per page (skip 10, take 10)
+MATCH (u:User) RETURN u.name ORDER BY u.name ASC SKIP 10 LIMIT 10
+
+// Combine ORDER BY + SKIP + LIMIT
+MATCH (u:User) RETURN u.name, u.age ORDER BY u.age DESC SKIP 2 LIMIT 5
+```
+
+### 9. Write Mutations (Create, Update, Delete)
 To chain match lookup conditions alongside operational updates on the graph state:
 
 ```cypher

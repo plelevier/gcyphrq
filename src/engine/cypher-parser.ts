@@ -72,6 +72,7 @@ const Ctx = {
   RightArrowHead: 'RightArrowHeadContext',
   Limit: 'LimitContext',
   Order: 'OrderContext',
+  Skip: 'SkipContext',
   ReturnBody: 'ReturnBodyContext',
   ReturnClause: 'ReturnClauseContext',
   ReturnItem: 'ReturnItemContext',
@@ -648,6 +649,18 @@ function extractLimit(returnBody: ParseTreeNode | null): number | undefined {
   return undefined;
 }
 
+function extractSkip(returnBody: ParseTreeNode | null): number | undefined {
+  const skipCtx = findChild(returnBody, Ctx.Skip);
+  if (!skipCtx) return undefined;
+
+  const exprCtx = findChild(skipCtx, Ctx.Expression);
+  const expr = evaluateExpression(exprCtx);
+  if (expr && expr.type === 'Literal' && typeof expr.value === 'number') {
+    return expr.value;
+  }
+  return undefined;
+}
+
 function extractReturnClause(clauseCtx: ParseTreeNode): ReturnClause | undefined {
   const returnCtx = findChild(clauseCtx, Ctx.ReturnClause);
   if (!returnCtx) return undefined;
@@ -655,9 +668,10 @@ function extractReturnClause(clauseCtx: ParseTreeNode): ReturnClause | undefined
   const returnBody = findChild(returnCtx, Ctx.ReturnBody);
   const projections = extractReturnBody(returnBody);
   const orderBy = extractOrderBy(returnBody);
+  const skip = extractSkip(returnBody);
   const limit = extractLimit(returnBody);
 
-  return { projections, orderBy, limit };
+  return { projections, orderBy, skip, limit };
 }
 
 function extractWithClause(clauseCtx: ParseTreeNode): WithClause | undefined {
@@ -667,13 +681,14 @@ function extractWithClause(clauseCtx: ParseTreeNode): WithClause | undefined {
   const returnBody = findChild(withCtx, Ctx.ReturnBody);
   const projections = extractReturnBody(returnBody);
   const orderBy = extractOrderBy(returnBody);
+  const skip = extractSkip(returnBody);
   const limit = extractLimit(returnBody);
 
   const whereCtx = findChild(withCtx, Ctx.Where);
   const whereExpr = findChild(whereCtx, Ctx.Expression);
   const where = whereExpr ? extractComparison(whereExpr) : undefined;
 
-  return { projections, where, orderBy, limit };
+  return { projections, where, orderBy, skip, limit };
 }
 
 function extractComparison(exprCtx: TreeNode): BinaryExpression | undefined {

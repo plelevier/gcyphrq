@@ -1,6 +1,6 @@
 ---
 name: gcyphrq
-description: "Use for querying graph data with Cypher — service dependencies, infrastructure topology, blast radius analysis, path tracing. Runs against JSON graph files with an in-memory Cypher engine supporting MATCH, OPTIONAL MATCH, WITH, aggregations, variable-length paths, and mutations."
+description: "Use for querying graph data with Cypher — service dependencies, infrastructure topology, blast radius analysis, path tracing. Runs against JSON graph files with an in-memory Cypher engine supporting MATCH, OPTIONAL MATCH, WITH, aggregations, ORDER BY, SKIP, LIMIT, variable-length paths, and mutations."
 ---
 
 # gcyphrq
@@ -106,7 +106,9 @@ cat my-graph.json | gcyphrq -g - -e 'MATCH (n) RETURN n'
 | `SET` properties | `SET n.prop = value` | ✅ |
 | `DELETE` nodes | `DELETE n` | ✅ |
 | Multiple chained MATCH | `MATCH (a) MATCH (b)` | ❌ single MATCH per stage |
-| `ORDER BY`, `LIMIT` | parsed but not fully implemented | ⚠️ |
+| `ORDER BY` (single/multi-column, ASC/DESC) | `ORDER BY n.name ASC, n.age DESC` | ✅ |
+| `SKIP` | `SKIP 10` | ✅ |
+| `LIMIT` | `LIMIT 10` | ✅ |
 | Subqueries, `CALL`, APOC | — | ❌ |
 
 ## What This Skill Is For
@@ -163,6 +165,12 @@ gcyphrq -g examples/cloud-infra.json -e 'MATCH (eks:Infrastructure {name: "EKS C
 
 # Outgoing connections per service (> 2)
 gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[]->(target) WITH s, count(target) AS outDegree WHERE outDegree > 2 RETURN s, outDegree'
+
+# Pagination: page 2 of services (SKIP 10, LIMIT 10)
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s.name ORDER BY s.name ASC SKIP 10 LIMIT 10'
+
+# Skip first N results
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s.name SKIP 5'
 ```
 
 ## Output Format
@@ -183,6 +191,7 @@ Errors go to stderr with `Error: ` prefix and exit code 1.
 - **Aggregations limited to count/sum** — `avg()`, `min()`, `max()` are not implemented.
 - **Property access in RETURN** — returns the full node object or a single property. Nested property access beyond one level is not supported.
 - **ORDER BY on RETURN and WITH** — `ORDER BY` is supported on both `RETURN` and `WITH` clauses. Multi-column sorting with ASC/DESC is supported.
+- **SKIP on RETURN and WITH** — `SKIP` is supported on both `RETURN` and `WITH` clauses. Use with ORDER BY + LIMIT for pagination.
 
 ## Architecture
 

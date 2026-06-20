@@ -161,3 +161,19 @@ Sort services first by type (ascending), then by name (descending):
 ```bash
 gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s.type, s.name ORDER BY s.type ASC, s.name DESC'
 ```
+
+### 17. Skip first N results (SKIP)
+
+Skip the first 5 services when listing all services:
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s.name SKIP 5'
+```
+
+### 18. Pagination with ORDER BY + SKIP + LIMIT
+
+Get page 2 of services sorted by name (10 per page):
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s.name ORDER BY s.name ASC SKIP 10 LIMIT 10'
+```

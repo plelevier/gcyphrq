@@ -99,6 +99,7 @@ export interface WithClause {
   projections: Projection[];
   where: BinaryExpression | undefined;
   orderBy: OrderByItem[] | undefined;
+  skip: number | undefined;
   limit: number | undefined;
 }
 
@@ -110,6 +111,7 @@ export interface OrderByItem {
 export interface ReturnClause {
   projections: Projection[];
   orderBy: OrderByItem[] | undefined;
+  skip: number | undefined;
   limit: number | undefined;
 }
 

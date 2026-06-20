@@ -722,6 +722,82 @@ describe('AdvancedCypherGraphologyEngine', () => {
     });
   });
 
+  describe('execute - SKIP', () => {
+    it('skips first N results', () => {
+      const ast = parseCypher('MATCH (u:User) RETURN u.name SKIP 2');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2); // 4 total - 2 skipped
+    });
+
+    it('skip 0 returns all results', () => {
+      const ast = parseCypher('MATCH (u:User) RETURN u.name SKIP 0');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(4);
+    });
+
+    it('skip larger than result set returns empty', () => {
+      const ast = parseCypher('MATCH (u:User) RETURN u.name SKIP 100');
+      const results = engine.execute(ast);
+      expect(results).toEqual([]);
+    });
+
+    it('skip with no matching results returns empty', () => {
+      const ast = parseCypher('MATCH (u:User {name: "NonExistent"}) RETURN u.name SKIP 0');
+      const results = engine.execute(ast);
+      expect(results).toEqual([]);
+    });
+  });
+
+  describe('execute - SKIP + LIMIT combined', () => {
+    it('skips then limits results', () => {
+      const ast = parseCypher('MATCH (u:User) RETURN u.name SKIP 1 LIMIT 2');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+    });
+
+    it('skip + limit where skip+limit exceeds total', () => {
+      const ast = parseCypher('MATCH (u:User) RETURN u.name SKIP 3 LIMIT 10');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1); // 4 total - 3 skipped = 1
+    });
+
+    it('ORDER BY + SKIP + LIMIT for pagination', () => {
+      const ast = parseCypher('MATCH (u:User) RETURN u.name ORDER BY u.name ASC SKIP 2 LIMIT 1');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      // Sorted: Alice, Bob, Charlie, Dave → skip 2 → Charlie, Dave → limit 1 → Charlie
+      expect(results[0]!.name).toBe('Charlie');
+    });
+
+    it('ORDER BY DESC + SKIP + LIMIT', () => {
+      const ast = parseCypher('MATCH (u:User) RETURN u.name ORDER BY u.name DESC SKIP 1 LIMIT 2');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      // Sorted DESC: Dave, Charlie, Bob, Alice → skip 1 → Charlie, Bob, Alice → limit 2 → Charlie, Bob
+      expect(results[0]!.name).toBe('Charlie');
+      expect(results[1]!.name).toBe('Bob');
+    });
+
+    it('SKIP on WITH clause', () => {
+      const ast = parseCypher(
+        'MATCH (a:User)-[]->(b:User) WITH a.name AS name, count(b) AS outDegree SKIP 1 RETURN name, outDegree'
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1); // 2 groups - 1 skipped
+    });
+
+    it('ORDER BY + SKIP + LIMIT on WITH clause', () => {
+      const ast = parseCypher(
+        'MATCH (a:User)-[]->(b:User) WITH a.name AS name, count(b) AS outDegree ORDER BY outDegree DESC SKIP 1 LIMIT 1 RETURN name, outDegree'
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      // Alice has 2, Bob has 1 → sorted DESC → skip 1 → Bob
+      expect(results[0]!.name).toBe('Bob');
+      expect(results[0]!.outDegree).toBe(1);
+    });
+  });
+
   describe('execute - DELETE mutation across duplicate contexts', () => {
     let sharedGraph: GraphInstance;
     let sharedEngine: AdvancedCypherGraphologyEngine;
