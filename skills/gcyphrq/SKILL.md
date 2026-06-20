@@ -7,37 +7,6 @@ description: "Use for querying graph data with Cypher — service dependencies, 
 
 Execute Cypher queries against in-memory graphs built from JSON files. The CLI tool is `gcyphrq`. Both `-e` (query) and `-g` (graph file or `-` for stdin) are required.
 
-## Installation
-
-### For Pi agents
-
-Place this skill directory in one of Pi's skill locations:
-
-```bash
-# Global (available to all projects)
-cp -r gcyphrq ~/.pi/agent/skills/gcyphrq
-
-# Or project-level (available only in this project)
-mkdir -p .pi/skills
-cp -r gcyphrq .pi/skills/gcyphrq
-```
-
-Pi will auto-discover the skill and make it available as `/skill:gcyphrq`.
-
-### Building the CLI tool
-
-```bash
-cd /path/to/gcyphrq
-npm install
-npm run build
-```
-
-The compiled binary is at `dist/index.js`. Add it to your PATH or run directly:
-
-```bash
-node /path/to/gcyphrq/dist/index.js -g examples/cloud-infra.json -e 'MATCH (n) RETURN n'
-```
-
 ## Usage
 
 ```
@@ -49,22 +18,22 @@ Options:
   -h, --help           Show this help message
 ```
 
-### Running from source (development)
+### Run a query
 
 ```bash
-npx tsx src/index.ts -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s'
+gcyphrq -g <graph.json> -e 'MATCH (n) RETURN n'
 ```
 
-### Running from build
+### Pipe from stdin
 
 ```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s'
+cat <graph.json> | gcyphrq -g - -e 'MATCH (n) RETURN n'
 ```
 
-### Piping from stdin
+### Pipe output to jq
 
 ```bash
-cat my-graph.json | gcyphrq -g - -e 'MATCH (n) RETURN n'
+gcyphrq -g <graph.json> -e 'MATCH (n) RETURN n.name' | jq '.[].n'
 ```
 
 ## Graph File Format
@@ -115,71 +84,96 @@ cat my-graph.json | gcyphrq -g - -e 'MATCH (n) RETURN n'
 
 Use this skill whenever the user asks about:
 
-- **Service dependencies** — "What does the API Gateway depend on?"
-- **Blast radius / impact analysis** — "If Kafka goes down, what breaks?"
-- **Path tracing** — "Show me the path from the CDN to the database"
-- **Infrastructure topology** — "How are services connected?"
+- **Service dependencies** — "What does X depend on?"
+- **Blast radius / impact analysis** — "If X goes down, what breaks?"
+- **Path tracing** — "Show me the path from A to B"
+- **Infrastructure topology** — "How are things connected?"
 - **Replication / failover** — "What's the replication setup?"
 - **External dependencies** — "Which services call external APIs?"
 - **Monitoring coverage** — "What's being monitored?"
-- **Degree analysis** — "Which services have the most connections?"
-- **Graph mutations** — "Add a new service", "Update a property"
+- **Degree analysis** — "Which nodes have the most connections?"
+- **Graph mutations** — "Add a new node", "Update a property"
 
-## Graph Files Available
+## Query Patterns
 
-| File | Nodes | Edges | Description |
-|---|---|---|---|
-| `examples/social-graph.json` | 3 | 2 | Small social network (Alice, Bob, Charlie) |
-| `examples/cloud-infra.json` | 52 | 110 | Full startup cloud infrastructure |
-
-## Query Patterns for cloud-infra.json
-
-See `references/queries.md` for detailed query examples organized by use case.
-
-### Quick reference
+### List all nodes of a given label
 
 ```bash
-# List all RPC services
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service {type: "RPC"}) RETURN s'
-
-# Trace API → databases (2-4 hops)
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (api:Service {name: "API Gateway"})-[r*2..4]->(db:Database) RETURN api, r, db'
-
-# Services connected to PostgreSQL
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[:TCP]->(db:Database {name: "PostgreSQL Primary"}) RETURN s'
-
-# Consumers per message queue
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (mq:Infrastructure {type: "MessageQueue"})-[:TCP]->(w:Service) WITH mq, count(w) AS consumerCount RETURN mq, consumerCount'
-
-# Blast radius of Kafka (2 hops)
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (kafka:Infrastructure {name: "Kafka Cluster"})-[r*1..2]-(affected) RETURN kafka, r, affected'
-
-# External API dependencies
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service {type: "RPC"})-[r*1..3]->(ext:External) RETURN s, ext'
-
-# Replication topology
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (primary:Database)-[r:Replication]->(replica:Database) RETURN primary, r, replica'
-
-# Services on primary EKS cluster
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (eks:Infrastructure {name: "EKS Cluster"})-[:Hosts]->(s:Service) RETURN s'
-
-# Outgoing connections per service (> 2)
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[]->(target) WITH s, count(target) AS outDegree WHERE outDegree > 2 RETURN s, outDegree'
-
-# Pagination: page 2 of services (SKIP 10, LIMIT 10)
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s.name ORDER BY s.name ASC SKIP 10 LIMIT 10'
-
-# Skip first N results
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s.name SKIP 5'
+gcyphrq -g <graph.json> -e 'MATCH (n:Label) RETURN n'
 ```
+
+### Filter nodes by property
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (n:Label {prop: "value"}) RETURN n'
+```
+
+### Find nodes connected to a specific node
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (n)-[]->(target {name: "Target"}) RETURN n'
+```
+
+### Trace paths between nodes (variable-length)
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (a {name: "A"})-[r*1..3]->(b {name: "B"}) RETURN a, r, b'
+```
+
+### Blast radius (N hops from a node, undirected)
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (root {name: "Root"})-[r*1..2]-(affected) RETURN root, r, affected'
+```
+
+### Blast radius (downstream only, directed)
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (root {name: "Root"})-[r*1..2]->(downstream) RETURN root, r, downstream'
+```
+
+### Count connections per node
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (n:Label)-[]->(target) WITH n, count(target) AS degree RETURN n, degree'
+```
+
+### Filter by connection count
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (n:Label)-[]->(target) WITH n, count(target) AS degree WHERE degree > 2 RETURN n, degree'
+```
+
+### OPTIONAL MATCH (find nodes without connections)
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (n:Label) OPTIONAL MATCH (n)-[]->(m) WHERE m IS NULL RETURN n'
+```
+
+### Sort and paginate
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (n:Label) RETURN n.name ORDER BY n.name ASC SKIP 10 LIMIT 10'
+```
+
+### Create, update, delete (in-memory only)
+
+```bash
+# Add a node
+gcyphrq -g <graph.json> -e 'CREATE (n:Label {name: "New Node"}) RETURN n'
+
+# Update a property
+gcyphrq -g <graph.json> -e 'MATCH (n:Label {name: "Existing"}) SET n.status = "updated" RETURN n'
+
+# Delete a node
+gcyphrq -g <graph.json> -e 'MATCH (n:Label {name: "Existing"}) DELETE n'
+```
+
+> **Note:** Mutations are in-memory only. They do not modify the source JSON file.
 
 ## Output Format
 
-The tool outputs raw JSON — a JSON array of result objects. No prefixes, no markdown, no extra text. Stdout is pipe-friendly:
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s.name' | jq '.[].s'
-```
+The tool outputs raw JSON — a JSON array of result objects. No prefixes, no markdown, no extra text. Stdout is pipe-friendly.
 
 Errors go to stderr with `Error: ` prefix and exit code 1.
 
@@ -190,26 +184,5 @@ Errors go to stderr with `Error: ` prefix and exit code 1.
 - **WHERE only on WITH** — `WHERE` filtering works in `WITH` clauses, not directly on `MATCH`.
 - **Aggregations limited to count/sum** — `avg()`, `min()`, `max()` are not implemented.
 - **Property access in RETURN** — returns the full node object or a single property. Nested property access beyond one level is not supported.
-- **ORDER BY on RETURN and WITH** — `ORDER BY` is supported on both `RETURN` and `WITH` clauses. Multi-column sorting with ASC/DESC is supported.
-- **SKIP on RETURN and WITH** — `SKIP` is supported on both `RETURN` and `WITH` clauses. Use with ORDER BY + LIMIT for pagination.
-
-## Architecture
-
-```
-src/
-├── index.ts                 # CLI: arg parsing, graph loading, orchestration
-├── engine/
-│   ├── cypher-parser.ts     # ANTLR4 Cypher → AST (@neo4j-cypher/antlr4)
-│   └── cypher-engine.ts     # AST execution on Graphology graphs
-└── types/
-    ├── cypher.ts            # AST types
-    └── antlr4.d.ts          # ANTLR4 runtime declarations
-```
-
-## Building and Testing
-
-```bash
-npm run build    # Compile to dist/index.js (esbuild)
-npm start        # Run from source (tsx)
-npm test         # Run tests (vitest)
-```
+- **ORDER BY on RETURN and WITH** — supported on both, multi-column with ASC/DESC.
+- **SKIP on RETURN and WITH** — supported on both. Use with ORDER BY + LIMIT for pagination.

@@ -80,7 +80,7 @@ For any AI coding agent that supports custom instructions or system prompts:
 
 1. **Install the CLI**: `npm install -g gcyphrq`
 2. **Copy the SKILL.md** from `https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md` into your agent's custom instructions
-3. **Point to your graph files** — the skill references `examples/cloud-infra.json` by default; update paths to match your setup
+3. **Point to your graph files** — replace `<graph.json>` in skill examples with paths to your actual graph files
 
 ## Prerequisites
 
