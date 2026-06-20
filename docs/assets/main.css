@@ -135,10 +135,14 @@ a:hover { text-decoration: underline; }
 
 .content strong { font-weight: 600; }
 
+.content .table-wrapper {
+  overflow-x: auto;
+  margin-bottom: 1.5rem;
+}
+
 .content table {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: 1.5rem;
   font-size: 0.9rem;
 }
 
