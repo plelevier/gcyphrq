@@ -68,8 +68,11 @@ See the [`examples/`](examples/) directory for sample graphs.
 
 ## Documentation
 
-- **[Library API](docs/LIBRARY-API.md)** — how to use gcyphrq as a library (Node.js / TypeScript)
-- **[Query Guide](docs/QUERY-GUIDE.md)** — full Cypher syntax reference, supported features, and query examples
+📖 **[Full documentation](https://plelevier.github.io/gcyphrq/)** — Getting Started, CLI Reference, Query Guide, Library API, and Examples
+
+Local docs (source):
+- **[Library API](docs/library-api.md)** — how to use gcyphrq as a library (Node.js / TypeScript)
+- **[Query Guide](docs/query-guide.md)** — full Cypher syntax reference, supported features, and query examples
 - **[Example Graphs](examples/README.md)** — graph file format and available examples
 
 ## Using as a Library
@@ -114,7 +117,7 @@ const engine = new GraphEngine(graph);
 const results = engine.execute(parseCypher('MATCH (u:User) RETURN u.name'));
 ```
 
-See the [Library API documentation](docs/LIBRARY-API.md) for the full reference.
+See the [Library API documentation](https://plelevier.github.io/gcyphrq/library-api/) for the full reference.
 
 ## Running without installing
 
