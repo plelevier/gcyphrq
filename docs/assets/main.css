@@ -35,7 +35,11 @@ body {
 a { color: var(--color-accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-.container { max-width: var(--max-width); margin: 0 auto; padding: 0 1.5rem; }
+.container { max-width: var(--max-width); margin: 0 auto; padding: 0 2.5rem; }
+
+@media (max-width: 768px) {
+  .container { padding: 0 1.25rem; }
+}
 
 /* === Header === */
 .site-header {
