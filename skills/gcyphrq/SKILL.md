@@ -186,3 +186,7 @@ Errors go to stderr with `Error: ` prefix and exit code 1.
 - **Property access in RETURN** — returns the full node object or a single property. Nested property access beyond one level is not supported.
 - **ORDER BY on RETURN and WITH** — supported on both, multi-column with ASC/DESC.
 - **SKIP on RETURN and WITH** — supported on both. Use with ORDER BY + LIMIT for pagination.
+
+## References
+
+- `references/queries.md` — Detailed query examples organized by use case. Load this file when the user asks about specific graph questions (service dependencies, blast radius, monitoring coverage, replication, etc.) and you need concrete query patterns to adapt.

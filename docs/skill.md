@@ -31,32 +31,43 @@ Pi auto-discovers skills placed in its skill directories.
 
 ```bash
 # Copy the skill globally
-mkdir -p ~/.pi/agent/skills/gcyphrq
+mkdir -p ~/.pi/agent/skills/gcyphrq/references
 curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md \
   -o ~/.pi/agent/skills/gcyphrq/SKILL.md
+curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/references/queries.md \
+  -o ~/.pi/agent/skills/gcyphrq/references/queries.md
 
 # Or project-level (available only in this project)
-mkdir -p .pi/skills/gcyphrq
+mkdir -p .pi/skills/gcyphrq/references
 curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md \
   -o .pi/skills/gcyphrq/SKILL.md
+curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/references/queries.md \
+  -o .pi/skills/gcyphrq/references/queries.md
 ```
 
 Pi will recognize the skill automatically. You can invoke it with `/skill:gcyphrq` or simply describe what you want in natural language — Pi will match the skill to your request.
 
 ### Claude (Claude Code / MCP)
 
+Claude Code auto-discovers skills placed in its skill directories.
+
 ```bash
-# Install gcyphrq CLI globally
-npm install -g gcyphrq
+# Copy the skill globally
+mkdir -p ~/.claude/skills/gcyphrq/references
+curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md \
+  -o ~/.claude/skills/gcyphrq/SKILL.md
+curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/references/queries.md \
+  -o ~/.claude/skills/gcyphrq/references/queries.md
+
+# Or project-level (available only in this project)
+mkdir -p .claude/skills/gcyphrq/references
+curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md \
+  -o .claude/skills/gcyphrq/SKILL.md
+curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/references/queries.md \
+  -o .claude/skills/gcyphrq/references/queries.md
 ```
 
-Then add the skill content to your Claude custom instructions or system prompt:
-
-1. Fetch the SKILL.md: `curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md`
-2. Paste its contents into Claude's custom instructions under a section like `## gcyphrq Skill`
-3. Ensure `gcyphrq` is on Claude's PATH (from `npm install -g` above)
-
-Claude can now use `gcyphrq` directly in terminal commands when you ask graph-related questions.
+Claude Code will recognize the skill automatically when you ask graph-related questions.
 
 ### OpenCode
 
@@ -67,9 +78,11 @@ OpenCode supports skill files in its configuration directory:
 npm install -g gcyphrq
 
 # Copy the skill to OpenCode's skill directory
-mkdir -p ~/.opencode/skills/gcyphrq
+mkdir -p ~/.opencode/skills/gcyphrq/references
 curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md \
   -o ~/.opencode/skills/gcyphrq/SKILL.md
+curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/references/queries.md \
+  -o ~/.opencode/skills/gcyphrq/references/queries.md
 ```
 
 OpenCode will load the skill and use it when your prompts match the skill's description (graph queries, infrastructure topology, service dependencies, etc.).
@@ -80,7 +93,8 @@ For any AI coding agent that supports custom instructions or system prompts:
 
 1. **Install the CLI**: `npm install -g gcyphrq`
 2. **Copy the SKILL.md** from `https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md` into your agent's custom instructions
-3. **Point to your graph files** — replace `<graph.json>` in skill examples with paths to your actual graph files
+3. **Copy the reference file** from `https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/references/queries.md` into a `references/` subdirectory alongside SKILL.md
+4. **Point to your graph files** — replace `<graph.json>` in skill examples with paths to your actual graph files
 
 ## Prerequisites
 
