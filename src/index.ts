@@ -1,37 +1,7 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { AdvancedCypherGraphologyEngine } from './engine/cypher-engine';
-import { Graph, type GraphInstance, ensureGraphApiValid } from './graph';
-import { parseCypher } from './engine/cypher-parser';
-import type { AdvancedCypherAST, ResultRow } from './types/cypher';
-
-// ── Types ────────────────────────────────────────────────────────────────────
-
-interface GraphFileNode {
-  id: string;
-  label?: string;
-  [key: string]: unknown;
-}
-
-interface GraphFileEdge {
-  source: string;
-  target: string;
-  type?: string;
-  [key: string]: unknown;
-}
-
-interface GraphFile {
-  nodes: GraphFileNode[];
-  edges: GraphFileEdge[];
-}
-
-/** Thrown by validators so callers can handle errors without process.exit(). */
-class GraphError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'GraphError';
-  }
-}
+import { GraphError, createGraph, parseCypher, GraphEngine } from './lib';
+import type { GraphFile } from './lib';
 
 // ── CLI Help ─────────────────────────────────────────────────────────────────
 
@@ -122,70 +92,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
 // ── Graph Loading ────────────────────────────────────────────────────────────
 
-function validateGraphFile(data: unknown): GraphFile {
-  if (!data || typeof data !== 'object') {
-    throw new GraphError('Invalid graph data: expected a JSON object with "nodes" and "edges" arrays.');
-  }
-
-  const obj = data as Record<string, unknown>;
-  if (!Array.isArray(obj.nodes)) {
-    throw new GraphError('Invalid graph data: "nodes" must be an array.');
-  }
-  if (!Array.isArray(obj.edges)) {
-    throw new GraphError('Invalid graph data: "edges" must be an array.');
-  }
-
-  const seenNodeIds = new Set<string>();
-  for (let i = 0; i < obj.nodes.length; i++) {
-    const node = obj.nodes[i];
-    if (!node || typeof node !== 'object') {
-      throw new GraphError(`Invalid graph data: node at index ${i} must be an object.`);
-    }
-    const n = node as Record<string, unknown>;
-    if (typeof n.id !== 'string' || !n.id) {
-      throw new GraphError(`Invalid graph data: node at index ${i} must have a non-empty string "id".`);
-    }
-    if (seenNodeIds.has(n.id)) {
-      throw new GraphError(`Invalid graph data: duplicate node id "${n.id}" at index ${i}.`);
-    }
-    seenNodeIds.add(n.id);
-  }
-
-  const nodeIds = seenNodeIds;
-  const seenEdges = new Set<string>();
-
-  for (let i = 0; i < obj.edges.length; i++) {
-    const edge = obj.edges[i];
-    if (!edge || typeof edge !== 'object') {
-      throw new GraphError(`Invalid graph data: edge at index ${i} must be an object.`);
-    }
-    const e = edge as Record<string, unknown>;
-    if (typeof e.source !== 'string' || !e.source) {
-      throw new GraphError(`Invalid graph data: edge at index ${i} must have a non-empty string "source".`);
-    }
-    if (typeof e.target !== 'string' || !e.target) {
-      throw new GraphError(`Invalid graph data: edge at index ${i} must have a non-empty string "target".`);
-    }
-    if (!nodeIds.has(e.source)) {
-      throw new GraphError(`Invalid graph data: edge at index ${i} references unknown source node "${e.source}".`);
-    }
-    if (!nodeIds.has(e.target)) {
-      throw new GraphError(`Invalid graph data: edge at index ${i} references unknown target node "${e.target}".`);
-    }
-    const edgeKey = `${e.source}->${e.target}`;
-    if (seenEdges.has(edgeKey)) {
-      throw new GraphError(`Invalid graph data: duplicate edge "${edgeKey}" at index ${i}. Graphology does not support multi-graphs.`);
-    }
-    seenEdges.add(edgeKey);
-  }
-
-  return {
-    nodes: obj.nodes as GraphFileNode[],
-    edges: obj.edges as GraphFileEdge[],
-  };
-}
-
-async function readJsonFile(source: 'file' | 'stdin', path?: string): Promise<unknown> {
+async function readJsonFile(source: 'file' | 'stdin', path?: string): Promise<GraphFile> {
   let content: string;
   if (source === 'file') {
     try {
@@ -223,22 +130,6 @@ async function readJsonFile(source: 'file' | 'stdin', path?: string): Promise<un
   }
 }
 
-function buildGraph(data: GraphFile): GraphInstance {
-  const graph = new Graph();
-
-  for (const node of data.nodes) {
-    const { id, ...attrs } = node;
-    graph.addNode(id, attrs);
-  }
-
-  for (const edge of data.edges) {
-    const { source, target, ...attrs } = edge;
-    graph.addEdge(source, target, attrs);
-  }
-
-  return graph;
-}
-
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -258,17 +149,17 @@ async function main(): Promise<void> {
       throw new GraphError('Missing required option: -g, --graph <file>\n\nUse "gcyphrq --help" for usage information.');
     }
 
-    // Load graph
+    // Load graph data
     const graphData = args.graph === '-'
       ? await readJsonFile('stdin')
       : await readJsonFile('file', args.graph);
-    const graph = buildGraph(validateGraphFile(graphData));
-    ensureGraphApiValid(graph);
 
-    // Parse and execute
+    // Build graph and execute query using the library
+    const graph = createGraph(graphData);
+    const engine = new GraphEngine(graph);
     const ast = parseCypher(args.expr);
-    const engine = new AdvancedCypherGraphologyEngine(graph);
-    const results: ResultRow[] = engine.execute(ast);
+    const results = engine.execute(ast);
+
     console.log(JSON.stringify(results, null, 2));
   } catch (err: unknown) {
     printError(err instanceof Error ? err.message : String(err));
