@@ -1,0 +1,58 @@
+{
+  "name": "gcyphrq",
+  "version": "0.9.1",
+  "description": "A CLI tool that executes Cypher graph queries against an in-memory graph built on Graphology",
+  "main": "dist/index.js",
+  "bin": {
+    "gcyphrq": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "examples",
+    "docs"
+  ],
+  "author": "Pascal Le Levier",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plelevier/gcyphrq"
+  },
+  "keywords": [
+    "cypher",
+    "graph",
+    "query",
+    "graphology",
+    "neo4j",
+    "cli",
+    "in-memory"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@neo4j-cypher/antlr4": "^1.0.0",
+    "antlr4": "4.10.1",
+    "graphology": "^0.26.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.22.4",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.9"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "fsevents@2.3.3": true
+  }
+}

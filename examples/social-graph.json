@@ -1,0 +1,11 @@
+{
+  "nodes": [
+    { "id": "alice", "label": "User", "name": "Alice" },
+    { "id": "bob", "label": "User", "name": "Bob" },
+    { "id": "charlie", "label": "User", "name": "Charlie" }
+  ],
+  "edges": [
+    { "source": "alice", "target": "bob", "type": "FRIEND" },
+    { "source": "bob", "target": "charlie", "type": "FRIEND" }
+  ]
+}
