@@ -44,11 +44,6 @@ function resolveChainValue(chain: QueryContext | ContextChain, key: string): Cyp
   return (chain as QueryContext)[key];
 }
 
-/** Set a value on the topmost override layer of a context chain. */
-function setChainValue(chain: ContextChain, key: string, value: CypherValue): void {
-  chain.__overrides[key] = value;
-}
-
 /** Materialise a context chain into a flat QueryContext. */
 function materialiseChain(chain: QueryContext | ContextChain): QueryContext {
   const result: QueryContext = {};
@@ -518,7 +513,9 @@ export class AdvancedCypherGraphologyEngine {
     clause: WriteClause,
     contexts: (QueryContext | ContextChain)[],
   ): void {
-    // Materialise contexts in-place so mutations are visible to later stages
+    // Materialise contexts in-place so mutations are visible to later stages.
+    // (The caller's array reference is mutated; this is safe because the engine
+    // is the sole owner of the contexts array between stages.)
     for (let i = 0; i < contexts.length; i++) {
       if (isContextChain(contexts[i]!)) {
         contexts[i] = materialiseChain(contexts[i]!);

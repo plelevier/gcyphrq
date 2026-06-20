@@ -188,7 +188,9 @@ class ErrorCollector implements BaseErrorListener {
 
 // ── Tree index (optimisation #6) ────────────────────────────────────────────
 // Flat index: maps context class names → arrays of node indices.
-// Enables O(1) child lookups by type instead of O(n) linear scans.
+// Provides positional navigation for the main parseCypher flow; individual
+// child lookups are still O(n) within a parent's children but avoids repeated
+// tree traversal for the top-level clause extraction path.
 
 interface TreeIndex {
   nodes: ParseTreeNode[];

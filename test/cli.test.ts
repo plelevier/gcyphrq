@@ -29,7 +29,7 @@ function runCli(args: string[]): Promise<{ stdout: string; stderr: string; code:
       resolveResult({
         stdout,
         stderr,
-        code: error?.code ?? 0,
+        code: typeof error?.code === 'number' ? error.code : 0,
       });
     });
   });

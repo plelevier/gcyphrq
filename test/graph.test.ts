@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Graph, ensureGraphApiValid, type GraphInstance } from '../src/graph';
+import { Graph, type GraphInstance } from '../src/graph';
 
 describe('Graph', () => {
   it('creates an empty graph with order 0', () => {
@@ -120,17 +120,24 @@ describe('Graph', () => {
   });
 });
 
-describe('ensureGraphApiValid', () => {
-  it('does not throw when Graphology API is correct', () => {
+describe('Graph API surface', () => {
+  it('exposes all required methods on the GraphInstance', () => {
     const graph = new Graph();
-    expect(() => ensureGraphApiValid(graph)).not.toThrow();
-  });
-
-  it('is idempotent (subsequent calls are no-ops)', () => {
-    const graph = new Graph();
-    ensureGraphApiValid(graph);
-    ensureGraphApiValid(graph);
-    ensureGraphApiValid(graph);
-    // Should not throw
+    const requiredMethods = [
+      'addNode',
+      'addEdge',
+      'getNodeAttributes',
+      'getEdgeAttributes',
+      'filterNodes',
+      'forEachOutboundEdge',
+      'forEachInboundEdge',
+      'forEachEdge',
+      'setNodeAttribute',
+      'hasNode',
+      'dropNode',
+    ];
+    for (const method of requiredMethods) {
+      expect(typeof (graph as unknown as Record<string, unknown>)[method]).toBe('function');
+    }
   });
 });

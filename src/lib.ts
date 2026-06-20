@@ -2,7 +2,7 @@
 
 import { parseCypher as _parseCypher } from './engine/cypher-parser';
 import { AdvancedCypherGraphologyEngine } from './engine/cypher-engine';
-import { Graph, wrapGraphInstance, type GraphInstance } from './graph';
+import { Graph, type GraphInstance } from './graph';
 import type { AdvancedCypherAST, ResultRow, GraphIndexes } from './types/cypher';
 
 // ── Graph file format types ──────────────────────────────────────────────────
@@ -138,7 +138,7 @@ function buildGraphIndexesInternal(data: GraphFile, graph: GraphInstance): Graph
   }
 
   // Edge type adjacency index — iterate the graph to get real Graphology edge IDs
-  graph.forEachEdgeAll((edgeId, source, target, attrs) => {
+  graph.forEachEdge((edgeId, attrs, source, target) => {
     const edgeType = (attrs.type && typeof attrs.type === 'string') ? attrs.type : '__UNTYPED__';
 
     // Outgoing: source → [target]
@@ -164,8 +164,8 @@ function buildGraphIndexesInternal(data: GraphFile, graph: GraphInstance): Graph
 /**
  * Build a `GraphInstance` from a graph data object.
  *
- * Validates the data, constructs a Graphology-backed graph, and builds
- * pre-computed indexes for fast label/property/adjacency lookups.
+ * Validates the data and constructs a Graphology-backed graph that the
+ * Cypher engine can query.
  *
  * @example
  * ```ts
@@ -198,7 +198,7 @@ export function createGraph(data: GraphFile): GraphInstance {
     graph.addEdge(source, target, attrs);
   }
 
-  return wrapGraphInstance(graph);
+  return graph;
 }
 
 /**
@@ -281,7 +281,7 @@ export function executeQuery(graphData: GraphFile, query: string): ResultRow[] {
  * import { GraphEngine, createGraph, buildGraphIndexes } from 'gcyphrq';
  *
  * const graph = createGraph(graphData);
- * const indexes = buildGraphIndexes(graphData);
+ * const indexes = buildGraphIndexes(graphData, graph);
  * const engine = new GraphEngine(graph, indexes);
  * const results = engine.execute(ast);
  * ```
