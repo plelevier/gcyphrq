@@ -59,13 +59,13 @@ document.addEventListener('DOMContentLoaded', () => {
 function tokenize(src) {
   const tokens = [];
   const keywords = new Set([
-    'MATCH', 'UNWIND', 'OPTIONAL', 'RETURN', 'WITH', 'WHERE',
+    'MATCH', 'OPTIONAL', 'UNWIND', 'RETURN', 'WITH', 'WHERE',
     'CREATE', 'MERGE', 'SET', 'DELETE', 'REMOVE', 'FOREACH',
     'ORDER', 'BY', 'ASC', 'DESC', 'SKIP', 'LIMIT',
-    'ON', 'CREATE', 'UPDATE', 'MATCH',
+    'ON', 'UPDATE',
     'AND', 'OR', 'XOR', 'NOT', 'IN', 'IS', 'NULL', 'TRUE', 'FALSE',
     'AS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
-    'STARTS', 'WITH', 'ENDS', 'CONTAINS',
+    'STARTS', 'ENDS', 'CONTAINS',
   ]);
   const functions = new Set([
     'count', 'sum', 'min', 'max', 'avg', 'collect',

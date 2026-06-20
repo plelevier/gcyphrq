@@ -225,6 +225,13 @@ a:hover { text-decoration: underline; }
   opacity: 1;
 }
 
+/* Always visible on touch devices where :hover doesn't work */
+@media (hover: none) {
+  .code-copy-btn {
+    opacity: 1;
+  }
+}
+
 .code-copy-btn:hover {
   color: rgba(0,0,0,0.7);
   background: rgba(0,0,0,0.07);
@@ -236,13 +243,13 @@ a:hover { text-decoration: underline; }
 }
 
 /* Cypher keyword highlighting */
-.cy-kw  { color: #7c3aed; font-weight: 600; }
-.cy-fn  { color: #2563eb; }
-.cy-label { color: #d97706; }
-.cy-rel { color: #0d9488; font-weight: 600; }
-.cy-str { color: #059669; }
-.cy-num { color: #d97706; }
-.cy-cmt { color: #52525b; font-style: italic; }
+.highlight .cy-kw   { color: #7c3aed; font-weight: 600; }
+.highlight .cy-fn   { color: #2563eb; }
+.highlight .cy-label { color: #d97706; }
+.highlight .cy-rel  { color: #0d9488; font-weight: 600; }
+.highlight .cy-str  { color: #059669; }
+.highlight .cy-num  { color: #d97706; }
+.highlight .cy-cmt  { color: #52525b; font-style: italic; }
 
 /* Rouge syntax highlighting (light theme) */
 .highlight .c, .highlight .c1, .highlight .cm, .highlight .cp { color: #52525b; font-style: italic; }
