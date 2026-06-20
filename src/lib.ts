@@ -2,8 +2,9 @@
 
 import { parseCypher as _parseCypher } from './engine/cypher-parser';
 import { AdvancedCypherGraphologyEngine } from './engine/cypher-engine';
+import { buildGraphIndexes as buildGraphIndexesInternal } from './indexes';
 import { Graph, type GraphInstance } from './graph';
-import type { AdvancedCypherAST, ResultRow } from './types/cypher';
+import type { AdvancedCypherAST, ResultRow, GraphIndexes } from './types/cypher';
 
 // ── Graph file format types ──────────────────────────────────────────────────
 
@@ -125,6 +126,11 @@ function validateGraphData(data: unknown): GraphFile {
  */
 export function createGraph(data: GraphFile): GraphInstance {
   const validated = validateGraphData(data);
+  return buildGraph(validated);
+}
+
+/** Build a Graphology graph from already-validated data (internal helper). */
+function buildGraph(validated: GraphFile): GraphInstance {
   const graph = new Graph();
 
   for (const node of validated.nodes) {
@@ -138,6 +144,26 @@ export function createGraph(data: GraphFile): GraphInstance {
   }
 
   return graph;
+}
+
+/**
+ * Build pre-computed indexes from graph data for fast query execution.
+ *
+ * Pass the returned indexes to `GraphEngine` constructor for O(1) label
+ * and property lookups instead of full-graph scans.
+ *
+ * @example
+ * ```ts
+ * import { buildGraphIndexes, GraphEngine, createGraph } from 'gcyphrq';
+ *
+ * const graph = createGraph(graphData);
+ * const indexes = buildGraphIndexes(graphData, graph);
+ * const engine = new GraphEngine(graph, indexes);
+ * ```
+ */
+export function buildGraphIndexes(data: GraphFile, graph: GraphInstance): GraphIndexes {
+  const validated = validateGraphData(data);
+  return buildGraphIndexesInternal(validated, graph);
 }
 
 // ── Query execution ──────────────────────────────────────────────────────────
@@ -163,7 +189,7 @@ export function parseCypher(query: string): AdvancedCypherAST {
  * Execute a Cypher query against a graph and return results as plain JSON.
  *
  * This is the simplest way to use gcyphrq: pass in graph data and a query
- * string, get back an array of result rows.
+ * string, get back an array of result rows. Indexes are built automatically.
  *
  * @example
  * ```ts
@@ -180,8 +206,10 @@ export function parseCypher(query: string): AdvancedCypherAST {
  * @throws {Error} If the query is invalid or cannot be executed
  */
 export function executeQuery(graphData: GraphFile, query: string): ResultRow[] {
-  const graph = createGraph(graphData);
-  const engine = new AdvancedCypherGraphologyEngine(graph);
+  const validated = validateGraphData(graphData);
+  const graph = buildGraph(validated);
+  const indexes = buildGraphIndexesInternal(validated, graph);
+  const engine = new AdvancedCypherGraphologyEngine(graph, indexes);
   const ast = _parseCypher(query);
   return engine.execute(ast);
 }
@@ -191,12 +219,17 @@ export function executeQuery(graphData: GraphFile, query: string): ResultRow[] {
 /**
  * The Cypher query engine. Accepts a `GraphInstance` and executes parsed ASTs.
  *
+ * For best performance, pass pre-computed indexes as the second argument.
+ * Note: indexes are invalidated after any CREATE/SET/DELETE mutation so that
+ * subsequent MATCH/WITH stages see the updated graph state via full-graph scan.
+ *
  * @example
  * ```ts
- * import { GraphEngine, createGraph } from 'gcyphrq';
+ * import { GraphEngine, createGraph, buildGraphIndexes } from 'gcyphrq';
  *
  * const graph = createGraph(graphData);
- * const engine = new GraphEngine(graph);
+ * const indexes = buildGraphIndexes(graphData, graph);
+ * const engine = new GraphEngine(graph, indexes);
  * const results = engine.execute(ast);
  * ```
  */
@@ -242,6 +275,9 @@ export { Graph };
 
 // Re-export GraphInstance from graph.ts for type-only use
 export type { GraphInstance } from './graph';
+
+// Re-export GraphIndexes for consumers who build indexes manually
+export type { GraphIndexes } from './types/cypher';
 
 // Re-export all AST, expression, and result types from types/cypher.ts
 export type {

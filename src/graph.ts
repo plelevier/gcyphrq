@@ -10,7 +10,12 @@ export interface GraphInstance {
   filterNodes(fn: (id: string, attrs: Record<string, unknown>) => boolean): string[];
   forEachOutboundEdge(id: string, cb: (e: string, a: Record<string, unknown>, s: string, t: string) => void): void;
   forEachInboundEdge(id: string, cb: (e: string, a: Record<string, unknown>, s: string, t: string) => void): void;
+  /**
+   * Iterate edges incident to a specific node, or all edges when no node ID is given.
+   * (Wraps Graphology's `forEachEdge` which accepts an optional node parameter.)
+   */
   forEachEdge(id: string, cb: (e: string, a: Record<string, unknown>, s: string, t: string) => void): void;
+  forEachEdge(cb: (e: string, a: Record<string, unknown>, s: string, t: string) => void): void;
   setNodeAttribute(id: string, attr: string, value: unknown): void;
   hasNode(id: string): boolean;
   dropNode(id: string): void;
@@ -46,19 +51,9 @@ function assertGraphApi(graph: GraphInstance): void {
   }
 }
 
-let graphApiValidated = false;
-
-/** Lazy validation — runs once on first Graph construction, not at module load. */
-function ensureGraphApiValid(graph: GraphInstance): void {
-  if (graphApiValidated) return;
-  if (process.env.NODE_ENV === 'test') return;
-  assertGraphApi(graph);
-  graphApiValidated = true;
-}
-
 // Eager check in dev so broken Graphology versions are caught immediately.
 if (process.env.NODE_ENV === 'development') {
   assertGraphApi(new Graph());
 }
 
-export { Graph, ensureGraphApiValid };
+export { Graph };

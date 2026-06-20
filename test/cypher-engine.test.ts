@@ -2,11 +2,56 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Graph, type GraphInstance } from '../src/graph';
 import { AdvancedCypherGraphologyEngine } from '../src/engine/cypher-engine';
 import { parseCypher } from '../src/engine/cypher-parser';
-import type { CypherNode } from '../src/types/cypher';
+import { buildGraphIndexes } from '../src/indexes';
+import type { CypherNode, GraphIndexes } from '../src/types/cypher';
 
 /** Cast a result-row value to CypherNode for test assertions. */
 function node<T extends Record<string, unknown>>(row: T, key: keyof T): CypherNode {
   return row[key] as CypherNode;
+}
+
+/** Build simple indexes from a Graphology graph (for mutation tests). */
+function buildIndexesFromGraph(graph: GraphInstance): GraphIndexes {
+  const labelIndex = new Map<string, Set<string>>();
+  const propertyIndex = new Map<string, Map<string, Set<string>>>();
+  const edgeOut = new Map<string, Map<string, Array<{ target: string; edgeId: string }>>>();
+  const edgeIn = new Map<string, Map<string, Array<{ source: string; edgeId: string }>>>();
+
+  graph.filterNodes(() => true).forEach((id) => {
+    const attrs = graph.getNodeAttributes(id);
+    const label = attrs.label as string | undefined;
+    if (label) {
+      let s = labelIndex.get(label);
+      if (!s) { s = new Set(); labelIndex.set(label, s); }
+      s.add(id);
+    }
+    for (const [key, value] of Object.entries(attrs)) {
+      if (key === 'label' || value === null || value === undefined || typeof value === 'object') continue;
+      let vm = propertyIndex.get(key);
+      if (!vm) { vm = new Map(); propertyIndex.set(key, vm); }
+      const vk = String(value);
+      let ns = vm.get(vk);
+      if (!ns) { ns = new Set(); vm.set(vk, ns); }
+      ns.add(id);
+    }
+  });
+
+  graph.forEachEdge((edgeId, attrs, source, target) => {
+    const et = (attrs.type && typeof attrs.type === 'string') ? attrs.type : '__UNTYPED__';
+    let om = edgeOut.get(et);
+    if (!om) { om = new Map(); edgeOut.set(et, om); }
+    let ol = om.get(source);
+    if (!ol) { ol = []; om.set(source, ol); }
+    ol.push({ target, edgeId });
+
+    let im = edgeIn.get(et);
+    if (!im) { im = new Map(); edgeIn.set(et, im); }
+    let il = im.get(target);
+    if (!il) { il = []; im.set(target, il); }
+    il.push({ source, edgeId });
+  });
+
+  return { labelIndex, propertyIndex, edgeTypeIndex: { out: edgeOut, in: edgeIn } };
 }
 
 function createTestGraph() {
@@ -946,6 +991,40 @@ describe('AdvancedCypherGraphologyEngine', () => {
     it('does not double-delete when multiple contexts reference same node', () => {
       const ast = parseCypher('MATCH (s:Source)-[r:REF]->(z:Target) DELETE z RETURN s.name');
       expect(() => sharedEngine.execute(ast)).not.toThrow();
+    });
+  });
+
+  describe('execute - index invalidation after mutations', () => {
+    let mutGraph: GraphInstance;
+    let mutEngine: AdvancedCypherGraphologyEngine;
+
+    beforeEach(() => {
+      mutGraph = new Graph();
+      mutGraph.addNode('a', { label: 'Node', name: 'A' });
+      mutGraph.addNode('b', { label: 'Node', name: 'B' });
+      const indexes = buildIndexesFromGraph(mutGraph);
+      mutEngine = new AdvancedCypherGraphologyEngine(mutGraph, indexes);
+    });
+
+    it('sees newly created nodes in subsequent MATCH', () => {
+      // CREATE adds a node, then a second MATCH should find it even though
+      // indexes are invalidated (falling back to full-graph scan)
+      const ast = parseCypher('CREATE (c:Node {name: "C"}) MATCH (n:Node) RETURN count(n) AS total');
+      const results = mutEngine.execute(ast);
+      expect(results[0]?.total).toBe(3);
+    });
+
+    it('sees deleted nodes as absent in subsequent query on same engine', () => {
+      // After DELETE, indexes are invalidated. A new query on the same engine
+      // should still work via full-graph scan (indexes are undefined after mutation).
+      const ast1 = parseCypher('MATCH (n:Node {name: "A"}) DELETE n RETURN n');
+      mutEngine.execute(ast1);
+      expect(mutGraph.hasNode('a')).toBe(false);
+
+      // New query on the same engine — indexes were invalidated, so it scans the graph
+      const ast2 = parseCypher('MATCH (n:Node) RETURN count(n) AS total');
+      const results = mutEngine.execute(ast2);
+      expect(results[0]?.total).toBe(1);
     });
   });
 });
