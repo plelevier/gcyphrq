@@ -33,6 +33,8 @@ nav:
     url: /library-api/
   - title: Examples
     url: /examples/
+  - title: Skill Guide
+    url: /skill/
   - title: GitHub
     url: https://github.com/plelevier/gcyphrq
     external: true
