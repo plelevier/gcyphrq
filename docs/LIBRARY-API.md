@@ -1,6 +1,16 @@
+---
+layout: default
+title: Library API
+description: Complete API reference for using gcyphrq as a Node.js / TypeScript library.
+---
+
+<div class="breadcrumb">
+  <a href="{{ '/' | relative_url }}">Home</a> <span>›</span> Library API
+</div>
+
 # Library API
 
-`gcyphrq` can be used as a library in Node.js and TypeScript projects. This guide covers all public APIs, types, and usage patterns.
+`gcyphrq` can be used as a library in Node.js and TypeScript projects. This page covers all public APIs, types, and usage patterns.
 
 ## Installation
 
@@ -16,7 +26,7 @@ import { executeQuery } from 'gcyphrq';
 const graphData = {
   nodes: [
     { id: 'alice', label: 'User', name: 'Alice', age: 30 },
-    { id: 'bob', label: 'User', name: 'Bob', age: 25 },
+    { id: 'bob',   label: 'User', name: 'Bob',   age: 25 },
   ],
   edges: [
     { source: 'alice', target: 'bob', type: 'FRIEND' },
@@ -27,6 +37,8 @@ const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name, u.age');
 console.log(results);
 // [ { name: 'Alice', age: 30 }, { name: 'Bob', age: 25 } ]
 ```
+
+---
 
 ## API Reference
 
@@ -41,9 +53,9 @@ Execute a Cypher query against a graph and return results as plain JSON. This is
 | `graphData` | [`GraphFile`](#graphfile) | Graph data in the Graphology JSON format |
 | `query` | `string` | A Cypher query string |
 
-**Returns:** [`ResultRow[]`](#resultrow) — array of result rows
+**Returns:** `ResultRow[]` — array of result rows
 
-**Throws:** [`GraphError`](#grapherror) if graph data is invalid, `Error` if the query is invalid
+**Throws:** `GraphError` if graph data is invalid, `Error` if the query is invalid
 
 ```ts
 import { executeQuery } from 'gcyphrq';
@@ -55,7 +67,7 @@ const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 
 ### `createGraph(graphData)`
 
-Build a [`GraphInstance`](#graphinstance) from a graph data object. Validates the data and constructs a Graphology-backed graph that the Cypher engine can query.
+Build a `GraphInstance` from a graph data object. Validates the data and constructs a Graphology-backed graph that the Cypher engine can query.
 
 **Parameters:**
 
@@ -63,9 +75,9 @@ Build a [`GraphInstance`](#graphinstance) from a graph data object. Validates th
 |---|---|---|
 | `graphData` | [`GraphFile`](#graphfile) | Graph data in the Graphology JSON format |
 
-**Returns:** [`GraphInstance`](#graphinstance)
+**Returns:** `GraphInstance`
 
-**Throws:** [`GraphError`](#grapherror) if graph data is invalid
+**Throws:** `GraphError` if graph data is invalid
 
 ```ts
 import { createGraph } from 'gcyphrq';
@@ -85,7 +97,7 @@ Parse a Cypher query string into an AST. The returned AST can be passed to `Grap
 |---|---|---|
 | `query` | `string` | A Cypher query string |
 
-**Returns:** [`AdvancedCypherAST`](#advancedcypherast)
+**Returns:** `AdvancedCypherAST`
 
 **Throws:** `Error` if the query cannot be parsed
 
@@ -171,6 +183,8 @@ try {
 }
 ```
 
+---
+
 ## Usage Patterns
 
 ### Pattern 1: One-shot query (simplest)
@@ -188,7 +202,7 @@ const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 Use `createGraph` + `GraphEngine` when running multiple queries against the same graph:
 
 ```ts
-import { createGraph, GraphEngine } from 'gcyphrq';
+import { createGraph, GraphEngine, parseCypher } from 'gcyphrq';
 
 const graph = createGraph(graphData);
 const engine = new GraphEngine(graph);
@@ -249,6 +263,8 @@ engine.execute(parseCypher('MATCH (u:User {name: "Alice"}) SET u.age = 31 RETURN
 // Query after mutation
 const results = engine.execute(parseCypher('MATCH (u:User) RETURN u.name, u.age'));
 ```
+
+---
 
 ## Types
 
@@ -341,6 +357,8 @@ type Stage =
   | { type: 'WRITE'; clause: WriteClause };
 ```
 
+---
+
 ## Error Handling
 
 The library throws two kinds of errors:
@@ -364,46 +382,7 @@ try {
 }
 ```
 
-## Supported Cypher Features
-
-| Feature | Status |
-|---|---|
-| `MATCH` with node labels and properties | ✅ |
-| Variable-length paths `*min..max` | ✅ |
-| Directional edges `->`, `<-`, `-` | ✅ |
-| `OPTIONAL MATCH` | ✅ |
-| `RETURN` with property access and aliases | ✅ |
-| `WITH` + implicit grouping | ✅ |
-| `count()`, `sum()` aggregations | ✅ |
-| `WHERE` (on `WITH`) with `>`, `<`, `=`, `CONTAINS` | ✅ |
-| `CREATE`, `SET`, `DELETE` mutations | ✅ |
-| Multiple chained clauses | ✅ (single MATCH per stage) |
-| `ORDER BY` (single/multi-column, ASC/DESC) | ✅ |
-| `SKIP` | ✅ |
-| `LIMIT` | ✅ |
-| Subqueries, `CALL`, APOC | ❌ |
-
-See the [Query Guide](QUERY-GUIDE.md) for syntax details and examples.
-
-## Graph File Format
-
-The graph data format follows the [Graphology](https://graphology.github.io/) project's JSON representation:
-
-```json
-{
-  "nodes": [
-    { "id": "alice", "label": "User", "name": "Alice" }
-  ],
-  "edges": [
-    { "source": "alice", "target": "bob", "type": "FRIEND" }
-  ]
-}
-```
-
-- **`nodes`** — array of node objects. Each must have a unique `id` (string). Additional properties become node attributes.
-- **`edges`** — array of edge objects. Each must have `source` and `target` (strings referencing node IDs). Additional properties become edge attributes.
-- Edge IDs are auto-generated by Graphology. You cannot specify custom edge IDs.
-- Multi-graphs (multiple edges between the same pair of nodes) are not supported.
+---
 
 ## TypeScript Configuration
 
@@ -424,7 +403,6 @@ For projects using `"moduleResolution": "node"` (older tsconfig), add:
 The library is published as ESM only. In CommonJS projects, use dynamic `import()`:
 
 ```js
-// CommonJS
 async function main() {
   const { executeQuery } = await import('gcyphrq');
   const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
@@ -439,3 +417,8 @@ main();
 - **`executeQuery`** builds a new graph for each call. For multiple queries, use `createGraph` + `GraphEngine` instead.
 - The engine processes queries in-memory with no caching. Large graphs (>10,000 nodes) may have noticeable query times.
 - Variable-length paths use DFS traversal. Setting `maxDepth` is recommended to avoid excessive exploration.
+
+## Next Steps
+
+- **[Query Guide](query-guide)** — Full Cypher syntax reference and query patterns
+- **[Examples](examples)** — Ready-to-run queries against the bundled cloud infrastructure graph

@@ -91,5 +91,7 @@ See `examples/README.md` for 12 query examples against `cloud-infra.json`.
 
 ## Docs
 
-- `docs/QUERY-GUIDE.md` — Cypher syntax reference and query blueprints
-- `examples/README.md` — graph file format and query examples
+- `docs/query-guide.md` — Cypher syntax reference and query patterns (Jekyll site at `docs/`)
+- `docs/library-api.md` — Library API reference
+- `docs/examples.md` — Ready-to-run query examples
+- `examples/README.md` — graph file format and CLI query examples

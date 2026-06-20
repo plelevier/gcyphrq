@@ -1,185 +1,254 @@
-# Graphology Cypher Query Guide
+---
+layout: default
+title: Query Guide
+description: Full Cypher syntax reference, supported features, and query patterns for gcyphrq.
+---
 
-This project utilizes an advanced in-memory Cypher execution engine on top of `Graphology`. When generating queries to interact with this tool, you must output **only raw Cypher query strings**. Do not generate JSON AST schemas or programmatic API builders.
+<div class="breadcrumb">
+  <a href="{{ '/' | relative_url }}">Home</a> <span>›</span> Query Guide
+</div>
 
-## CLI Usage
+# Query Guide
 
-```bash
-Usage: gcyphrq [options]
-
-Options:
-  -e, --expr <query>   Cypher query expression (required)
-  -g, --graph <file>   Path to a JSON graph file (or "-" to read from stdin)
-  -h, --help           Show this help message
-```
-
-### Loading a graph
-
-The tool requires a graph file provided with the `-g` flag:
-
-```bash
-gcyphrq -g examples/social-graph.json -e 'MATCH (u:User) RETURN u'
-```
-
-Or pipe the graph from stdin:
-
-```bash
-cat my-graph.json | gcyphrq -g - -e 'MATCH (u:User) RETURN u'
-```
-
-### Graph file format
-
-```json
-{
-  "nodes": [
-    { "id": "<node-id>", "label": "<label>", "<property>": "<value>", ... }
-  ],
-  "edges": [
-    { "source": "<source-id>", "target": "<target-id>", "type": "<edge-type>", ... }
-  ]
-}
-```
-
-See the [`examples/`](../examples/) directory for sample graphs.
-
-### Output format
-
-The tool outputs raw JSON — a JSON array of result objects with no prefixes or extra text. This makes it easy to pipe into other tools:
-
-```bash
-gcyphrq -g examples/social-graph.json -e 'MATCH (u:User) RETURN u.name' | jq '.[0].u'
-```
-
-## Query Syntax Restrictions & Capabilities
-
-The execution engine is optimized for the following Cypher features:
-- **Node & Variable Depth Filtering**: Supports specific variable length paths (e.g., `*1..3`).
-- **Full Path Edge Extraction**: Binding a variable to a deep path relationship returns the entire array sequence of traversed edges.
-- **Directional Enforcement**: Standard ASCII arrow directionality rules apply (`->`, `<-`, `-`).
-- **Implicit Grouping & Aggregations**: Supports `WITH` pipelining alongside `count()` and `sum()`.
-- **ORDER BY**: Supports single or multiple sort keys with `ASC` (default) or `DESC` direction.
-- **SKIP**: Skips the first N results (useful for pagination).
-- **LIMIT**: Truncates results to a specified count.
-- **Mutations**: Supports `CREATE`, `SET`, and `DELETE`.
+This guide covers all supported Cypher syntax and query patterns available in the `gcyphrq` engine.
 
 ---
 
-## Code Generation Examples
+## Supported Features
 
-Use these examples as structural templates when generating Cypher strings for the tool:
+See the [Home page](/) for the full feature support table.
 
-### 1. Deep Path & Traversed Edge Sequences
-To retrieve a node, its connections up to 3 hops away (ignoring orientation), and the entire sequence of connecting edges:
+<div class="callout">
+  <p><strong>Single MATCH per stage:</strong> The engine processes one MATCH clause at a time. Chained MATCHes within the same stage are not supported — use multiple stages separated by <code>WITH</code> instead.</p>
+</div>
 
-```cypher
-MATCH (u:User {name: 'Alice'})-[r:FRIEND*1..3]-(f:User) 
-RETURN u, r, f
+---
+
+## MATCH
+
+### Basic node match
+
+```text
+MATCH (u:User) RETURN u
 ```
 
-### 2. Direction-Specific Extraction
-To fetch only direct inbound relations or outbound relations:
+### Match with property filter
 
-```cypher
+```text
+MATCH (u:User {name: 'Alice'}) RETURN u
+```
+
+### Match with relationships
+
+```text
+MATCH (u:User)-[:FRIEND]->(f:User) RETURN u, f
+```
+
+### Variable-length paths
+
+```text
+MATCH (u:User)-[r:FRIEND*1..3]-(f:User) RETURN u, r, f
+```
+
+The `*min..max` syntax specifies the minimum and maximum path length. Use `*1..3` for 1 to 3 hops, `*2..2` for exactly 2 hops, etc.
+
+### Directional edges
+
+| Syntax | Meaning |
+|---|---|
+| `-[:TYPE]->` | Outbound only (from source to target) |
+| `<-[:TYPE]-` | Inbound only (from target to source) |
+| `-[:TYPE]-` | Undirected (either direction) |
+
+```text
 // Outbound only
 MATCH (u:User {name: 'Alice'})-[r:FRIEND]->(f:User) RETURN f
 
 // Inbound only
 MATCH (u:User {name: 'Alice'})<-[r:FRIEND]-(f:User) RETURN f
+
+// Any direction
+MATCH (u:User {name: 'Alice'})-[r:FRIEND]-(f:User) RETURN f
 ```
 
-### 3. Optional Matches (Left Outer Joins)
-To fetch source elements and safely structuralize connected paths even if they do not exist (returning empty lists/nulls instead of dropping rows):
+---
 
-```cypher
-MATCH (u:User) 
-OPTIONAL MATCH (u)-[r:HAS_CARD]->(c:Card) 
+## OPTIONAL MATCH
+
+Performs a left outer join — returns results even when no matching path exists (with nulls for unmatched variables):
+
+```text
+MATCH (u:User)
+OPTIONAL MATCH (u)-[r:HAS_CARD]->(c:Card)
 RETURN u, c
 ```
 
-### 4. Aggregations & Pipeline Filtering
-To group variables, run conditional counts, and stream filtered contexts further into successive evaluation stages:
+---
 
-```cypher
-MATCH (u:User)-[:FRIEND]->(f)
-WITH u, count(f) AS friendCount 
-WHERE friendCount > 5
-RETURN u, friendCount
+## RETURN
+
+### Return full nodes
+
+```text
+MATCH (u:User) RETURN u
 ```
 
-### 6. Ordering Results (ORDER BY)
+### Return specific properties
+
+```text
+MATCH (u:User) RETURN u.name, u.age
+```
+
+### Return with aliases
+
+```text
+MATCH (u:User) RETURN u.name AS userName, u.age AS userAge
+```
+
+---
+
+## WITH + Implicit Grouping
+
+Use `WITH` to pipe results through intermediate stages. When you include both aggregated and non-aggregated variables, implicit grouping occurs:
+
+```text
+MATCH (u:User)-[:FRIEND]->(f)
+WITH u, count(f) AS friendCount
+WHERE friendCount > 1
+RETURN u.name, friendCount
+```
+
+### Supported aggregations
+
+| Function | Description |
+|---|---|
+| `count(x)` | Count non-null values |
+| `sum(x)` | Sum numeric values |
+
+---
+
+## WHERE (on WITH)
+
+Filter results after a `WITH` clause:
+
+```text
+MATCH (s:Service)-[]->(t)
+WITH s, count(t) AS outDegree
+WHERE outDegree > 2
+RETURN s.name, outDegree
+```
+
+### Supported operators
+
+| Operator | Example |
+|---|---|
+| `=` | `WHERE count = 5` |
+| `>` | `WHERE count > 5` |
+| `<` | `WHERE count < 5` |
+| `CONTAINS` | `WHERE name CONTAINS "api"` |
+
+---
+
+## ORDER BY
+
 Sort results by one or more properties. Default direction is `ASC` (ascending).
 
-```cypher
-// Sort by name ascending (default)
+```text
+// Single column, ascending (default)
 MATCH (u:User) RETURN u.name ORDER BY u.name
 
-// Sort by age descending
+// Single column, descending
 MATCH (u:User) RETURN u.name, u.age ORDER BY u.age DESC
 
-// Sort by multiple columns (primary then secondary)
+// Multiple columns
 MATCH (u:User) RETURN u.name, u.age ORDER BY u.age ASC, u.name DESC
 ```
 
-### 7. Limiting Results (LIMIT)
-Return only the first N results.
+---
 
-```cypher
-// Return at most 5 users
+## LIMIT
+
+Return only the first N results:
+
+```text
 MATCH (u:User) RETURN u.name LIMIT 5
 
-// Combine ORDER BY + LIMIT for top-N queries
+// Combined with ORDER BY for top-N
 MATCH (u:User) RETURN u.name, u.age ORDER BY u.age DESC LIMIT 3
 ```
 
-### 8. Skipping Results (SKIP)
-Skip the first N results. Useful for pagination when combined with ORDER BY and LIMIT.
+---
 
-```cypher
-// Skip first 5 users
+## SKIP
+
+Skip the first N results:
+
+```text
 MATCH (u:User) RETURN u.name SKIP 5
 
-// Pagination: page 2 with 10 results per page (skip 10, take 10)
+// Pagination: page 2 with 10 results per page
 MATCH (u:User) RETURN u.name ORDER BY u.name ASC SKIP 10 LIMIT 10
-
-// Combine ORDER BY + SKIP + LIMIT
-MATCH (u:User) RETURN u.name, u.age ORDER BY u.age DESC SKIP 2 LIMIT 5
 ```
 
-### 9. Write Mutations (Create, Update, Delete)
-To chain match lookup conditions alongside operational updates on the graph state:
+---
 
-```cypher
-// Update property attribute
+## Mutations
+
+### CREATE
+
+Create a new node:
+
+```text
+CREATE (l:Log {timestamp: 12345})
+RETURN l
+```
+
+### SET
+
+Update a node property:
+
+```text
 MATCH (u:User {name: 'Alice'})
 SET u.age = 31
 RETURN u
+```
 
-// Create log node
-CREATE (l:Log {timestamp: 12345})
-RETURN l
+### DELETE
 
-// Remove node from graph
+Remove a node from the graph:
+
+```text
 MATCH (f:User {name: 'Bob'})
 DELETE f
 ```
 
 ---
 
-## Cypher Use Cases Blueprints
-When building specific features, use the exact syntactic blueprints below to leverage the engine's nested pipeline mechanics.
+## Query Patterns
 
-### Blueprint A: Hierarchical Access Control (RBAC)
-To check if a `User` has permission to execute an `Action` inherited through nested `Role` paths up to 5 levels deep:
+### Blast radius analysis
 
-```cypher
-MATCH (u:User {id: 'usr_101'})-[:BELONGS_TO*1..5]->(r:Role)-[:CAN_EXECUTE]->(a:Action {name: 'write_db'})
-RETURN u, r, a
+Find all nodes affected by a failure (up to N hops):
+
+```text
+MATCH (kafka:Infrastructure {name: "Kafka Cluster"})-[r*1..2]-(affected)
+RETURN kafka, r, affected
 ```
 
-### Blueprint B: Collaborative Filtering Recommendation
-To find items recommended to an explicit user based on what "friends of friends" bought, while excluding items the user already owns:
+### Dependency chain
 
-```cypher
+Trace the full request path from entry point to databases:
+
+```text
+MATCH (api:Service {name: "API Gateway"})-[r*2..4]->(db:Database)
+RETURN api, r, db
+```
+
+### Collaborative filtering
+
+Find items recommended based on what "friends of friends" bought:
+
+```text
 MATCH (u:User {id: 'usr_abc'})-[:FRIEND*2..2]-(peer:User)-[:BOUGHT]->(item:Product)
 OPTIONAL MATCH (u)-[already_owns:BOUGHT]->(item)
 WITH item, already_owns
@@ -187,18 +256,11 @@ WHERE already_owns IS NULL
 RETURN item
 ```
 
-### Blueprint C: Identity Resolution & Clustering
-To fetch a target profile node along with all its linked metadata nodes across any arbitrary relation, extracting the explicit network trace (`r`):
+### What-if impact simulation
 
-```cypher
-MATCH (p:Profile {email: 'target@domain.com'})-[r*1..3]-(metadata)
-RETURN p, r, metadata
-```
+Inject speculative properties mid-pipeline:
 
-### Blueprint D: "What-If" Impact Simulation
-To calculate a speculative business scenario (e.g., _"What happens to downstream system impacts if we artificially change Server A's critical capacity rating to 90?"_) by injecting speculative properties mid-pipeline:
-
-```cypher
+```text
 MATCH (s:Server {id: 'srv_A'})-[:DEPENDS_ON*1..3]->(downstream:Application)
 SET s.capacity = 90
 WITH downstream, s
@@ -206,9 +268,32 @@ WHERE downstream.min_required_capacity > s.capacity
 RETURN downstream.name AS at_risk_application, s.capacity AS simulated_capacity
 ```
 
+### Top-N by degree
+
+Find the N nodes with the most connections:
+
+```text
+MATCH (s:Service)-[]->(target)
+WITH s, count(target) AS outDegree
+ORDER BY outDegree DESC
+LIMIT 3
+RETURN s.name, outDegree
+```
+
 ---
 
-## System Constraints
+## Unsupported Features
 
-- Output ONLY valid Cypher syntax inside markdown blocks.
-- Do not attempt to append custom plugin clauses (`APOC`, etc.) or construct complex subqueries like `CALL {}` as they are not supported by the visitor engine.
+The following Cypher features are **not** supported by the engine:
+
+- **Subqueries** — `CALL {}` syntax
+- **APOC procedures** — `CALL apoc.*`
+- **Multiple MATCH in same stage** — use `WITH` to chain stages
+- **MERGE** — use `CREATE` or `MATCH` + `CREATE` instead
+- **FOREACH** — not implemented
+- **UNION** — not implemented
+
+## Next Steps
+
+- **[Library API](library-api)** — Use gcyphrq programmatically in your code
+- **[Examples](examples)** — 18 ready-to-run queries against the bundled cloud infrastructure graph
