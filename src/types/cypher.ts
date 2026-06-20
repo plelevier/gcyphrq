@@ -14,6 +14,29 @@ export interface CypherEdge {
   [key: string]: CypherLiteral | undefined;
 }
 
+// ── Index types ──────────────────────────────────────────────────────────────
+
+/**
+ * Pre-computed indexes for fast node/edge lookup during query execution.
+ * Built once at graph construction time, used by the engine to avoid
+ * full-graph scans during MATCH, WHERE, and traversal.
+ */
+export interface GraphIndexes {
+  /** label → set of node IDs */
+  labelIndex: Map<string, Set<string>>;
+  /** propertyKey → propertyValue → set of node IDs */
+  propertyIndex: Map<string, Map<string | number, Set<string>>>;
+  /**
+   * Edge-type adjacency index.
+   * out[type][source] = set of { target, edgeId } for outgoing edges
+   * in[type][target] = set of { source, edgeId } for incoming edges
+   */
+  edgeTypeIndex: {
+    out: Map<string, Map<string, Array<{ target: string; edgeId: string }>>>;
+    in: Map<string, Map<string, Array<{ source: string; edgeId: string }>>>;
+  };
+}
+
 export type CypherValue = CypherNode | CypherEdge[] | CypherLiteral | null | undefined;
 
 // ── AST types ────────────────────────────────────────────────────────────────

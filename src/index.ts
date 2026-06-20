@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { GraphError, createGraph, parseCypher, GraphEngine } from './lib';
+import { GraphError, createGraph, parseCypher, GraphEngine, buildGraphIndexesExport } from './lib';
 import type { GraphFile } from './lib';
 
 // ── CLI Help ─────────────────────────────────────────────────────────────────
@@ -154,9 +154,10 @@ async function main(): Promise<void> {
       ? await readJsonFile('stdin')
       : await readJsonFile('file', args.graph);
 
-    // Build graph and execute query using the library
+    // Build graph, indexes, and execute query using the library
     const graph = createGraph(graphData);
-    const engine = new GraphEngine(graph);
+    const indexes = buildGraphIndexesExport(graphData, graph);
+    const engine = new GraphEngine(graph, indexes);
     const ast = parseCypher(args.expr);
     const results = engine.execute(ast);
 

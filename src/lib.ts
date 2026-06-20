@@ -3,7 +3,7 @@
 import { parseCypher as _parseCypher } from './engine/cypher-parser';
 import { AdvancedCypherGraphologyEngine } from './engine/cypher-engine';
 import { Graph, type GraphInstance } from './graph';
-import type { AdvancedCypherAST, ResultRow } from './types/cypher';
+import type { AdvancedCypherAST, ResultRow, GraphIndexes } from './types/cypher';
 
 // ── Graph file format types ──────────────────────────────────────────────────
 
@@ -100,11 +100,72 @@ function validateGraphData(data: unknown): GraphFile {
   };
 }
 
+// ── Index construction ───────────────────────────────────────────────────────
+
+/**
+ * Build pre-computed indexes from validated graph data and a constructed graph.
+ *
+ * Indexes enable O(1) label/property lookups and typed adjacency traversal,
+ * avoiding full-graph scans during query execution.
+ *
+ * The graph instance is required to get real Graphology edge IDs for the
+ * edge-type adjacency index.
+ */
+function buildGraphIndexes(data: GraphFile, graph: GraphInstance): GraphIndexes {
+  const labelIndex = new Map<string, Set<string>>();
+  const propertyIndex = new Map<string, Map<string | number, Set<string>>>();
+  const edgeOut = new Map<string, Map<string, Array<{ target: string; edgeId: string }>>>();
+  const edgeIn = new Map<string, Map<string, Array<{ source: string; edgeId: string }>>>();
+
+  for (const node of data.nodes) {
+    const { id, label, ...props } = node;
+
+    // Label index
+    if (label && typeof label === 'string') {
+      if (!labelIndex.has(label)) labelIndex.set(label, new Set());
+      labelIndex.get(label)!.add(id);
+    }
+
+    // Property index (index all non-id, non-label scalar properties)
+    for (const [key, value] of Object.entries(props)) {
+      if (value === null || value === undefined || typeof value === 'object') continue;
+      if (!propertyIndex.has(key)) propertyIndex.set(key, new Map());
+      const valMap = propertyIndex.get(key)!;
+      const valKey = String(value);
+      if (!valMap.has(valKey)) valMap.set(valKey, new Set());
+      valMap.get(valKey)!.add(id);
+    }
+  }
+
+  // Edge type adjacency index — iterate the graph to get real Graphology edge IDs
+  graph.forEachEdgeAll((edgeId, source, target, attrs) => {
+    const edgeType = (attrs.type && typeof attrs.type === 'string') ? attrs.type : '__UNTYPED__';
+
+    // Outgoing: source → [target]
+    if (!edgeOut.has(edgeType)) edgeOut.set(edgeType, new Map());
+    const outMap = edgeOut.get(edgeType)!;
+    if (!outMap.has(source)) outMap.set(source, []);
+    outMap.get(source)!.push({ target, edgeId });
+
+    // Incoming: target → [source]
+    if (!edgeIn.has(edgeType)) edgeIn.set(edgeType, new Map());
+    const inMap = edgeIn.get(edgeType)!;
+    if (!inMap.has(target)) inMap.set(target, []);
+    inMap.get(target)!.push({ source, edgeId });
+  });
+
+  return {
+    labelIndex,
+    propertyIndex,
+    edgeTypeIndex: { out: edgeOut, in: edgeIn },
+  };
+}
+
 /**
  * Build a `GraphInstance` from a graph data object.
  *
- * Validates the data and constructs a Graphology-backed graph that the
- * Cypher engine can query.
+ * Validates the data, constructs a Graphology-backed graph, and builds
+ * pre-computed indexes for fast label/property/adjacency lookups.
  *
  * @example
  * ```ts
@@ -140,6 +201,26 @@ export function createGraph(data: GraphFile): GraphInstance {
   return graph;
 }
 
+/**
+ * Build pre-computed indexes from graph data for fast query execution.
+ *
+ * Pass the returned indexes to `GraphEngine` constructor for O(1) label
+ * and property lookups instead of full-graph scans.
+ *
+ * @example
+ * ```ts
+ * import { buildGraphIndexes, GraphEngine, createGraph } from 'gcyphrq';
+ *
+ * const graph = createGraph(graphData);
+ * const indexes = buildGraphIndexes(graphData, graph);
+ * const engine = new GraphEngine(graph, indexes);
+ * ```
+ */
+export function buildGraphIndexesExport(data: GraphFile, graph: GraphInstance): GraphIndexes {
+  const validated = validateGraphData(data);
+  return buildGraphIndexes(validated, graph);
+}
+
 // ── Query execution ──────────────────────────────────────────────────────────
 
 /**
@@ -163,7 +244,7 @@ export function parseCypher(query: string): AdvancedCypherAST {
  * Execute a Cypher query against a graph and return results as plain JSON.
  *
  * This is the simplest way to use gcyphrq: pass in graph data and a query
- * string, get back an array of result rows.
+ * string, get back an array of result rows. Indexes are built automatically.
  *
  * @example
  * ```ts
@@ -180,8 +261,10 @@ export function parseCypher(query: string): AdvancedCypherAST {
  * @throws {Error} If the query is invalid or cannot be executed
  */
 export function executeQuery(graphData: GraphFile, query: string): ResultRow[] {
+  const validated = validateGraphData(graphData);
   const graph = createGraph(graphData);
-  const engine = new AdvancedCypherGraphologyEngine(graph);
+  const indexes = buildGraphIndexes(validated, graph);
+  const engine = new AdvancedCypherGraphologyEngine(graph, indexes);
   const ast = _parseCypher(query);
   return engine.execute(ast);
 }
@@ -191,12 +274,15 @@ export function executeQuery(graphData: GraphFile, query: string): ResultRow[] {
 /**
  * The Cypher query engine. Accepts a `GraphInstance` and executes parsed ASTs.
  *
+ * For best performance, pass pre-computed indexes as the second argument.
+ *
  * @example
  * ```ts
- * import { GraphEngine, createGraph } from 'gcyphrq';
+ * import { GraphEngine, createGraph, buildGraphIndexes } from 'gcyphrq';
  *
  * const graph = createGraph(graphData);
- * const engine = new GraphEngine(graph);
+ * const indexes = buildGraphIndexes(graphData);
+ * const engine = new GraphEngine(graph, indexes);
  * const results = engine.execute(ast);
  * ```
  */
@@ -242,6 +328,9 @@ export { Graph };
 
 // Re-export GraphInstance from graph.ts for type-only use
 export type { GraphInstance } from './graph';
+
+// Re-export GraphIndexes for consumers who build indexes manually
+export type { GraphIndexes } from './types/cypher';
 
 // Re-export all AST, expression, and result types from types/cypher.ts
 export type {
