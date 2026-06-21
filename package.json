@@ -49,7 +49,6 @@
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "bump": "npm version patch",
     "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
