@@ -149,11 +149,13 @@ function buildGraph(validated: GraphFile): GraphInstance {
 /**
  * Build pre-computed indexes for fast query execution.
  *
- * **Two overloads:**
+ * **Three overloads:**
  *
  * 1. `buildGraphIndexes(graph)` — from an existing Graphology graph instance.
  *    Builds indexes by iterating the graph (no original data needed).
- * 2. `buildGraphIndexes(data, graph)` — from graph data + graph instance.
+ * 2. `buildGraphIndexes(data)` — from graph data alone.
+ *    Builds the graph internally and indexes from it.
+ * 3. `buildGraphIndexes(data, graph)` — from graph data + graph instance.
  *
  * Pass the returned indexes to `GraphEngine` constructor for O(1) label
  * and property lookups instead of full-graph scans.
@@ -169,7 +171,10 @@ function buildGraph(validated: GraphFile): GraphInstance {
  * const indexes = buildGraphIndexes(graph);
  * const engine = new GraphEngine(graph, indexes);
  *
- * // From graph data (original API)
+ * // From graph data alone
+ * const indexes = buildGraphIndexes(graphData);
+ *
+ * // From graph data + graph instance (original API)
  * import { buildGraphIndexes, GraphEngine, createGraph } from 'gcyphrq';
  *
  * const graph = createGraph(graphData);
@@ -178,11 +183,18 @@ function buildGraph(validated: GraphFile): GraphInstance {
  * ```
  */
 export function buildGraphIndexes(graph: GraphInstance): GraphIndexes;
+export function buildGraphIndexes(data: GraphFile): GraphIndexes;
 export function buildGraphIndexes(data: GraphFile, graph: GraphInstance): GraphIndexes;
 export function buildGraphIndexes(dataOrGraph: GraphFile | GraphInstance, graph?: GraphInstance): GraphIndexes {
-  // Single-argument form: build indexes from the graph instance directly
+  // Single-argument form: is it a graph instance or data?
   if (graph === undefined) {
-    return buildGraphIndexesFromGraph(dataOrGraph as GraphInstance);
+    if (isGraphInstance(dataOrGraph)) {
+      return buildGraphIndexesFromGraph(dataOrGraph);
+    }
+    // It's data — build graph internally
+    const validated = validateGraphData(dataOrGraph);
+    const builtGraph = buildGraph(validated);
+    return buildGraphIndexesFromGraph(builtGraph);
   }
   // Two-argument form: validate data and build from data + graph
   const validated = validateGraphData(dataOrGraph as GraphFile);
@@ -252,7 +264,11 @@ export function executeQuery(graphOrData: GraphInstance | GraphFile, query: stri
 
 /** Type guard to distinguish a GraphInstance from a GraphFile data object. */
 function isGraphInstance(value: GraphInstance | GraphFile): value is GraphInstance {
-  return typeof (value as GraphInstance).hasNode === 'function';
+  return (
+    typeof (value as GraphInstance).hasNode === 'function' &&
+    typeof (value as GraphInstance).filterNodes === 'function' &&
+    typeof (value as GraphInstance).forEachEdge === 'function'
+  );
 }
 
 // ── Re-exports ───────────────────────────────────────────────────────────────

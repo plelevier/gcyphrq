@@ -266,6 +266,13 @@ describe('buildGraphIndexes from GraphInstance', () => {
     const indexes = buildGraphIndexes(sampleGraph, graph);
     expect(indexes.labelIndex.get('User')?.size).toBe(3);
   });
+
+  it('single-argument data form builds graph internally', () => {
+    const indexes = buildGraphIndexes(sampleGraph);
+    expect(indexes.labelIndex.get('User')?.size).toBe(3);
+    expect(indexes.propertyIndex.get('name')?.get('Alice')?.size).toBe(1);
+    expect(indexes.edgeTypeIndex.out.get('FRIEND')?.get('alice')?.length).toBe(1);
+  });
 });
 
 describe('executeQuery with GraphInstance', () => {
