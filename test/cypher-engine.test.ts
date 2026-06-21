@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Graph, type GraphInstance } from '../src/graph';
 import { AdvancedCypherGraphologyEngine } from '../src/engine/cypher-engine';
 import { parseCypher } from '../src/engine/cypher-parser';
-import { buildGraphIndexes } from '../src/indexes';
 import type { CypherNode, GraphIndexes } from '../src/types/cypher';
 
 /** Cast a result-row value to CypherNode for test assertions. */
@@ -471,6 +470,279 @@ describe('AdvancedCypherGraphologyEngine', () => {
     // The ANTLR grammar places CONTAINS in a different tree position than >, <, =.
     // it('filters with WHERE CONTAINS operator (match found)', () => { ... });
     // it('filters with WHERE CONTAINS operator (no match)', () => { ... });
+  });
+
+  describe('execute - WHERE CONTAINS', () => {
+    it('filters with WHERE CONTAINS operator (match found)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name CONTAINS "Ali" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Alice');
+    });
+
+    it('filters with WHERE CONTAINS operator (no match)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name CONTAINS "xyz" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(0);
+    });
+
+    it('filters with WHERE CONTAINS on WITH clause', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WITH u.name AS name WHERE name CONTAINS "ob" RETURN name',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.name).toBe('Bob');
+    });
+
+    it('filters with WHERE CONTAINS partial match', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name CONTAINS "ar" RETURN u',
+      );
+      const results = engine.execute(ast);
+      // Charlie contains "ar"
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Charlie');
+    });
+
+    it('filters with WHERE CONTAINS case-sensitive', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name CONTAINS "alice" RETURN u',
+      );
+      const results = engine.execute(ast);
+      // "Alice" does not contain "alice" (case-sensitive)
+      expect(results.length).toBe(0);
+    });
+
+    it('filters with WHERE CONTAINS on relationship traversal', () => {
+      const ast = parseCypher(
+        'MATCH (a:User)-[r:FRIEND]->(b:User) WHERE a.name CONTAINS "Ali" RETURN a, b',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'a').name).toBe('Alice');
+      expect(node(results[0]!, 'b').name).toBe('Bob');
+    });
+  });
+
+  describe('execute - WHERE AND', () => {
+    it('filters with WHERE AND (both conditions true)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.age > 25 AND u.age < 35 RETURN u',
+      );
+      const results = engine.execute(ast);
+      // Alice (30), Dave (28) match; Bob (25) does not (> 25, not >=); Charlie (35) does not (< 35)
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Dave']);
+    });
+
+    it('filters with WHERE AND (one condition false)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.age > 30 AND u.name = "Alice" RETURN u',
+      );
+      const results = engine.execute(ast);
+      // Alice is 30, not > 30
+      expect(results.length).toBe(0);
+    });
+
+    it('filters with WHERE AND (both conditions false)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.age > 100 AND u.age < 5 RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(0);
+    });
+
+    it('filters with WHERE AND on WITH clause', () => {
+      const ast = parseCypher(
+        'MATCH (a:User)-[r:FRIEND]->(b:User) WITH a.name AS name, count(b) AS cnt WHERE cnt > 0 AND name = "Alice" RETURN name, cnt',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.name).toBe('Alice');
+      expect(results[0]!.cnt).toBe(1);
+    });
+
+    it('filters with WHERE AND combining CONTAINS and comparison', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name CONTAINS "li" AND u.age > 20 RETURN u',
+      );
+      const results = engine.execute(ast);
+      // Alice (30, contains "li"), Charlie (35, contains "li")
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Charlie']);
+    });
+
+    it('filters with WHERE AND combining CONTAINS and equality', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name CONTAINS "ob" AND u.age = 25 RETURN u',
+      );
+      const results = engine.execute(ast);
+      // Bob (25, contains "ob")
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Bob');
+    });
+
+    it('filters with WHERE AND multiple conditions', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.age > 20 AND u.age < 35 AND u.name CONTAINS "li" RETURN u',
+      );
+      const results = engine.execute(ast);
+      // Alice (30, contains "li"), Dave doesn't contain "li", Charlie (35) not < 35
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Alice');
+    });
+  });
+
+  describe('execute - WHERE OR', () => {
+    it('filters with WHERE OR (first condition true)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name = "Alice" OR u.age > 100 RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Alice');
+    });
+
+    it('filters with WHERE OR (second condition true)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name = "Unknown" OR u.age > 29 RETURN u',
+      );
+      const results = engine.execute(ast);
+      // Alice (30), Charlie (35)
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Charlie']);
+    });
+
+    it('filters with WHERE OR (both conditions true for some)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name = "Alice" OR u.age > 30 RETURN u',
+      );
+      const results = engine.execute(ast);
+      // Alice (name="Alice"), Charlie (age=35 > 30)
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Charlie']);
+    });
+
+    it('filters with WHERE OR (no match)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name = "Unknown" OR u.age > 100 RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(0);
+    });
+
+    it('filters with WHERE OR on WITH clause', () => {
+      const ast = parseCypher(
+        'MATCH (a:User)-[r:FRIEND]->(b:User) WITH a.name AS name, count(b) AS cnt WHERE cnt > 1 OR name = "Alice" RETURN name, cnt',
+      );
+      const results = engine.execute(ast);
+      // Alice has cnt=1 (matches name="Alice"), Bob has cnt=1 (no match)
+      expect(results.length).toBe(1);
+      expect(results[0]!.name).toBe('Alice');
+    });
+
+    it('filters with WHERE OR combining CONTAINS', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name CONTAINS "Ali" OR u.name CONTAINS "ob" RETURN u',
+      );
+      const results = engine.execute(ast);
+      // Alice (contains "Ali"), Bob (contains "ob")
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Bob']);
+    });
+
+    it('filters with WHERE OR combining CONTAINS and comparison', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name CONTAINS "ob" OR u.age > 32 RETURN u',
+      );
+      const results = engine.execute(ast);
+      // Bob (contains "ob"), Charlie (35 > 32)
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Bob', 'Charlie']);
+    });
+
+    it('filters with WHERE OR multiple conditions', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name = "Alice" OR u.name = "Bob" OR u.name = "Charlie" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(3);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Bob', 'Charlie']);
+    });
+  });
+
+  describe('execute - WHERE AND + OR combined', () => {
+    it('evaluates AND before OR (AND has higher precedence)', () => {
+      // n.age > 25 AND n.name = "Alice" OR n.age < 26
+      // Should be: (n.age > 25 AND n.name = "Alice") OR n.age < 26
+      // Alice (30 > 25 AND name="Alice") = true, Bob (25 < 26) = true
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.age > 25 AND u.name = "Alice" OR u.age < 26 RETURN u',
+      );
+      const results = engine.execute(ast);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Bob']);
+    });
+
+    it('evaluates parenthesized OR before AND', () => {
+      // (n.age > 32 OR n.age < 26) AND n.name CONTAINS "a"
+      // Alice (30, not > 32 and not < 26) = false
+      // Bob (25 < 26, name="Bob" doesn't contain "a") = false
+      // Charlie (35 > 32, name="Charlie" contains "a") = true
+      // Dave (28, not > 32 and not < 26) = false
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE (u.age > 32 OR u.age < 26) AND u.name CONTAINS "a" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Charlie');
+    });
+
+    it('evaluates complex WHERE with AND, OR, and CONTAINS', () => {
+      // (n.name CONTAINS "Ali" OR n.name CONTAINS "ob") AND n.age > 20
+      // Alice (contains "Ali", 30 > 20) = true
+      // Bob (contains "ob", 25 > 20) = true
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE (u.name CONTAINS "Ali" OR u.name CONTAINS "ob") AND u.age > 20 RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Bob']);
+    });
+
+    it('evaluates WHERE with AND, OR on WITH clause', () => {
+      const ast = parseCypher(
+        'MATCH (a:User)-[r:FRIEND]->(b:User) WITH a.name AS name, count(b) AS cnt WHERE (cnt > 0 OR name = "Charlie") AND name <> "Bob" RETURN name, cnt',
+      );
+      const results = engine.execute(ast);
+      // Alice (cnt=1 > 0, name != "Bob") = true
+      // Bob (cnt=1 > 0, name = "Bob") = false
+      expect(results.length).toBe(1);
+      expect(results[0]!.name).toBe('Alice');
+    });
+
+    it('evaluates WHERE with AND combining two CONTAINS', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name CONTAINS "a" AND u.name CONTAINS "r" RETURN u',
+      );
+      const results = engine.execute(ast);
+      // Charlie contains both "a" and "r"
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Charlie');
+    });
   });
 
   describe('execute - bare node pattern', () => {

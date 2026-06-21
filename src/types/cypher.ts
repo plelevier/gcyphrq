@@ -66,7 +66,7 @@ export interface MatchClause {
   sourcePattern: NodePattern;
   relationPattern: RelationPattern;
   targetPattern: NodePattern;
-  where?: BinaryExpression;
+  where: WhereExpression | undefined;
 }
 
 export interface CreateClause {
@@ -112,10 +112,19 @@ export type Expression = PropertyAccessExpression | LiteralExpression | Aggregat
 
 export interface BinaryExpression {
   type: 'BinaryExpression';
-  operator: '>' | '<' | '=' | 'CONTAINS';
+  operator: '>' | '<' | '=' | '<>' | 'CONTAINS';
   left: Expression;
   right: Expression;
 }
+
+export interface LogicalExpression {
+  type: 'LogicalExpression';
+  operator: 'AND' | 'OR';
+  left: WhereExpression;
+  right: WhereExpression;
+}
+
+export type WhereExpression = BinaryExpression | LogicalExpression;
 
 export interface Projection {
   expression: Expression;
@@ -124,7 +133,7 @@ export interface Projection {
 
 export interface WithClause {
   projections: Projection[];
-  where: BinaryExpression | undefined;
+  where: WhereExpression | undefined;
   orderBy: OrderByItem[] | undefined;
   skip: number | undefined;
   limit: number | undefined;
