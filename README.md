@@ -157,24 +157,33 @@ This project includes a [skill](skills/gcyphrq/SKILL.md) that teaches AI agents 
 
 Install the skill so your AI agent knows how to query your graphs without you having to explain the syntax every time.
 
-### pi
+### Installing the Skill
+
+The easiest way is to use the built-in install command. It detects your installed agents (pi, Claude Code, OpenCode) and installs the skill automatically:
 
 ```bash
+# Install globally (symlinks in agent config directories)
+gcyphrq --install --global
+
+# Install locally (copies into project subdirectories)
+gcyphrq --install --local
+```
+
+The `--install` command detects which agents are installed on your system and sets up the skill for each one. For Claude Code and OpenCode it also generates the `CLAUDE.md` / `AGENTS.md` reference files.
+
+### Manual Installation
+
+If the install command doesn't work for your setup, you can place the skill directory manually:
+
+```bash
+# pi
 ln -s $(pwd)/skills/gcyphrq ~/.pi/agent/skills/gcyphrq
-```
 
-The skill is auto-discovered on next invocation.
-
-### Claude Code
-
-```bash
+# Claude Code
 ln -s $(pwd)/skills/gcyphrq ~/.claude/skills/gcyphrq
-```
 
-The skill is auto-discovered on next invocation.
-
-### OpenCode
-
-```bash
+# OpenCode
 ln -s $(pwd)/skills/gcyphrq ~/.opencode/skills/gcyphrq
 ```
+
+The skill is auto-discovered on next invocation.

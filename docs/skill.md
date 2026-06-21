@@ -23,69 +23,53 @@ When installed, the skill teaches an AI agent to:
 
 The skill includes a curated library of query patterns for common infrastructure questions — service dependencies, replication topology, monitoring coverage, and more.
 
-## Installation by Platform
+## Installation
 
-### Pi
+### Using the CLI (Recommended)
 
-Pi auto-discovers skills placed in its skill directories.
+The easiest way is to use the built-in install command. It detects your installed agents (pi, Claude Code, OpenCode) and installs the skill automatically:
 
 ```bash
-# Copy the skill globally
-mkdir -p ~/.pi/agent/skills/gcyphrq/references
+# Install globally (symlinks in agent config directories)
+gcyphrq --install --global
+
+# Install locally (copies into project subdirectories)
+gcyphrq --install --local
+```
+
+The `--install` command:
+- Detects which agents are installed on your system
+- Creates symlinks (global) or copies (local) the skill content
+- Generates `CLAUDE.md` / `AGENTS.md` reference files for Claude Code and OpenCode
+- Is idempotent — safe to run multiple times
+
+After installation:
+- **Pi** recognizes the skill automatically. Invoke with `/skill:gcyphrq` or describe what you want in natural language.
+- **Claude Code** recognizes the skill automatically when you ask graph-related questions.
+- **OpenCode** loads the skill when your prompts match its description (graph queries, infrastructure topology, service dependencies, etc.).
+
+### Manual Installation
+
+If the install command doesn't work for your setup, you can place the skill directory manually:
+
+```bash
+# pi
+mkdir -p ~/.pi/agent/skills/gcyphrq
 curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md \
   -o ~/.pi/agent/skills/gcyphrq/SKILL.md
-curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/references/queries.md \
-  -o ~/.pi/agent/skills/gcyphrq/references/queries.md
 
-# Or project-level (available only in this project)
-mkdir -p .pi/skills/gcyphrq/references
-curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md \
-  -o .pi/skills/gcyphrq/SKILL.md
-curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/references/queries.md \
-  -o .pi/skills/gcyphrq/references/queries.md
-```
-
-Pi will recognize the skill automatically. You can invoke it with `/skill:gcyphrq` or simply describe what you want in natural language — Pi will match the skill to your request.
-
-### Claude (Claude Code / MCP)
-
-Claude Code auto-discovers skills placed in its skill directories.
-
-```bash
-# Copy the skill globally
-mkdir -p ~/.claude/skills/gcyphrq/references
+# Claude Code
+mkdir -p ~/.claude/skills/gcyphrq
 curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md \
   -o ~/.claude/skills/gcyphrq/SKILL.md
-curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/references/queries.md \
-  -o ~/.claude/skills/gcyphrq/references/queries.md
 
-# Or project-level (available only in this project)
-mkdir -p .claude/skills/gcyphrq/references
-curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md \
-  -o .claude/skills/gcyphrq/SKILL.md
-curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/references/queries.md \
-  -o .claude/skills/gcyphrq/references/queries.md
-```
-
-Claude Code will recognize the skill automatically when you ask graph-related questions.
-
-### OpenCode
-
-OpenCode supports skill files in its configuration directory:
-
-```bash
-# Install gcyphrq CLI globally
-npm install -g gcyphrq
-
-# Copy the skill to OpenCode's skill directory
-mkdir -p ~/.opencode/skills/gcyphrq/references
+# OpenCode
+mkdir -p ~/.opencode/skills/gcyphrq
 curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md \
   -o ~/.opencode/skills/gcyphrq/SKILL.md
-curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/references/queries.md \
-  -o ~/.opencode/skills/gcyphrq/references/queries.md
 ```
 
-OpenCode will load the skill and use it when your prompts match the skill's description (graph queries, infrastructure topology, service dependencies, etc.).
+You can also download the `references/queries.md` file into a `references/` subdirectory alongside `SKILL.md` for additional query patterns.
 
 ### Other Agents
 
