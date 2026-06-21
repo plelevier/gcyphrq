@@ -527,7 +527,12 @@ function extractMatchClause(clauseCtx: ParseTreeNode): MatchClause {
     targetPattern = extractNodePattern(nodePatterns[1]);
   }
 
-  return { optional: !!optional, hasChains, sourcePattern, relationPattern, targetPattern };
+  // Extract WHERE clause (if present)
+  const whereCtx = findChild(matchCtx, Ctx.Where);
+  const whereExpr = findChild(whereCtx, Ctx.Expression);
+  const where = whereExpr ? extractComparison(whereExpr) : undefined;
+
+  return { optional: !!optional, hasChains, sourcePattern, relationPattern, targetPattern, where };
 }
 
 function computeDefaultAlias(expr: Expression): string {

@@ -194,6 +194,10 @@ export class AdvancedCypherGraphologyEngine {
     const { sourcePattern, relationPattern, targetPattern, optional, hasChains } = clause;
     const outgoingContexts: (QueryContext | ContextChain)[] = [];
 
+    // Variable to null-fill on OPTIONAL MATCH miss:
+    // source for simple patterns, target for chained patterns.
+    const nullVar = hasChains ? targetPattern.variable : sourcePattern.variable;
+
     // Pre-compute eligible target node IDs using indexes
     const eligibleTargetIds = new Set(this.getMatchingNodeIds(targetPattern));
 
@@ -318,11 +322,43 @@ export class AdvancedCypherGraphologyEngine {
       if (optional && !matchFoundForThisContext) {
         const nullChain: ContextChain = {
           [CHAIN_BASE]: context,
-          [CHAIN_OVERRIDES]: { [targetPattern.variable]: null },
+          [CHAIN_OVERRIDES]: { [nullVar]: null },
         };
         if (relationPattern.variable) nullChain[CHAIN_OVERRIDES][relationPattern.variable] = [];
         outgoingContexts.push(nullChain);
       }
+    }
+
+    // Apply WHERE filter (if present on MATCH) before returning.
+    // For OPTIONAL MATCH, null-fill any incoming contexts that lost all
+    // their results to the WHERE filter (so WHERE doesn't swallow the
+    // optional null row).
+    if (clause.where) {
+      const filtered = outgoingContexts.filter((ctx) => {
+        const flat = isContextChain(ctx) ? materialiseChain(ctx) : ctx;
+        return this.evaluateWhere(clause.where!, flat);
+      });
+
+      if (optional) {
+        // Track which incoming contexts have surviving results
+        const matchedBases = new Set<QueryContext | ContextChain>();
+        for (const ctx of filtered) {
+          const base = isContextChain(ctx) ? ctx[CHAIN_BASE] : ctx;
+          if (base) matchedBases.add(base);
+        }
+        for (const context of incomingContexts) {
+          if (!matchedBases.has(context)) {
+            const nullChain: ContextChain = {
+              [CHAIN_BASE]: context,
+              [CHAIN_OVERRIDES]: { [nullVar]: null },
+            };
+            if (relationPattern.variable) nullChain[CHAIN_OVERRIDES][relationPattern.variable] = [];
+            filtered.push(nullChain);
+          }
+        }
+      }
+
+      return filtered;
     }
 
     return outgoingContexts;

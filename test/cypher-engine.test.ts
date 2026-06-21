@@ -488,6 +488,98 @@ describe('AdvancedCypherGraphologyEngine', () => {
     });
   });
 
+  describe('execute - WHERE on MATCH', () => {
+    it('filters by equality on a property', () => {
+      const ast = parseCypher('MATCH (u:User) WHERE u.name = "Alice" RETURN u');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Alice');
+    });
+
+    it('filters by greater-than on a numeric property', () => {
+      const ast = parseCypher('MATCH (u:User) WHERE u.age > 28 RETURN u');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Charlie']);
+    });
+
+    it('filters by less-than on a numeric property', () => {
+      const ast = parseCypher('MATCH (u:User) WHERE u.age < 30 RETURN u');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Bob', 'Dave']);
+    });
+
+    it('filters on a relationship traversal', () => {
+      const ast = parseCypher(
+        'MATCH (a:User)-[r:FRIEND]->(b:User) WHERE a.name = "Alice" RETURN a, b',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'a').name).toBe('Alice');
+      expect(node(results[0]!, 'b').name).toBe('Bob');
+    });
+
+    it('returns empty results when no match', () => {
+      const ast = parseCypher('MATCH (u:User) WHERE u.name = "Unknown" RETURN u');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(0);
+    });
+
+    it('filters with bare pattern (no label) and WHERE', () => {
+      const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN n');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'n').name).toBe('Alice');
+    });
+
+    it('filters with bare pattern and WHERE on numeric property', () => {
+      const ast = parseCypher('MATCH (n) WHERE n.age > 29 RETURN n');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'n').name).sort();
+      expect(names).toEqual(['Alice', 'Charlie']);
+    });
+
+    it('OPTIONAL MATCH with WHERE returns null when no match', () => {
+      const ast = parseCypher('OPTIONAL MATCH (u:User) WHERE u.name = "Unknown" RETURN u');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.u).toBeNull();
+    });
+
+    it('OPTIONAL MATCH with WHERE returns match when found', () => {
+      const ast = parseCypher('OPTIONAL MATCH (u:User) WHERE u.name = "Alice" RETURN u');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Alice');
+    });
+
+    it('OPTIONAL MATCH with chain and WHERE returns null when no match', () => {
+      const ast = parseCypher(
+        'MATCH (a:User) OPTIONAL MATCH (a)-[r:FRIEND]->(b:User) WHERE b.name = "Unknown" RETURN a, b',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(4);
+      for (const row of results) expect(row.b).toBeNull();
+    });
+
+    it('OPTIONAL MATCH with chain and WHERE returns match when found', () => {
+      const ast = parseCypher(
+        'MATCH (a:User) OPTIONAL MATCH (a)-[r:FRIEND]->(b:User) WHERE b.name = "Bob" RETURN a, b',
+      );
+      const results = engine.execute(ast);
+      // Alice→Bob matches, Bob→Charlie doesn't match WHERE, Charlie has no FRIEND outbound
+      expect(results.length).toBe(4);
+      const matches = results.filter((r) => r.b !== null);
+      expect(matches.length).toBe(1);
+      expect(node(matches[0]!, 'a').name).toBe('Alice');
+      expect(node(matches[0]!, 'b').name).toBe('Bob');
+    });
+  });
+
   describe('execute - edge attributes', () => {
     it('returns edge attributes when relationship variable is bound', () => {
       const ast = parseCypher(

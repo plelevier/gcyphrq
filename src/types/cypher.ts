@@ -66,6 +66,7 @@ export interface MatchClause {
   sourcePattern: NodePattern;
   relationPattern: RelationPattern;
   targetPattern: NodePattern;
+  where?: BinaryExpression;
 }
 
 export interface CreateClause {
