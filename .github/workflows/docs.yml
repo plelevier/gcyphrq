@@ -22,17 +22,17 @@ jobs:
       GITHUB_ACTIONS_NODE_VERSION: 24
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
       - name: Build Jekyll site
         uses: actions/jekyll-build-pages@v1
         with:
           source: ./docs
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
 
   deploy:
     env:
@@ -45,4 +45,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
