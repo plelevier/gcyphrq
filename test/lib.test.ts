@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import Graphology from 'graphology';
 import {
   executeQuery,
   createGraph,
@@ -6,6 +7,7 @@ import {
   GraphEngine,
   Graph,
   GraphError,
+  buildGraphIndexes,
 } from '../src/lib';
 import type {
   GraphFile,
@@ -222,6 +224,167 @@ describe('mutations', () => {
 
     const count = engine.execute(parseCypher('MATCH (u:User) RETURN count(u)'));
     expect(count).toEqual([{ 'COUNT(u)': 4 }]);
+  });
+});
+
+describe('buildGraphIndexes from GraphInstance', () => {
+  it('builds indexes from an existing Graph instance', () => {
+    const graph = new Graph();
+    graph.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
+    graph.addNode('bob', { label: 'User', name: 'Bob', age: 25 });
+    graph.addEdge('alice', 'bob', { type: 'FRIEND' });
+
+    const indexes = buildGraphIndexes(graph);
+
+    // Label index works
+    expect(indexes.labelIndex.get('User')?.size).toBe(2);
+    // Property index works
+    expect(indexes.propertyIndex.get('name')?.get('Alice')?.size).toBe(1);
+    // Edge type index works
+    expect(indexes.edgeTypeIndex.out.get('FRIEND')?.get('alice')?.length).toBe(1);
+  });
+
+  it('works with GraphEngine for indexed queries', () => {
+    const graph = new Graph();
+    graph.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
+    graph.addNode('bob', { label: 'User', name: 'Bob', age: 25 });
+    graph.addNode('charlie', { label: 'User', name: 'Charlie', age: 35 });
+    graph.addEdge('alice', 'bob', { type: 'FRIEND' });
+    graph.addEdge('bob', 'charlie', { type: 'FRIEND' });
+
+    const indexes = buildGraphIndexes(graph);
+    const engine = new GraphEngine(graph, indexes);
+
+    const results = engine.execute(parseCypher('MATCH (u:User) RETURN u.name'));
+    expect(results.length).toBe(3);
+
+    const traversal = engine.execute(parseCypher('MATCH (a:User {name: "Alice"})-[r:FRIEND]->(b:User) RETURN b.name'));
+    expect(traversal).toEqual([{ name: 'Bob' }]);
+  });
+
+  it('two-argument form still works (backward compat)', () => {
+    const graph = createGraph(sampleGraph);
+    const indexes = buildGraphIndexes(sampleGraph, graph);
+    expect(indexes.labelIndex.get('User')?.size).toBe(3);
+  });
+
+  it('single-argument data form builds graph internally', () => {
+    const indexes = buildGraphIndexes(sampleGraph);
+    expect(indexes.labelIndex.get('User')?.size).toBe(3);
+    expect(indexes.propertyIndex.get('name')?.get('Alice')?.size).toBe(1);
+    expect(indexes.edgeTypeIndex.out.get('FRIEND')?.get('alice')?.length).toBe(1);
+  });
+});
+
+describe('executeQuery with raw graphology Graph', () => {
+  // Proves the library works with any external Graphology graph,
+  // not just the library's own Graph wrapper.
+
+  it('accepts a raw graphology Graph in executeQuery', () => {
+    const graph = new Graphology();
+    graph.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
+    graph.addNode('bob', { label: 'User', name: 'Bob', age: 25 });
+    graph.addEdge('alice', 'bob', { type: 'FRIEND' });
+
+    const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name');
+    const names = results.map((r) => r.name).sort();
+    expect(names).toEqual(['Alice', 'Bob']);
+  });
+
+  it('executes traversal on raw graphology Graph via GraphEngine', () => {
+    const graph = new Graphology();
+    graph.addNode('alice', { label: 'User', name: 'Alice' });
+    graph.addNode('bob', { label: 'User', name: 'Bob' });
+    graph.addNode('charlie', { label: 'User', name: 'Charlie' });
+    graph.addEdge('alice', 'bob', { type: 'FRIEND' });
+    graph.addEdge('bob', 'charlie', { type: 'FRIEND' });
+
+    const indexes = buildGraphIndexes(graph);
+    const engine = new GraphEngine(graph, indexes);
+
+    const results = engine.execute(
+      parseCypher('MATCH (a:User {name: "Alice"})-[r:FRIEND*1..2]->(b:User) RETURN b.name'),
+    );
+    const names = results.map((r) => r.name).sort();
+    expect(names).toEqual(['Bob', 'Charlie']);
+  });
+
+  it('executes OPTIONAL MATCH on raw graphology Graph', () => {
+    const graph = new Graphology();
+    graph.addNode('alice', { label: 'User', name: 'Alice' });
+    graph.addNode('bob', { label: 'User', name: 'Bob' });
+    graph.addNode('lonely', { label: 'User', name: 'Lonely' });
+    graph.addEdge('alice', 'bob', { type: 'FRIEND' });
+
+    const results = executeQuery(
+      graph,
+      'MATCH (u:User) OPTIONAL MATCH (u)-[r:FRIEND]->(f:User) RETURN u.name, f.name',
+    );
+    const rows = results
+      .map((r) => [r['u.name'], r['f.name']])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+    expect(rows).toEqual([
+      ['Alice', 'Bob'],
+      ['Bob', null],
+      ['Lonely', null],
+    ]);
+  });
+
+  it('executes mutations on raw graphology Graph', () => {
+    const graph = new Graphology();
+    graph.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
+
+    const engine = new GraphEngine(graph);
+    engine.execute(parseCypher('CREATE (n:User {name: "Bob", age: 25})'));
+
+    const results = engine.execute(parseCypher('MATCH (u:User) RETURN count(u)'));
+    expect(results).toEqual([{ 'COUNT(u)': 2 }]);
+
+    // Verify the node was actually added to the raw graphology graph
+    expect(graph.hasNode('alice')).toBe(true);
+    expect(graph.order).toBe(2);
+
+    // Verify the created node has correct attributes (query by property,
+    // since CREATE generates a random UUID for the node id)
+    const bobResults = engine.execute(
+      parseCypher('MATCH (u:User {name: "Bob"}) RETURN u.age'),
+    );
+    expect(bobResults).toEqual([{ age: 25 }]);
+  });
+
+  it('buildGraphIndexes(rawGraph) produces correct indexes', () => {
+    const graph = new Graphology();
+    graph.addNode('a', { label: 'Service', name: 'api', port: 8080 });
+    graph.addNode('b', { label: 'Service', name: 'web', port: 443 });
+    graph.addNode('c', { label: 'Database', name: 'postgres', port: 5432 });
+    graph.addEdge('a', 'b', { type: 'CALLS' });
+    graph.addEdge('a', 'c', { type: 'CONNECTS' });
+
+    const indexes = buildGraphIndexes(graph);
+
+    expect(indexes.labelIndex.get('Service')?.size).toBe(2);
+    expect(indexes.labelIndex.get('Database')?.size).toBe(1);
+    expect(indexes.propertyIndex.get('name')?.get('api')?.size).toBe(1);
+    expect(indexes.edgeTypeIndex.out.get('CALLS')?.get('a')?.length).toBe(1);
+    expect(indexes.edgeTypeIndex.out.get('CONNECTS')?.get('a')?.length).toBe(1);
+    expect(indexes.edgeTypeIndex.in.get('CALLS')?.get('b')?.length).toBe(1);
+  });
+});
+
+describe('executeQuery with GraphInstance (library Graph wrapper)', () => {
+  it('executes aggregation queries on Graph wrapper instance', () => {
+    const graph = new Graph();
+    graph.addNode('a', { label: 'Node', value: 10 });
+    graph.addNode('b', { label: 'Node', value: 20 });
+    graph.addNode('c', { label: 'Node', value: 30 });
+
+    const results = executeQuery(graph, 'MATCH (n:Node) RETURN sum(n.value)');
+    expect(results).toEqual([{ 'SUM(n)': 60 }]);
+  });
+
+  it('original GraphFile overload still works (backward compat)', () => {
+    const results = executeQuery(sampleGraph, 'MATCH (u:User) RETURN count(u)');
+    expect(results).toEqual([{ 'COUNT(u)': 3 }]);
   });
 });
 

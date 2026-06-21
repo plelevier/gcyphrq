@@ -38,6 +38,26 @@ console.log(results);
 // [ { name: 'Alice', age: 30 }, { name: 'Bob', age: 25 } ]
 ```
 
+### With an existing Graphology graph
+
+If you already have a Graphology `Graph` instance (built externally or programmatically), you can pass it directly:
+
+```ts
+import { executeQuery } from 'gcyphrq';
+import Graph from 'graphology';
+
+const graph = new Graph();
+graph.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
+graph.addNode('bob', { label: 'User', name: 'Bob', age: 25 });
+graph.addEdge('alice', 'bob', { type: 'FRIEND' });
+
+const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name, u.age');
+console.log(results);
+// [ { name: 'Alice', age: 30 }, { name: 'Bob', age: 25 } ]
+```
+
+No graph data reconstruction needed — the library builds indexes directly from the graph instance.
+
 ---
 
 ## API Reference
@@ -61,6 +81,33 @@ Execute a Cypher query against a graph and return results as plain JSON. This is
 import { executeQuery } from 'gcyphrq';
 
 const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
+```
+
+#### `executeQuery(graph, query)` — with a Graphology Graph
+
+Execute a Cypher query against an existing Graphology `Graph` instance. Indexes are built automatically from the graph.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `graph` | Any Graphology `Graph` | An existing graph instance (from `graphology` or the library's `Graph` wrapper) |
+| `query` | `string` | A Cypher query string |
+
+**Returns:** `ResultRow[]` — array of result rows
+
+**Throws:** `Error` if the query is invalid
+
+```ts
+import { executeQuery } from 'gcyphrq';
+import Graph from 'graphology';
+
+const graph = new Graph();
+graph.addNode('alice', { label: 'User', name: 'Alice' });
+graph.addNode('bob', { label: 'User', name: 'Bob' });
+graph.addEdge('alice', 'bob', { type: 'FRIEND' });
+
+const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name');
 ```
 
 ---
@@ -110,11 +157,41 @@ console.log(ast.stages[0].clause.sourcePattern.label); // 'User'
 
 ---
 
+### `buildGraphIndexes`
+
+Build pre-computed indexes for fast query execution. Pass the returned indexes to `GraphEngine` for O(1) label, property, and edge-type lookups instead of full-graph scans.
+
+**Three overloads:**
+
+| Signature | Description |
+|---|---|
+| `buildGraphIndexes(graph)` | Build indexes from an existing Graphology graph |
+| `buildGraphIndexes(data)` | Build indexes from graph data alone (builds graph internally) |
+| `buildGraphIndexes(data, graph)` | Build indexes from graph data + graph instance |
+
+**Returns:** `GraphIndexes`
+
+```ts
+import { buildGraphIndexes, GraphEngine } from 'gcyphrq';
+import Graph from 'graphology';
+
+const graph = new Graph();
+graph.addNode('alice', { label: 'User', name: 'Alice' });
+
+const indexes = buildGraphIndexes(graph);
+const engine = new GraphEngine(graph, indexes);
+```
+
 ### `GraphEngine`
 
 The Cypher query engine class. Accepts a `GraphInstance` and executes parsed ASTs.
 
-**Constructor:** `new GraphEngine(graph: GraphInstance)`
+**Constructor:** `new GraphEngine(graph: GraphInstance, indexes?: GraphIndexes)`
+
+| Parameter | Type | Description |
+|---|---|---|
+| `graph` | `GraphInstance` | A Graphology graph instance |
+| `indexes` | `GraphIndexes` (optional) | Pre-computed indexes for O(1) lookups. Without indexes, the engine falls back to full-graph scans |
 
 **Methods:**
 
@@ -123,13 +200,21 @@ The Cypher query engine class. Accepts a `GraphInstance` and executes parsed AST
 | `execute(ast)` | `ast: AdvancedCypherAST` | `ResultRow[]` | Execute a parsed AST against the graph |
 
 ```ts
-import { GraphEngine, createGraph, parseCypher } from 'gcyphrq';
+import { GraphEngine, buildGraphIndexes, parseCypher } from 'gcyphrq';
+import Graph from 'graphology';
 
-const graph = createGraph(graphData);
-const engine = new GraphEngine(graph);
+const graph = new Graph();
+graph.addNode('alice', { label: 'User', name: 'Alice' });
+
+const indexes = buildGraphIndexes(graph);
+const engine = new GraphEngine(graph, indexes);
 const ast = parseCypher('MATCH (u:User) RETURN u.name');
 const results = engine.execute(ast);
 ```
+
+> **Tip:** For best performance, always pass pre-computed indexes to `GraphEngine`. Without indexes, every label and property lookup triggers a full-graph scan.
+>
+> **Note:** Indexes are invalidated after `CREATE`/`SET`/`DELETE` mutations. Subsequent MATCH/WITH stages within the same query fall back to full-graph scans to see updated graph state.
 
 ---
 
@@ -232,6 +317,33 @@ const engine = new GraphEngine(graph);
 const results = engine.execute(parseCypher('MATCH (u:User) RETURN u'));
 ```
 
+### Pattern 3a: External Graphology graph
+
+Use the library with any existing Graphology `Graph` instance — for example, one built from a database, a file, or another library. The library builds indexes directly from the graph without needing the original data.
+
+```ts
+import { executeQuery, buildGraphIndexes, GraphEngine, parseCypher } from 'gcyphrq';
+import Graph from 'graphology';
+
+// Build graph from any source (database, API, file, etc.)
+const graph = new Graph();
+for (const node of nodesFromDatabase) {
+  graph.addNode(node.id, { label: node.label, ...node.properties });
+}
+for (const edge of edgesFromDatabase) {
+  graph.addEdge(edge.source, edge.target, { type: edge.type });
+}
+
+// One-shot query (indexes built automatically)
+const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name');
+
+// Or with reusable engine and indexes for multiple queries
+const indexes = buildGraphIndexes(graph);
+const engine = new GraphEngine(graph, indexes);
+const users = engine.execute(parseCypher('MATCH (u:User) RETURN u.name'));
+const count = engine.execute(parseCypher('MATCH (u:User) RETURN count(u)'));
+```
+
 ### Pattern 4: AST inspection
 
 Use `parseCypher` to inspect or transform the query AST before execution:
@@ -246,7 +358,7 @@ console.log(ast.stages[0].clause.sourcePattern.properties);
 
 ### Pattern 5: Mutation followed by query
 
-The engine supports `CREATE`, `SET`, and `DELETE` mutations within queries:
+The engine supports `CREATE`, `SET`, and `DELETE` mutations within queries. Mutations modify the underlying graph in-place:
 
 ```ts
 import { createGraph, GraphEngine, parseCypher } from 'gcyphrq';
@@ -279,6 +391,7 @@ import type {
 
   // Graph instance
   GraphInstance,
+  GraphIndexes,
 
   // AST types
   AdvancedCypherAST,
@@ -414,7 +527,8 @@ main();
 
 ## Performance Considerations
 
-- **`executeQuery`** builds a new graph for each call. For multiple queries, use `createGraph` + `GraphEngine` instead.
+- **`executeQuery(graphData, query)`** builds a new graph for each call. For multiple queries, use `createGraph` + `GraphEngine` instead.
+- **`executeQuery(graph, query)`** with an existing graph instance reuses the graph but still builds indexes on each call. For multiple queries, use `buildGraphIndexes` + `GraphEngine` instead.
 - The engine processes queries in-memory with no caching. Large graphs (>10,000 nodes) may have noticeable query times.
 - Variable-length paths use DFS traversal. Setting `maxDepth` is recommended to avoid excessive exploration.
 
