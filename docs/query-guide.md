@@ -387,5 +387,5 @@ The following Cypher features are **not** supported by the engine:
 
 ## Next Steps
 
-- **[Library API](library-api)** — Use gcyphrq programmatically in your code
-- **[Examples](examples)** — 27 ready-to-run queries against the bundled cloud infrastructure graph
+- **[Library API]({{ '/library-api/' | relative_url }})** — Use gcyphrq programmatically in your code
+- **[Examples]({{ '/examples/' | relative_url }})** — 27 ready-to-run queries against the bundled cloud infrastructure graph

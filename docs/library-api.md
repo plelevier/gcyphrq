@@ -618,5 +618,5 @@ On larger graphs (hundreds or thousands of nodes), the speedup from indexes beco
 
 ## Next Steps
 
-- **[Query Guide](query-guide)** — Full Cypher syntax reference and query patterns
-- **[Examples](examples)** — Ready-to-run queries against the bundled cloud infrastructure graph
+- **[Query Guide]({{ '/query-guide/' | relative_url }})** — Full Cypher syntax reference and query patterns
+- **[Examples]({{ '/examples/' | relative_url }})** — Ready-to-run queries against the bundled cloud infrastructure graph

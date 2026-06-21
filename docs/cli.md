@@ -150,5 +150,5 @@ npx tsx src/index.ts -g examples/social-graph.json -e 'MATCH (u:User) RETURN u'
 
 ## Next Steps
 
-- **[Query Guide](query-guide)** — Full Cypher syntax reference and query patterns
-- **[Examples](examples)** — Ready-to-run queries against the bundled graph files
+- **[Query Guide]({{ '/query-guide/' | relative_url }})** — Full Cypher syntax reference and query patterns
+- **[Examples]({{ '/examples/' | relative_url }})** — Ready-to-run queries against the bundled graph files
