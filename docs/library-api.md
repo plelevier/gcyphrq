@@ -157,7 +157,7 @@ console.log(ast.stages[0].clause.sourcePattern.label); // 'User'
 
 ---
 
-### `buildGraphIndexes(graph)`
+### `buildGraphIndexes`
 
 Build pre-computed indexes for fast query execution. Pass the returned indexes to `GraphEngine` for O(1) label, property, and edge-type lookups instead of full-graph scans.
 
@@ -213,6 +213,8 @@ const results = engine.execute(ast);
 ```
 
 > **Tip:** For best performance, always pass pre-computed indexes to `GraphEngine`. Without indexes, every label and property lookup triggers a full-graph scan.
+>
+> **Note:** Indexes are invalidated after `CREATE`/`SET`/`DELETE` mutations. Subsequent MATCH/WITH stages within the same query fall back to full-graph scans to see updated graph state.
 
 ---
 
@@ -389,6 +391,7 @@ import type {
 
   // Graph instance
   GraphInstance,
+  GraphIndexes,
 
   // AST types
   AdvancedCypherAST,
