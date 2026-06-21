@@ -2,7 +2,7 @@ name: Deploy Docs
 
 on:
   workflow_run:
-    workflows: ["Bump Version & Publish"]
+    workflows: ["Release & Publish"]
     types: [completed]
   workflow_dispatch:  # manual docs-only deploy
 
