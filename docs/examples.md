@@ -283,5 +283,5 @@ gcyphrq -g examples/social-graph.json -e 'MATCH ()-[r:FRIEND]->() RETURN count(r
 
 ## Next Steps
 
-- **[Query Guide](query-guide)** — Full Cypher syntax reference and query patterns
-- **[Library API](library-api)** — Use gcyphrq programmatically in your code
+- **[Query Guide]({{ '/query-guide/' | relative_url }})** — Full Cypher syntax reference and query patterns
+- **[Library API]({{ '/library-api/' | relative_url }})** — Use gcyphrq programmatically in your code

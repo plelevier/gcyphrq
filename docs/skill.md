@@ -211,7 +211,7 @@ The skill file (`SKILL.md`) includes:
 
 ## Next Steps
 
-- **[Getting Started](getting-started)** — Install gcyphrq and run your first query
-- **[Query Guide](query-guide)** — Full Cypher syntax reference
-- **[Examples](examples)** — 27 ready-to-run queries against the cloud infrastructure graph
-- **[Library API](library-api)** — Use gcyphrq programmatically in Node.js / TypeScript
+- **[Getting Started]({{ '/getting-started/' | relative_url }})** — Install gcyphrq and run your first query
+- **[Query Guide]({{ '/query-guide/' | relative_url }})** — Full Cypher syntax reference
+- **[Examples]({{ '/examples/' | relative_url }})** — 27 ready-to-run queries against the cloud infrastructure graph
+- **[Library API]({{ '/library-api/' | relative_url }})** — Use gcyphrq programmatically in Node.js / TypeScript

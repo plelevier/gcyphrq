@@ -152,7 +152,7 @@ console.log(results);
 
 ## Next Steps
 
-- **[CLI Reference](cli)** — Full documentation of CLI options and usage patterns
-- **[Query Guide](query-guide)** — Cypher syntax reference, supported features, and query patterns
-- **[Library API](library-api)** — Complete API reference for Node.js / TypeScript usage
-- **[Examples](examples)** — 27 ready-to-run queries against the bundled cloud infrastructure graph
+- **[CLI Reference]({{ '/cli/' | relative_url }})** — Full documentation of CLI options and usage patterns
+- **[Query Guide]({{ '/query-guide/' | relative_url }})** — Cypher syntax reference, supported features, and query patterns
+- **[Library API]({{ '/library-api/' | relative_url }})** — Complete API reference for Node.js / TypeScript usage
+- **[Examples]({{ '/examples/' | relative_url }})** — 27 ready-to-run queries against the bundled cloud infrastructure graph
