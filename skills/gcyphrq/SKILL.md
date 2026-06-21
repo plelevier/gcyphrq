@@ -13,9 +13,21 @@ Execute Cypher queries against in-memory graphs built from JSON files. The CLI t
 gcyphrq [options]
 
 Options:
-  -e, --expr <query>   Cypher query expression (required)
-  -g, --graph <file>   Path to a JSON graph file (required, or "-" for stdin)
+  -e, --expr <query>   Cypher query expression (required for queries)
+  -g, --graph <file>   Path to a JSON graph file (required for queries, or "-" for stdin)
+  --install            Install the gcyphrq skill for AI coding agents
+  --global             Install skill globally with symlinks (requires --install)
+  --local              Install skill per-project with copies (requires --install)
   -h, --help           Show this help message
+```
+
+### Install the skill
+
+Install this skill for your AI coding agent (pi, Claude Code, OpenCode):
+
+```bash
+gcyphrq --install --global    # symlinks in agent config directories
+gcyphrq --install --local     # copies into project subdirectories
 ```
 
 ### Run a query

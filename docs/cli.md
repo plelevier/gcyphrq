@@ -22,9 +22,14 @@ gcyphrq [options]
 
 | Option | Description |
 |---|---|
-| `-e, --expr <query>` | Cypher query expression (**required**) |
-| `-g, --graph <file>` | Path to a JSON graph file, or `"-"` to read from stdin (**required**) |
+| `-e, --expr <query>` | Cypher query expression (**required** for queries) |
+| `-g, --graph <file>` | Path to a JSON graph file, or `"-"` to read from stdin (**required** for queries) |
+| `--install` | Install the gcyphrq skill for AI coding agents |
+| `--global` | Install skill globally with symlinks (requires `--install`) |
+| `--local` | Install skill per-project with copies (requires `--install`) |
 | `-h, --help` | Show help message |
+
+Either `-e` + `-g` (query mode) or `--install` + `--global`/`--local` (install mode) is required. These modes are mutually exclusive.
 
 Both `-e` and `-g` are required. The tool exits with code 1 and prints to stderr if either is missing.
 
@@ -122,6 +127,20 @@ gcyphrq -g graph.json -e 'MATCH (a:Service {name: "API Gateway"})-[r*1..3]->(b) 
 |---|---|
 | `0` | Query executed successfully |
 | `1` | Error (missing arguments, invalid graph, query parse error, etc.) |
+
+## Installing the Skill
+
+Install the gcyphrq skill for AI coding agents (pi, Claude Code, OpenCode):
+
+```bash
+# Install globally (symlinks in agent config directories)
+gcyphrq --install --global
+
+# Install locally (copies into project subdirectories)
+gcyphrq --install --local
+```
+
+The `--install` command detects which agents are installed on your system and sets up the skill for each one. See the [Skill Guide](skill) for details.
 
 ## Running without installing
 
