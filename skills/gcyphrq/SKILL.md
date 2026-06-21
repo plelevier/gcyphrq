@@ -69,8 +69,9 @@ gcyphrq -g <graph.json> -e 'MATCH (n) RETURN n.name' | jq '.[].n'
 | `RETURN` with aliases | `RETURN n AS node` | ✅ |
 | `WITH` pipelining | `WITH n, count(m) AS c` | ✅ |
 | Aggregations | `count()`, `sum()`, `avg()`, `min()`, `max()` | ✅ |
-| `WHERE` on `WITH` | `WHERE c > 5` | ✅ |
-| `WHERE` operators | `>`, `<`, `=`, `CONTAINS` | ✅ |
+| `WHERE` on `MATCH` and `WITH` | `WHERE c > 5` | ✅ |
+| `WHERE` operators | `>`, `<`, `=`, `<>`, `CONTAINS` | ✅ |
+| `WHERE` logical operators | `AND`, `OR`, `NOT` | ✅ |
 | `CREATE` nodes | `CREATE (n:Label {key: val})` | ✅ |
 | `SET` properties | `SET n.prop = value` | ✅ |
 | `DELETE` nodes | `DELETE n` | ✅ |
@@ -144,11 +145,49 @@ gcyphrq -g <graph.json> -e 'MATCH (n:Label)-[]->(target) WITH n, count(target) A
 gcyphrq -g <graph.json> -e 'MATCH (n:Label)-[]->(target) WITH n, count(target) AS degree WHERE degree > 2 RETURN n, degree'
 ```
 
+### WHERE on MATCH with AND
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE n.type = "RPC" AND n.name CONTAINS "Service" RETURN n'
+```
+
+### WHERE on MATCH with OR
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE n.type = "RPC" OR n.type = "Worker" RETURN n'
+```
+
+### WHERE on MATCH with NOT
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE NOT n.status = "deprecated" RETURN n'
+```
+
+### WHERE with CONTAINS (substring match)
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE n.name CONTAINS "api" RETURN n'
+```
+
+### WHERE with <> (not-equals)
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE n.region <> "us-east-1" RETURN n'
+```
+
+### Complex WHERE with AND, OR, NOT and parentheses
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE (n.type = "RPC" OR n.type = "CDN") AND NOT n.name = "CloudFront CDN" RETURN n'
+```
+
 ### OPTIONAL MATCH (find nodes without connections)
 
 ```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label) OPTIONAL MATCH (n)-[]->(m) WHERE m IS NULL RETURN n'
+gcyphrq -g <graph.json> -e 'MATCH (n:Label) OPTIONAL MATCH (n)-[]->(m) RETURN n, m'
 ```
+
+> **Note:** Filter results where `m` is `null` post-query with `jq` — `IS NULL` is not yet supported.
 
 ### Sort and paginate
 
@@ -181,7 +220,8 @@ Errors go to stderr with `Error: ` prefix and exit code 1.
 
 - **Single MATCH per stage** — the engine processes one MATCH clause at a time. Chained `MATCH (a) MATCH (b)` is not supported.
 - **No subqueries** — `CALL {}`, APOC procedures, and other extensions are not available.
-- **WHERE only on WITH** — `WHERE` filtering works in `WITH` clauses, not directly on `MATCH`.
+- **No `IS NULL` / `IS NOT NULL`** — filter nulls post-query with `jq` instead.
+- **WHERE operators** — supports `>`, `<`, `=`, `<>`, `CONTAINS` and logical `AND`, `OR`, `NOT`. Works on both `MATCH` and `WITH` clauses. No regex or custom functions.
 - **Aggregation edge cases** — `avg()`, `min()`, `max()` return null when no numeric values exist.
 - **Property access in RETURN** — returns the full node object or a single property. Nested property access beyond one level is not supported.
 - **ORDER BY on RETURN and WITH** — supported on both, multi-column with ASC/DESC.

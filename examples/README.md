@@ -178,7 +178,55 @@ Get page 2 of services sorted by name (10 per page):
 gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s.name ORDER BY s.name ASC SKIP 10 LIMIT 10'
 ```
 
-### 19. Average, min, max aggregations
+### 19. Filter with WHERE on MATCH
+
+Filter nodes directly during matching (no WITH needed):
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.type = "RPC" RETURN s.name'
+```
+
+### 20. WHERE with AND (multiple conditions)
+
+Combine conditions — both must be true:
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.name CONTAINS "Service" AND s.region = "us-east-1" RETURN s.name'
+```
+
+### 21. WHERE with OR (either condition)
+
+Either condition can be true:
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.type = "RPC" OR s.type = "Worker" RETURN s.name'
+```
+
+### 22. WHERE with NOT (negation)
+
+Exclude nodes matching a condition:
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE NOT s.type = "Batch" RETURN s.name'
+```
+
+### 23. WHERE with <> (not-equals)
+
+Filter out nodes with a specific value:
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.region <> "us-east-1" RETURN s.name'
+```
+
+### 24. WHERE with CONTAINS (substring match)
+
+Find nodes where a property contains a substring:
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.name CONTAINS "Service" RETURN s.name'
+```
+
+### 25. Average, min, max aggregations
 
 Compute average, minimum, and maximum across all users:
 

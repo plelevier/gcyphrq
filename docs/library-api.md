@@ -410,6 +410,9 @@ import type {
   LiteralExpression,
   AggregationExpression,
   BinaryExpression,
+  WhereExpression,
+  LogicalExpression,
+  NotExpression,
   Projection,
   OrderByItem,
 
