@@ -1552,4 +1552,214 @@ describe('AdvancedCypherGraphologyEngine', () => {
       expect(node(results[0]!, 'u').name).toBe('Alice');
     });
   });
+
+  describe('execute - WHERE IS NULL', () => {
+    let graphWithNulls: GraphInstance;
+    let engineWithNulls: AdvancedCypherGraphologyEngine;
+
+    beforeEach(() => {
+      graphWithNulls = new Graph();
+      graphWithNulls.addNode('a', { label: 'User', name: 'Alice', email: 'alice@example.com' });
+      graphWithNulls.addNode('b', { label: 'User', name: 'Bob', email: null });
+      graphWithNulls.addNode('c', { label: 'User', name: 'Charlie' }); // no email property at all
+      graphWithNulls.addNode('d', { label: 'User', name: 'Dave', email: 'dave@example.com' });
+      engineWithNulls = new AdvancedCypherGraphologyEngine(graphWithNulls);
+    });
+
+    it('filters nodes where property IS NULL (explicit null)', () => {
+      const ast = parseCypher('MATCH (u:User) WHERE u.email IS NULL RETURN u');
+      const results = engineWithNulls.execute(ast);
+      expect(results.length).toBe(2); // Bob (null) and Charlie (undefined)
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Bob', 'Charlie']);
+    });
+
+    it('filters nodes where property IS NOT NULL', () => {
+      const ast = parseCypher('MATCH (u:User) WHERE u.email IS NOT NULL RETURN u');
+      const results = engineWithNulls.execute(ast);
+      expect(results.length).toBe(2); // Alice and Dave
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Dave']);
+    });
+
+    it('IS NULL on a non-existent property returns true', () => {
+      const ast = parseCypher('MATCH (u:User) WHERE u.phone IS NULL RETURN u');
+      const results = engineWithNulls.execute(ast);
+      expect(results.length).toBe(4); // All users have no phone property
+    });
+
+    it('IS NOT NULL on a non-existent property returns false', () => {
+      const ast = parseCypher('MATCH (u:User) WHERE u.phone IS NOT NULL RETURN u');
+      const results = engineWithNulls.execute(ast);
+      expect(results.length).toBe(0);
+    });
+
+    it('IS NULL combined with AND', () => {
+      const ast = parseCypher('MATCH (u:User) WHERE u.email IS NULL AND u.name = "Bob" RETURN u');
+      const results = engineWithNulls.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Bob');
+    });
+
+    it('IS NOT NULL combined with AND', () => {
+      const ast = parseCypher('MATCH (u:User) WHERE u.email IS NOT NULL AND u.name = "Alice" RETURN u');
+      const results = engineWithNulls.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Alice');
+    });
+
+    it('IS NULL combined with OR', () => {
+      const ast = parseCypher('MATCH (u:User) WHERE u.email IS NULL OR u.name = "Alice" RETURN u');
+      const results = engineWithNulls.execute(ast);
+      // Bob (email=null), Charlie (email=undefined), Alice (name="Alice")
+      expect(results.length).toBe(3);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Bob', 'Charlie']);
+    });
+
+    it('IS NOT NULL combined with OR', () => {
+      const ast = parseCypher('MATCH (u:User) WHERE u.email IS NOT NULL OR u.name = "Charlie" RETURN u');
+      const results = engineWithNulls.execute(ast);
+      // Alice (email not null), Dave (email not null), Charlie (name="Charlie")
+      expect(results.length).toBe(3);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Charlie', 'Dave']);
+    });
+
+    it('IS NULL on WITH clause', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', name: 'A', value: 10 });
+      g.addNode('b', { label: 'Item', name: 'B', value: null });
+      g.addNode('c', { label: 'Item', name: 'C' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (i:Item) WITH i.name AS name, i.value AS value WHERE value IS NULL RETURN name',
+      );
+      const results = e.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => r.name).sort();
+      expect(names).toEqual(['B', 'C']);
+    });
+
+    it('IS NOT NULL on WITH clause', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', name: 'A', value: 10 });
+      g.addNode('b', { label: 'Item', name: 'B', value: null });
+      g.addNode('c', { label: 'Item', name: 'C' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (i:Item) WITH i.name AS name, i.value AS value WHERE value IS NOT NULL RETURN name, value',
+      );
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.name).toBe('A');
+      expect(results[0]!.value).toBe(10);
+    });
+
+    it('IS NULL with relationship traversal', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      g.addNode('b', { label: 'User', name: 'Bob', email: null });
+      g.addNode('c', { label: 'User', name: 'Charlie', email: 'charlie@example.com' });
+      g.addEdge('a', 'b', { type: 'FRIEND' });
+      g.addEdge('a', 'c', { type: 'FRIEND' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (u:User)-[r:FRIEND]->(f:User) WHERE f.email IS NULL RETURN u.name AS from, f.name AS to',
+      );
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.from).toBe('Alice');
+      expect(results[0]!.to).toBe('Bob');
+    });
+
+    it('IS NOT NULL with relationship traversal', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      g.addNode('b', { label: 'User', name: 'Bob', email: null });
+      g.addNode('c', { label: 'User', name: 'Charlie', email: 'charlie@example.com' });
+      g.addEdge('a', 'b', { type: 'FRIEND' });
+      g.addEdge('a', 'c', { type: 'FRIEND' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (u:User)-[r:FRIEND]->(f:User) WHERE f.email IS NOT NULL RETURN u.name AS from, f.name AS to',
+      );
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.from).toBe('Alice');
+      expect(results[0]!.to).toBe('Charlie');
+    });
+
+    it('IS NULL combined with CONTAINS', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.email IS NULL OR u.name CONTAINS "Dav" RETURN u',
+      );
+      const results = engineWithNulls.execute(ast);
+      // Bob (email=null), Charlie (email=undefined), Dave (contains "Dav")
+      expect(results.length).toBe(3);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Bob', 'Charlie', 'Dave']);
+    });
+
+    it('IS NOT NULL combined with comparison', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', name: 'A', value: 10, score: 85 });
+      g.addNode('b', { label: 'Item', name: 'B', value: null, score: 90 });
+      g.addNode('c', { label: 'Item', name: 'C', value: 5, score: 70 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (i:Item) WHERE i.value IS NOT NULL AND i.score > 80 RETURN i.name',
+      );
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.name).toBe('A');
+    });
+
+    it('IS NULL on OPTIONAL MATCH null variable', () => {
+      const ast = parseCypher(
+        'MATCH (u:User {name: "Alice"}) OPTIONAL MATCH (u)-[r:FRIEND]->(f:User) WHERE f IS NULL RETURN u.name, f',
+      );
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      g.addNode('bob', { label: 'User', name: 'Bob' });
+      g.addEdge('bob', 'alice', { type: 'FRIEND' }); // Bob→Alice, not Alice→Bob
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.name).toBe('Alice');
+      expect(results[0]!.f).toBeNull();
+    });
+
+    it('IS NOT NULL in OPTIONAL MATCH WHERE filters matches but null-fill still produced', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      g.addNode('bob', { label: 'User', name: 'Bob' });
+      g.addNode('charlie', { label: 'User', name: 'Charlie' });
+      g.addEdge('alice', 'bob', { type: 'FRIEND' });
+      // Charlie has no FRIEND outbound
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (u:User) OPTIONAL MATCH (u)-[r:FRIEND]->(f:User) WHERE f IS NOT NULL RETURN u.name AS from, f',
+      );
+      const results = e.execute(ast);
+      // Alice→Bob (f is not null, passes WHERE)
+      // Bob→null (no match, null-fill added — WHERE on OPTIONAL MATCH does not suppress null-fill)
+      // Charlie→null (no match, null-fill added)
+      expect(results.length).toBe(3);
+      const aliceResult = results.find(r => r.from === 'Alice');
+      expect(aliceResult).toBeDefined();
+      expect(aliceResult!.f).not.toBeNull();
+      const bobResult = results.find(r => r.from === 'Bob');
+      expect(bobResult!.f).toBeNull();
+      const charlieResult = results.find(r => r.from === 'Charlie');
+      expect(charlieResult!.f).toBeNull();
+    });
+  });
 });

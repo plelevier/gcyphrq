@@ -172,6 +172,8 @@ RETURN s.name, outDegree
 | `<` | `WHERE count < 5` |
 | `<>` | `WHERE name <> "api"` |
 | `CONTAINS` | `WHERE name CONTAINS "api"` |
+| `IS NULL` | `WHERE email IS NULL` |
+| `IS NOT NULL` | `WHERE email IS NOT NULL` |
 
 ### Logical operators
 
@@ -212,9 +214,30 @@ RETURN u
 MATCH (u:User)
 WHERE u.age > 25 AND u.name = "Alice" OR u.age < 26
 RETURN u
+
+// IS NULL — matches null and missing properties
+MATCH (u:User)
+WHERE u.email IS NULL
+RETURN u
+
+// IS NOT NULL — matches non-null properties
+MATCH (u:User)
+WHERE u.email IS NOT NULL
+RETURN u
+
+// IS NULL combined with AND
+MATCH (u:User)
+WHERE u.email IS NULL AND u.name = "Bob"
+RETURN u
+
+// IS NOT NULL combined with OR
+MATCH (u:User)
+WHERE u.email IS NOT NULL OR u.name = "Charlie"
+RETURN u
 ```
 
 > **Note:** `AND` has higher precedence than `OR`. Use parentheses to control evaluation order.
+> `IS NULL` matches both explicit `null` values and missing (undefined) properties.
 
 ---
 
@@ -315,16 +338,14 @@ RETURN api, r, db
 
 ### Collaborative filtering
 
-Find items recommended based on what "friends of friends" bought:
+Find items recommended based on what "friends of friends" bought, excluding items already owned:
 
 ```cypher
 MATCH (u:User {id: 'usr_abc'})-[:FRIEND*2..2]-(peer:User)-[:BOUGHT]->(item:Product)
 OPTIONAL MATCH (u)-[already_owns:BOUGHT]->(item)
-WITH item, already_owns
+WHERE already_owns IS NULL
 RETURN item
 ```
-
-> **Note:** `IS NULL` is not yet supported, so filtering out already-owned items must be done post-query (e.g., with `jq`).
 
 ### What-if impact simulation
 
@@ -362,9 +383,9 @@ The following Cypher features are **not** supported by the engine:
 - **MERGE** — use `CREATE` or `MATCH` + `CREATE` instead
 - **FOREACH** — not implemented
 - **UNION** — not implemented
-- **`IS NULL` / `IS NOT NULL`** — filter nulls post-query with `jq` instead
+
 
 ## Next Steps
 
 - **[Library API](library-api)** — Use gcyphrq programmatically in your code
-- **[Examples](examples)** — 25 ready-to-run queries against the bundled cloud infrastructure graph
+- **[Examples](examples)** — 27 ready-to-run queries against the bundled cloud infrastructure graph

@@ -682,4 +682,90 @@ describe('parseCypher', () => {
       expect((notExpr.expression as { operator: string }).operator).toBe('<>');
     });
   });
+
+  describe('WHERE IS NULL', () => {
+    it('parses IS NULL on MATCH', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.email IS NULL RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where).toBeDefined();
+      expect(clause.where!.type).toBe('IsNull');
+      const isNull = clause.where! as { type: 'IsNull'; expression: { type: string; variable?: string; property?: string }; negated: boolean };
+      expect(isNull.negated).toBe(false);
+      expect(isNull.expression.type).toBe('PropertyAccess');
+      expect(isNull.expression.variable).toBe('n');
+      expect(isNull.expression.property).toBe('email');
+    });
+
+    it('parses IS NOT NULL on MATCH', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.email IS NOT NULL RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('IsNull');
+      const isNull = clause.where! as { type: 'IsNull'; negated: boolean };
+      expect(isNull.negated).toBe(true);
+    });
+
+    it('parses IS NULL on bare variable (no property access)', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n IS NULL RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('IsNull');
+      const isNull = clause.where! as { type: 'IsNull'; expression: { type: string; variable?: string; property?: string } };
+      expect(isNull.expression.type).toBe('PropertyAccess');
+      expect(isNull.expression.variable).toBe('n');
+      expect(isNull.expression.property).toBeUndefined();
+    });
+
+    it('parses IS NOT NULL on WITH clause', () => {
+      const ast = parseCypher(
+        'MATCH (n:User) WITH n.name AS name, n.email AS email WHERE email IS NOT NULL RETURN name',
+      );
+      const withStage = ast.stages[1]! as { type: 'WITH'; clause: WithClause };
+      expect(withStage.clause.where).toBeDefined();
+      expect(withStage.clause.where!.type).toBe('IsNull');
+      const isNull = withStage.clause.where! as { type: 'IsNull'; negated: boolean };
+      expect(isNull.negated).toBe(true);
+    });
+
+    it('parses IS NULL combined with AND', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.email IS NULL AND n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; operator: string; left: { type: string; negated?: boolean }; right: { type: string } };
+      expect(logical.operator).toBe('AND');
+      expect(logical.left.type).toBe('IsNull');
+      expect((logical.left as { negated: boolean }).negated).toBe(false);
+      expect(logical.right.type).toBe('BinaryExpression');
+    });
+
+    it('parses IS NOT NULL combined with OR', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.email IS NOT NULL OR n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; operator: string; left: { type: string; negated?: boolean }; right: { type: string } };
+      expect(logical.operator).toBe('OR');
+      expect(logical.left.type).toBe('IsNull');
+      expect((logical.left as { negated: boolean }).negated).toBe(true);
+      expect(logical.right.type).toBe('BinaryExpression');
+    });
+
+    it('parses IS NULL combined with CONTAINS', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.email IS NULL OR n.name CONTAINS "Ali" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; left: { type: string }; right: { type: string; operator?: string } };
+      expect(logical.left.type).toBe('IsNull');
+      expect(logical.right.type).toBe('BinaryExpression');
+      expect((logical.right as { operator: string }).operator).toBe('CONTAINS');
+    });
+
+    it('parses IS NOT NULL combined with comparison', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.email IS NOT NULL AND n.age > 25 RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; left: { type: string; negated?: boolean }; right: { type: string; operator?: string } };
+      expect(logical.left.type).toBe('IsNull');
+      expect((logical.left as { negated: boolean }).negated).toBe(true);
+      expect(logical.right.type).toBe('BinaryExpression');
+      expect((logical.right as { operator: string }).operator).toBe('>');
+    });
+  });
 });

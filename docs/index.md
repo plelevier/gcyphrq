@@ -76,6 +76,7 @@ const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 | `WHERE` (on `MATCH` and `WITH`) | <span class="badge badge-success">✅</span> |
 | `WHERE` operators: `>`, `<`, `=`, `<>`, `CONTAINS` | <span class="badge badge-success">✅</span> |
 | `WHERE` logical operators: `AND`, `OR`, `NOT` | <span class="badge badge-success">✅</span> |
+| `WHERE` IS NULL / IS NOT NULL | <span class="badge badge-success">✅</span> |
 | `CREATE`, `SET`, `DELETE` mutations | <span class="badge badge-success">✅</span> |
 | `ORDER BY` (single/multi-column) | <span class="badge badge-success">✅</span> |
 | `SKIP` / `LIMIT` | <span class="badge badge-success">✅</span> |
@@ -88,4 +89,4 @@ Two example graphs are bundled with the package:
 - **`social-graph.json`** — A small social network with three users connected by `FRIEND` relationships
 - **`cloud-infra.json`** — A full startup cloud infrastructure with 52 nodes and 110 edges
 
-See the [Examples](examples) page for 25 ready-to-run queries against the cloud infrastructure graph.
+See the [Examples](examples) page for 27 ready-to-run queries against the cloud infrastructure graph.

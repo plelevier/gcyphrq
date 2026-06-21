@@ -413,6 +413,7 @@ import type {
   WhereExpression,
   LogicalExpression,
   NotExpression,
+  IsNullExpression,
   Projection,
   OrderByItem,
 

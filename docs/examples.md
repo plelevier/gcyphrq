@@ -231,6 +231,22 @@ Compute average, minimum, and maximum across all users:
 gcyphrq -g examples/social-graph.json -e 'MATCH (u:User) RETURN avg(u.age) AS avgAge, min(u.age) AS minAge, max(u.age) AS maxAge'
 ```
 
+### 26. Filter with IS NULL (null check)
+
+Find nodes where a property is null or missing:
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.status IS NULL RETURN s.name'
+```
+
+### 27. Filter with IS NOT NULL (not-null check)
+
+Find nodes where a property has a value:
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.status IS NOT NULL RETURN s.name'
+```
+
 ---
 
 ## `social-graph.json` — Query Examples

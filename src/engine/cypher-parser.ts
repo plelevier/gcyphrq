@@ -11,6 +11,7 @@ import type {
   Expression,
   BinaryExpression,
   WhereExpression,
+  IsNullExpression,
   ReturnClause,
   CypherLiteral,
   Projection,
@@ -911,7 +912,7 @@ function extractWhereExpressionFromChild(ctx: TreeNode): WhereExpression | undef
   return undefined;
 }
 
-function extractComparison(compCtx: TreeNode): BinaryExpression | undefined {
+function extractComparison(compCtx: TreeNode): BinaryExpression | IsNullExpression | undefined {
   if (!compCtx) return undefined;
 
   // Standard comparison operators (>, <, =, <>, etc.) use PartialComparisonExpression
@@ -933,9 +934,38 @@ function extractComparison(compCtx: TreeNode): BinaryExpression | undefined {
     return undefined;
   }
 
-  // CONTAINS operator is inside StringListNullOperatorExpressionContext (no PartialComparisonExpression)
+  // StringListNullOperatorExpression handles CONTAINS, IS NULL, and IS NOT NULL
   const strCtx = findDescendant(compCtx, Ctx.StringListNullOperatorExpression);
   if (strCtx && strCtx.children) {
+    // Check for IS NULL / IS NOT NULL first (single PropertyOrLabelsExpression + IS [+ NOT] + NULL)
+    const hasIs = strCtx.children.some((c: ParseTreeNode) =>
+      c.constructor.name === Ctx.TerminalNode && c.symbol?.text === 'IS',
+    );
+    const hasNull = strCtx.children.some((c: ParseTreeNode) =>
+      c.constructor.name === Ctx.TerminalNode && c.symbol?.text === 'NULL',
+    );
+    if (hasIs && hasNull) {
+      const propExprs = strCtx.children!.filter(
+        (c: ParseTreeNode) => c.constructor.name === Ctx.PropertyOrLabelsExpression,
+      ) as ParseTreeNode[];
+
+      if (propExprs.length >= 1) {
+        const expr = extractValueExpressionFromPropertyOrLabels(propExprs[0]);
+        if (expr) {
+          const hasNot = strCtx.children.some((c: ParseTreeNode) =>
+            c.constructor.name === Ctx.TerminalNode && c.symbol?.text === 'NOT',
+          );
+          const isNullExpr: IsNullExpression = {
+            type: 'IsNull' as const,
+            expression: expr,
+            negated: hasNot,
+          };
+          return isNullExpr;
+        }
+      }
+    }
+
+    // CONTAINS operator (two PropertyOrLabelsExpression children with CONTAINS terminal)
     const hasContains = strCtx.children.some((c: ParseTreeNode) =>
       c.constructor.name === Ctx.TerminalNode && c.symbol?.text === 'CONTAINS',
     );

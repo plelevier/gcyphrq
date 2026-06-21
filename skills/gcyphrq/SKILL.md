@@ -1,6 +1,6 @@
 ---
 name: gcyphrq
-description: "Use for querying graph data with Cypher — service dependencies, infrastructure topology, blast radius analysis, path tracing. Runs against JSON graph files with an in-memory Cypher engine supporting MATCH, OPTIONAL MATCH, WITH, aggregations, ORDER BY, SKIP, LIMIT, variable-length paths, and mutations."
+description: "Use for querying graph data with Cypher — service dependencies, infrastructure topology, blast radius analysis, path tracing. Runs against JSON graph files with an in-memory Cypher engine supporting MATCH, OPTIONAL MATCH, WITH, aggregations, ORDER BY, SKIP, LIMIT, variable-length paths, IS NULL/IS NOT NULL, and mutations."
 ---
 
 # gcyphrq
@@ -72,6 +72,7 @@ gcyphrq -g <graph.json> -e 'MATCH (n) RETURN n.name' | jq '.[].n'
 | `WHERE` on `MATCH` and `WITH` | `WHERE c > 5` | ✅ |
 | `WHERE` operators | `>`, `<`, `=`, `<>`, `CONTAINS` | ✅ |
 | `WHERE` logical operators | `AND`, `OR`, `NOT` | ✅ |
+| `WHERE` IS NULL / IS NOT NULL | `WHERE n.prop IS NULL` | ✅ |
 | `CREATE` nodes | `CREATE (n:Label {key: val})` | ✅ |
 | `SET` properties | `SET n.prop = value` | ✅ |
 | `DELETE` nodes | `DELETE n` | ✅ |
@@ -175,6 +176,18 @@ gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE n.name CONTAINS "api" RETURN n
 gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE n.region <> "us-east-1" RETURN n'
 ```
 
+### WHERE with IS NULL (null check)
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE n.status IS NULL RETURN n'
+```
+
+### WHERE with IS NOT NULL (not-null check)
+
+```bash
+gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE n.status IS NOT NULL RETURN n'
+```
+
 ### Complex WHERE with AND, OR, NOT and parentheses
 
 ```bash
@@ -184,10 +197,8 @@ gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE (n.type = "RPC" OR n.type = "C
 ### OPTIONAL MATCH (find nodes without connections)
 
 ```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label) OPTIONAL MATCH (n)-[]->(m) RETURN n, m'
+gcyphrq -g <graph.json> -e 'MATCH (n:Label) OPTIONAL MATCH (n)-[]->(m) WHERE m IS NULL RETURN n, m'
 ```
-
-> **Note:** Filter results where `m` is `null` post-query with `jq` — `IS NULL` is not yet supported.
 
 ### Sort and paginate
 
@@ -220,8 +231,7 @@ Errors go to stderr with `Error: ` prefix and exit code 1.
 
 - **Single MATCH per stage** — the engine processes one MATCH clause at a time. Chained `MATCH (a) MATCH (b)` is not supported.
 - **No subqueries** — `CALL {}`, APOC procedures, and other extensions are not available.
-- **No `IS NULL` / `IS NOT NULL`** — filter nulls post-query with `jq` instead.
-- **WHERE operators** — supports `>`, `<`, `=`, `<>`, `CONTAINS` and logical `AND`, `OR`, `NOT`. Works on both `MATCH` and `WITH` clauses. No regex or custom functions.
+- **WHERE operators** — supports `>`, `<`, `=`, `<>`, `CONTAINS`, `IS NULL`, `IS NOT NULL` and logical `AND`, `OR`, `NOT`. Works on both `MATCH` and `WITH` clauses. No regex or custom functions.
 - **Aggregation edge cases** — `avg()`, `min()`, `max()` return null when no numeric values exist.
 - **Property access in RETURN** — returns the full node object or a single property. Nested property access beyond one level is not supported.
 - **ORDER BY on RETURN and WITH** — supported on both, multi-column with ASC/DESC.

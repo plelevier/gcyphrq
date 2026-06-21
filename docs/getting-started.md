@@ -155,4 +155,4 @@ console.log(results);
 - **[CLI Reference](cli)** — Full documentation of CLI options and usage patterns
 - **[Query Guide](query-guide)** — Cypher syntax reference, supported features, and query patterns
 - **[Library API](library-api)** — Complete API reference for Node.js / TypeScript usage
-- **[Examples](examples)** — 25 ready-to-run queries against the bundled cloud infrastructure graph
+- **[Examples](examples)** — 27 ready-to-run queries against the bundled cloud infrastructure graph
