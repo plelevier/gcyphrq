@@ -89,4 +89,4 @@ Two example graphs are bundled with the package:
 - **`social-graph.json`** — A small social network with three users connected by `FRIEND` relationships
 - **`cloud-infra.json`** — A full startup cloud infrastructure with 52 nodes and 110 edges
 
-See the [Examples](examples) page for 25 ready-to-run queries against the cloud infrastructure graph.
+See the [Examples](examples) page for 27 ready-to-run queries against the cloud infrastructure graph.

@@ -388,4 +388,4 @@ The following Cypher features are **not** supported by the engine:
 ## Next Steps
 
 - **[Library API](library-api)** — Use gcyphrq programmatically in your code
-- **[Examples](examples)** — 25 ready-to-run queries against the bundled cloud infrastructure graph
+- **[Examples](examples)** — 27 ready-to-run queries against the bundled cloud infrastructure graph
