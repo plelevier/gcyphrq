@@ -48,7 +48,8 @@
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "bump": "npm version patch"
   },
   "dependencies": {
     "@neo4j-cypher/antlr4": "^1.0.0",
