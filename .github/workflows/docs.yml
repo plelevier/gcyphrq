@@ -18,6 +18,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      GITHUB_ACTIONS_NODE_VERSION: 24
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +35,8 @@ jobs:
         uses: actions/upload-pages-artifact@v3
 
   deploy:
+    env:
+      GITHUB_ACTIONS_NODE_VERSION: 24
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
