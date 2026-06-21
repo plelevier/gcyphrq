@@ -5,7 +5,7 @@ description: "Use for querying graph data with Cypher — service dependencies, 
 
 # gcyphrq
 
-Execute Cypher queries against in-memory graphs built from JSON files. The CLI tool is `gcyphrq`. Both `-e` (query) and `-g` (graph file or `-` for stdin) are required.
+Execute Cypher queries against in-memory graphs built from JSON files. The CLI tool is `gcyphrq`. Use `-e` + `-g` to run queries, or `--install --global/--local` to install the skill for AI coding agents.
 
 ## Usage
 

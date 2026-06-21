@@ -29,9 +29,7 @@ gcyphrq [options]
 | `--local` | Install skill per-project with copies (requires `--install`) |
 | `-h, --help` | Show help message |
 
-Either `-e` + `-g` (query mode) or `--install` + `--global`/`--local` (install mode) is required. These modes are mutually exclusive.
-
-Both `-e` and `-g` are required. The tool exits with code 1 and prints to stderr if either is missing.
+Either `-e` + `-g` (query mode) or `--install` + `--global`/`--local` (install mode) is required. These modes are mutually exclusive. The tool exits with code 1 and prints to stderr if no valid mode is provided.
 
 ## Loading a Graph
 
