@@ -77,7 +77,9 @@ The tool can also be used as a library in Node.js / TypeScript projects:
 | `RETURN` with property access and aliases | ✅ |
 | `WITH` + implicit grouping | ✅ |
 | `count()`, `sum()`, `avg()`, `min()`, `max()` aggregations | ✅ |
-| `WHERE` (on `WITH`) with `>`, `<`, `=`, `CONTAINS` | ✅ |
+| `WHERE` (on `MATCH` and `WITH`) | ✅ |
+| `WHERE` operators: `>`, `<`, `=`, `<>`, `CONTAINS` | ✅ |
+| `WHERE` logical operators: `AND`, `OR`, `NOT` | ✅ |
 | `CREATE`, `SET`, `DELETE` mutations | ✅ |
 | Multiple chained clauses | ✅ (single MATCH per stage) |
 | `ORDER BY` (single/multi-column, ASC/DESC) | ✅ |

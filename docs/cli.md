@@ -70,10 +70,32 @@ List all nodes of a specific label:
 gcyphrq -g graph.json -e 'MATCH (s:Service) RETURN s.name'
 ```
 
+### Filter with WHERE (on MATCH)
+
+```bash
+gcyphrq -g graph.json -e 'MATCH (s:Service) WHERE s.type = "RPC" RETURN s.name'
+```
+
 ### Filter with WHERE (on WITH)
 
 ```bash
 gcyphrq -g graph.json -e 'MATCH (s:Service) WITH s WHERE s.name CONTAINS "api" RETURN s.name'
+```
+
+### WHERE with AND, OR, NOT
+
+```bash
+# AND — both conditions must be true
+gcyphrq -g graph.json -e 'MATCH (s:Service) WHERE s.type = "RPC" AND s.name CONTAINS "Service" RETURN s.name'
+
+# OR — either condition can be true
+gcyphrq -g graph.json -e 'MATCH (s:Service) WHERE s.type = "RPC" OR s.type = "CDN" RETURN s.name'
+
+# NOT — negate a condition
+gcyphrq -g graph.json -e 'MATCH (s:Service) WHERE NOT s.type = "Batch" RETURN s.name'
+
+# <> — not-equals
+gcyphrq -g graph.json -e 'MATCH (s:Service) WHERE s.name <> "Old Service" RETURN s.name'
 ```
 
 ### Aggregation

@@ -16,7 +16,7 @@ description: A Cypher graph query engine for in-memory graphs built on Grapholog
 <div class="feature-grid">
   <div class="feature-card">
     <h3>🔍 Cypher Queries</h3>
-    <p>Full support for <code>MATCH</code>, <code>OPTIONAL MATCH</code>, <code>WITH</code>, <code>RETURN</code>, <code>ORDER BY</code>, <code>SKIP</code>, <code>LIMIT</code>, and mutations.</p>
+    <p>Full support for <code>MATCH</code>, <code>OPTIONAL MATCH</code>, <code>WHERE</code>, <code>WITH</code>, <code>RETURN</code>, <code>ORDER BY</code>, <code>SKIP</code>, <code>LIMIT</code>, and mutations.</p>
   </div>
   <div class="feature-card">
     <h3>📐 Variable-Length Paths</h3>
@@ -73,7 +73,9 @@ const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 | `RETURN` with aliases | <span class="badge badge-success">✅</span> |
 | `WITH` + implicit grouping | <span class="badge badge-success">✅</span> |
 | `count()`, `sum()`, `avg()`, `min()`, `max()` aggregations | <span class="badge badge-success">✅</span> |
-| `WHERE` with `>`, `<`, `=`, `CONTAINS` | <span class="badge badge-success">✅</span> |
+| `WHERE` (on `MATCH` and `WITH`) | <span class="badge badge-success">✅</span> |
+| `WHERE` operators: `>`, `<`, `=`, `<>`, `CONTAINS` | <span class="badge badge-success">✅</span> |
+| `WHERE` logical operators: `AND`, `OR`, `NOT` | <span class="badge badge-success">✅</span> |
 | `CREATE`, `SET`, `DELETE` mutations | <span class="badge badge-success">✅</span> |
 | `ORDER BY` (single/multi-column) | <span class="badge badge-success">✅</span> |
 | `SKIP` / `LIMIT` | <span class="badge badge-success">✅</span> |
@@ -86,4 +88,4 @@ Two example graphs are bundled with the package:
 - **`social-graph.json`** — A small social network with three users connected by `FRIEND` relationships
 - **`cloud-infra.json`** — A full startup cloud infrastructure with 52 nodes and 110 edges
 
-See the [Examples](examples) page for 19 ready-to-run queries against the cloud infrastructure graph.
+See the [Examples](examples) page for 25 ready-to-run queries against the cloud infrastructure graph.

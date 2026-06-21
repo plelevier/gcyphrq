@@ -130,7 +130,29 @@ RETURN u.name, friendCount
 
 ---
 
-## WHERE (on WITH)
+## WHERE
+
+Filter results in `MATCH` or `WITH` clauses.
+
+### WHERE on MATCH
+
+Filter nodes directly during matching:
+
+```cypher
+MATCH (u:User)
+WHERE u.age > 25
+RETURN u
+```
+
+Works with relationship traversals:
+
+```cypher
+MATCH (a:User)-[r:FRIEND]->(b:User)
+WHERE a.name CONTAINS "Ali"
+RETURN a, b
+```
+
+### WHERE on WITH
 
 Filter results after a `WITH` clause:
 
@@ -141,14 +163,58 @@ WHERE outDegree > 2
 RETURN s.name, outDegree
 ```
 
-### Supported operators
+### Supported comparison operators
 
 | Operator | Example |
 |---|---|
 | `=` | `WHERE count = 5` |
 | `>` | `WHERE count > 5` |
 | `<` | `WHERE count < 5` |
+| `<>` | `WHERE name <> "api"` |
 | `CONTAINS` | `WHERE name CONTAINS "api"` |
+
+### Logical operators
+
+Combine conditions with `AND`, `OR`, and `NOT`:
+
+```cypher
+// AND — both conditions must be true
+MATCH (u:User)
+WHERE u.age > 25 AND u.name CONTAINS "Ali"
+RETURN u
+
+// OR — either condition can be true
+MATCH (u:User)
+WHERE u.name = "Alice" OR u.age > 30
+RETURN u
+
+// NOT — negate a condition
+MATCH (u:User)
+WHERE NOT u.name = "Alice"
+RETURN u
+
+// Combined with parentheses
+MATCH (u:User)
+WHERE (u.age > 32 OR u.age < 26) AND u.name CONTAINS "a"
+RETURN u
+
+// Multiple AND conditions
+MATCH (u:User)
+WHERE u.age > 20 AND u.age < 35 AND u.name CONTAINS "li"
+RETURN u
+
+// Multiple OR conditions
+MATCH (u:User)
+WHERE u.name = "Alice" OR u.name = "Bob" OR u.name = "Charlie"
+RETURN u
+
+// AND with higher precedence than OR
+MATCH (u:User)
+WHERE u.age > 25 AND u.name = "Alice" OR u.age < 26
+RETURN u
+```
+
+> **Note:** `AND` has higher precedence than `OR`. Use parentheses to control evaluation order.
 
 ---
 
@@ -255,9 +321,10 @@ Find items recommended based on what "friends of friends" bought:
 MATCH (u:User {id: 'usr_abc'})-[:FRIEND*2..2]-(peer:User)-[:BOUGHT]->(item:Product)
 OPTIONAL MATCH (u)-[already_owns:BOUGHT]->(item)
 WITH item, already_owns
-WHERE already_owns IS NULL
 RETURN item
 ```
+
+> **Note:** `IS NULL` is not yet supported, so filtering out already-owned items must be done post-query (e.g., with `jq`).
 
 ### What-if impact simulation
 
@@ -295,8 +362,9 @@ The following Cypher features are **not** supported by the engine:
 - **MERGE** — use `CREATE` or `MATCH` + `CREATE` instead
 - **FOREACH** — not implemented
 - **UNION** — not implemented
+- **`IS NULL` / `IS NOT NULL`** — filter nulls post-query with `jq` instead
 
 ## Next Steps
 
 - **[Library API](library-api)** — Use gcyphrq programmatically in your code
-- **[Examples](examples)** — 18 ready-to-run queries against the bundled cloud infrastructure graph
+- **[Examples](examples)** — 25 ready-to-run queries against the bundled cloud infrastructure graph

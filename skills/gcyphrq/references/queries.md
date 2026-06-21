@@ -223,6 +223,59 @@ gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[:HTTPS]->(bucket:Sto
 gcyphrq -g examples/cloud-infra.json -e 'MATCH (tf:Storage {name: "Terraform State"})-[:Manages]->(resource) RETURN tf, resource'
 ```
 
+## WHERE with Logical Operators
+
+### AND — both conditions must be true
+
+```bash
+# RPC services with "Service" in the name
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.type = "RPC" AND s.name CONTAINS "Service" RETURN s'
+
+# Services with name containing "Service" in us-east-1
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.name CONTAINS "Service" AND s.region = "us-east-1" RETURN s'
+```
+
+### OR — either condition can be true
+
+```bash
+# RPC or Worker services
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.type = "RPC" OR s.type = "Worker" RETURN s'
+
+# RPC or CDN services
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.type = "RPC" OR s.type = "CDN" RETURN s'
+```
+
+### NOT — negate a condition
+
+```bash
+# Non-batch services
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE NOT s.type = "Batch" RETURN s'
+
+# Services not in us-east-1
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE NOT s.region = "us-east-1" RETURN s'
+```
+
+### <> — not-equals
+
+```bash
+# Services not in us-east-1
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.region <> "us-east-1" RETURN s'
+```
+
+### CONTAINS — substring match
+
+```bash
+# Services with "Service" in the name
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.name CONTAINS "Service" RETURN s'
+```
+
+### Combined AND + OR with parentheses
+
+```bash
+# (RPC or CDN) AND not named "CloudFront CDN"
+gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE (s.type = "RPC" OR s.type = "CDN") AND s.name <> "CloudFront CDN" RETURN s'
+```
+
 ## Mutations (in-memory only)
 
 ### Add a new service

@@ -175,6 +175,20 @@ Traces RPC services through 1-3 hops to find external API dependencies.
 
 Returns all nodes with the External label and their upstream callers.
 
+### Advanced Filtering
+
+> **Prompt:** "Show me all RPC or Worker services."
+
+Uses WHERE with OR to match multiple types.
+
+> **Prompt:** "Find services that are not batch jobs."
+
+Uses WHERE with NOT to exclude a type.
+
+> **Prompt:** "List services in us-east-1 that have 'Service' in the name."
+
+Uses WHERE with AND to combine conditions.
+
 ### Pagination
 
 > **Prompt:** "Show me page 2 of services, 10 per page, sorted alphabetically."
@@ -215,5 +229,5 @@ The skill file (`SKILL.md`) includes:
 
 - **[Getting Started](getting-started)** — Install gcyphrq and run your first query
 - **[Query Guide](query-guide)** — Full Cypher syntax reference
-- **[Examples](examples)** — 18 ready-to-run queries against the cloud infrastructure graph
+- **[Examples](examples)** — 25 ready-to-run queries against the cloud infrastructure graph
 - **[Library API](library-api)** — Use gcyphrq programmatically in Node.js / TypeScript
