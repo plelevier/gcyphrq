@@ -13,7 +13,7 @@ import { resolve } from 'path';
 import { Graph, type GraphInstance } from './src/graph';
 import { AdvancedCypherGraphologyEngine } from './src/engine/cypher-engine';
 import { parseCypher } from './src/engine/cypher-parser';
-import { buildGraphIndexes } from './src/indexes';
+import { buildGraphIndexes } from './src/lib';
 import type { GraphFile } from './src/lib';
 import type { GraphIndexes } from './src/types/cypher';
 
