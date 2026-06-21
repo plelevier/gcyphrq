@@ -50,18 +50,29 @@ jobs:
           fi
           echo "bumped=true" >> "$GITHUB_OUTPUT"
 
-          # Determine version bump level based on conventional commits since last tag
-          #   major  — commit subject with '!' (e.g. feat!: or feat(scope)!: …)
-          #            or 'BREAKING CHANGE' footer in commit body
-          #   minor  — commit subject starting with 'feat:' or 'feat('
-          #   patch  — everything else
-          LEVEL="patch"
           LAST_TAG=$(git describe --tags --match "v*" --abbrev=0 2>/dev/null || echo "")
           if [ -n "$LAST_TAG" ]; then
             RANGE="${LAST_TAG}..HEAD"
           else
             RANGE="HEAD"
           fi
+
+          # If package.json was manually edited in this batch, use the version as-is
+          if git diff --name-only "$RANGE" -- package.json | grep -q package.json; then
+            VERSION=$(node -p "require('./package.json').version")
+            echo "Using manually set version $VERSION"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            git tag "v$VERSION"
+            git push origin main --tags
+            exit 0
+          fi
+
+          # Determine version bump level based on conventional commits since last tag
+          #   major  — commit subject with '!' (e.g. feat!: or feat(scope)!: …)
+          #            or 'BREAKING CHANGE' footer in commit body
+          #   minor  — commit subject starting with 'feat:' or 'feat('
+          #   patch  — everything else
+          LEVEL="patch"
           if git log --format="%B" "$RANGE" | grep -qE '^BREAKING CHANGE'; then
             LEVEL="major"
           elif git log --format="%s" "$RANGE" | grep -qE '^[a-z]+(\([^)]*\))?!:'; then
