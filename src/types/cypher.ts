@@ -129,7 +129,13 @@ export interface NotExpression {
   expression: WhereExpression;
 }
 
-export type WhereExpression = BinaryExpression | LogicalExpression | NotExpression;
+export interface IsNullExpression {
+  type: 'IsNull';
+  expression: Expression;
+  negated: boolean; // true for IS NOT NULL, false for IS NULL
+}
+
+export type WhereExpression = BinaryExpression | LogicalExpression | NotExpression | IsNullExpression;
 
 export interface Projection {
   expression: Expression;

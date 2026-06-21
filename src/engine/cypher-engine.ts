@@ -9,6 +9,7 @@ import type {
   Expression,
   BinaryExpression,
   WhereExpression,
+  IsNullExpression,
   ReturnClause,
   QueryContext,
   NodePattern,
@@ -719,6 +720,12 @@ export class AdvancedCypherGraphologyEngine {
 
     if (whereNode.type === 'NotExpression') {
       return !this.evaluateWhere(whereNode.expression, context);
+    }
+
+    if (whereNode.type === 'IsNull') {
+      const value = this.evaluateExpression(whereNode.expression, context);
+      const isNull = value === null || value === undefined;
+      return whereNode.negated ? !isNull : isNull;
     }
 
     const leftValue = this.evaluateExpression(whereNode.left, context);
