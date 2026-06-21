@@ -1,19 +1,30 @@
 name: Publish to npm
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["Bump Version"]
+    types: [completed]
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: read
       id-token: write          # OIDC token for npm provenance
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Get latest tag
+        id: tag
+        run: |
+          TAG=$(git describe --tags --abbrev=0)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release tag
+        run: git checkout ${{ steps.tag.outputs.tag }}
 
       - uses: actions/setup-node@v4
         with:
