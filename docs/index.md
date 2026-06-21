@@ -76,6 +76,7 @@ const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 | `WHERE` (on `MATCH` and `WITH`) | <span class="badge badge-success">✅</span> |
 | `WHERE` operators: `>`, `<`, `=`, `<>`, `CONTAINS` | <span class="badge badge-success">✅</span> |
 | `WHERE` logical operators: `AND`, `OR`, `NOT` | <span class="badge badge-success">✅</span> |
+| `WHERE` IS NULL / IS NOT NULL | <span class="badge badge-success">✅</span> |
 | `CREATE`, `SET`, `DELETE` mutations | <span class="badge badge-success">✅</span> |
 | `ORDER BY` (single/multi-column) | <span class="badge badge-success">✅</span> |
 | `SKIP` / `LIMIT` | <span class="badge badge-success">✅</span> |

@@ -80,6 +80,7 @@ The tool can also be used as a library in Node.js / TypeScript projects:
 | `WHERE` (on `MATCH` and `WITH`) | ✅ |
 | `WHERE` operators: `>`, `<`, `=`, `<>`, `CONTAINS` | ✅ |
 | `WHERE` logical operators: `AND`, `OR`, `NOT` | ✅ |
+| `WHERE` IS NULL / IS NOT NULL | ✅ |
 | `CREATE`, `SET`, `DELETE` mutations | ✅ |
 | Multiple chained clauses | ✅ (single MATCH per stage) |
 | `ORDER BY` (single/multi-column, ASC/DESC) | ✅ |
