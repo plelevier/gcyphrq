@@ -45,8 +45,10 @@ jobs:
           if [ -n "$HEAD_TAG" ]; then
             echo "HEAD is already tagged as $HEAD_TAG, skipping bump"
             echo "version=${HEAD_TAG#v}" >> "$GITHUB_OUTPUT"
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "bumped=true" >> "$GITHUB_OUTPUT"
 
           # Determine version bump level based on conventional commits since last tag
           #   major  — commit subject with '!' (e.g. feat!: or feat(scope)!: …)
@@ -79,6 +81,7 @@ jobs:
           git push origin main --tags
 
       - name: Create GitHub Release
+        if: steps.version.outputs.bumped == 'true'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.version }}
@@ -86,7 +89,9 @@ jobs:
           generate_release_notes: true
 
       - run: npm ci
+        if: steps.version.outputs.bumped == 'true'
       # prepublishOnly (build + test) runs automatically as part of npm publish
       - run: npm publish --provenance --access public
+        if: steps.version.outputs.bumped == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
