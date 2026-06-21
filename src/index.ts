@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { GraphError, createGraph, parseCypher, GraphEngine, buildGraphIndexes } from './lib';
 import type { GraphFile } from './lib';
+import { runInstall } from './install';
 
 // ── CLI Help ─────────────────────────────────────────────────────────────────
 
@@ -13,6 +14,9 @@ A graph query tool that executes Cypher queries against an in-memory graph.
 Options:
   -e, --expr <query>   Cypher query expression (required)
   -g, --graph <file>   Path to a JSON graph file (required, or "-" to read from stdin)
+  --install            Install the gcyphrq skill for AI coding agents
+  --global             Install skill globally (with --install)
+  --local              Install skill per-project (with --install)
   -h, --help           Show this help message
 
 Graph file format:
@@ -26,6 +30,8 @@ Examples:
   gcyphrq --graph examples/social-graph.json --expr 'MATCH (u:User {name: "Alice"})-[r:FRIEND*1..2]->(f:User) RETURN u, f'
   gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service {type: "RPC"}) RETURN s.name'
   cat my-graph.json | gcyphrq -g - -e 'MATCH (n) RETURN n'
+  gcyphrq --install --global    # Install skill globally (symlinks)
+  gcyphrq --install --local     # Install skill in current project (copies)
 `;
 
 function printHelp(): void {
@@ -42,10 +48,13 @@ type ParsedArgs = {
   expr: string | undefined;
   graph: string | undefined;
   help: boolean;
+  install: boolean;
+  global: boolean;
+  local: boolean;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
-  const args: ParsedArgs = { expr: undefined, graph: undefined, help: false };
+  const args: ParsedArgs = { expr: undefined, graph: undefined, help: false, install: false, global: false, local: false };
   let exprFlag: string | null = null;
   let graphFlag: string | null = null;
 
@@ -55,6 +64,21 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     if (arg === '-h' || arg === '--help') {
       args.help = true;
+      continue;
+    }
+
+    if (arg === '--install') {
+      args.install = true;
+      continue;
+    }
+
+    if (arg === '--global') {
+      args.global = true;
+      continue;
+    }
+
+    if (arg === '--local') {
+      args.local = true;
       continue;
     }
 
@@ -140,6 +164,27 @@ async function main(): Promise<void> {
       printHelp();
       process.exit(0);
     }
+
+    // ── Install command ────────────────────────────────────────────────
+
+    if (args.install) {
+      // --install is mutually exclusive with -e and -g
+      if (args.expr || args.graph) {
+        throw new GraphError('--install cannot be combined with -e/--expr or -g/--graph.');
+      }
+      if (args.global && args.local) {
+        throw new GraphError('--global and --local are mutually exclusive. Choose one.');
+      }
+      if (!args.global && !args.local) {
+        throw new GraphError('--install requires either --global or --local.');
+      }
+
+      const mode = args.global ? 'global' : 'local';
+      await runInstall(mode, process.cwd());
+      process.exit(0);
+    }
+
+    // ── Query execution ────────────────────────────────────────────────
 
     if (!args.expr) {
       throw new GraphError('Missing required option: -e, --expr <query>\n\nUse "gcyphrq --help" for usage information.');
