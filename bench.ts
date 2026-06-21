@@ -10,32 +10,20 @@
 
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { Graph, type GraphInstance } from './src/graph';
-import { AdvancedCypherGraphologyEngine } from './src/engine/cypher-engine';
-import { parseCypher } from './src/engine/cypher-parser';
-import { buildGraphIndexes } from './src/lib';
+import { createGraph, buildGraphIndexes, GraphEngine, parseCypher } from './src/lib';
 import type { GraphFile } from './src/lib';
 import type { GraphIndexes } from './src/types/cypher';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function loadGraph(path: string): { data: GraphFile; graph: GraphInstance } {
+function loadGraph(path: string): { data: GraphFile; graph: ReturnType<typeof createGraph> } {
   const raw = readFileSync(resolve(path), 'utf-8');
   const data = JSON.parse(raw) as GraphFile;
-  const graph = new Graph();
-  for (const node of data.nodes) {
-    const { id, ...attrs } = node;
-    graph.addNode(id, attrs);
-  }
-  for (const edge of data.edges) {
-    const { source, target, ...attrs } = edge;
-    graph.addEdge(source, target, attrs);
-  }
-  return { data, graph };
+  return { data, graph: createGraph(data) };
 }
 
-function benchmark(query: string, graph: GraphInstance, indexes?: GraphIndexes): { ms: number; rows: number } {
-  const engine = new AdvancedCypherGraphologyEngine(graph, indexes);
+function benchmark(query: string, graph: ReturnType<typeof createGraph>, indexes?: GraphIndexes): { ms: number; rows: number } {
+  const engine = new GraphEngine(graph, indexes);
   const ast = parseCypher(query);
 
   const iterations = 50;
@@ -78,7 +66,7 @@ if (!queries.length) queries = defaultQueries;
 // ── Run ──────────────────────────────────────────────────────────────────────
 
 const { data, graph } = loadGraph(graphPath);
-const indexes = buildGraphIndexes(data, graph);
+const indexes = buildGraphIndexes(graph);
 
 console.log(`Graph: ${data.nodes.length} nodes, ${data.edges.length} edges`);
 console.log('');
