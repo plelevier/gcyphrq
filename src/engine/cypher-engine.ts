@@ -8,6 +8,7 @@ import type {
   WriteClause,
   Expression,
   BinaryExpression,
+  WhereExpression,
   ReturnClause,
   QueryContext,
   NodePattern,
@@ -705,7 +706,21 @@ export class AdvancedCypherGraphologyEngine {
     return undefined;
   }
 
-  private evaluateWhere(whereNode: BinaryExpression, context: QueryContext): boolean {
+  private evaluateWhere(whereNode: WhereExpression, context: QueryContext): boolean {
+    if (whereNode.type === 'LogicalExpression') {
+      if (whereNode.operator === 'AND') {
+        return this.evaluateWhere(whereNode.left, context) && this.evaluateWhere(whereNode.right, context);
+      }
+      if (whereNode.operator === 'OR') {
+        return this.evaluateWhere(whereNode.left, context) || this.evaluateWhere(whereNode.right, context);
+      }
+      return false;
+    }
+
+    if (whereNode.type === 'NotExpression') {
+      return !this.evaluateWhere(whereNode.expression, context);
+    }
+
     const leftValue = this.evaluateExpression(whereNode.left, context);
     const rightValue = this.evaluateExpression(whereNode.right, context);
 
@@ -722,6 +737,8 @@ export class AdvancedCypherGraphologyEngine {
         return leftValue < rightValue;
       case '=':
         return leftValue === rightValue;
+      case '<>':
+        return leftValue !== rightValue;
       case 'CONTAINS':
         return String(leftValue).includes(String(rightValue));
       default:

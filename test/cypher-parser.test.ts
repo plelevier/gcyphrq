@@ -421,4 +421,265 @@ describe('parseCypher', () => {
       expect(ast.return).toBeDefined();
     });
   });
+
+  describe('WHERE CONTAINS', () => {
+    it('parses WHERE with CONTAINS operator on MATCH', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.name CONTAINS "Ali" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where).toBeDefined();
+      expect(clause.where!.type).toBe('BinaryExpression');
+      expect((clause.where! as { type: 'BinaryExpression'; operator: string }).operator).toBe('CONTAINS');
+    });
+
+    it('parses WHERE with CONTAINS operator on WITH', () => {
+      const ast = parseCypher(
+        'MATCH (n:User) WITH n.name AS name, count(n) AS cnt WHERE name CONTAINS "Ali" RETURN name',
+      );
+      const withStage = ast.stages[1]! as { type: 'WITH'; clause: WithClause };
+      expect(withStage.clause.where).toBeDefined();
+      expect(withStage.clause.where!.type).toBe('BinaryExpression');
+      expect((withStage.clause.where! as { type: 'BinaryExpression'; operator: string }).operator).toBe('CONTAINS');
+    });
+
+    it('parses WHERE CONTAINS with property access on left side', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.name CONTAINS "Ali" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      const where = clause.where! as { type: 'BinaryExpression'; left: { type: string; variable?: string; property?: string }; right: { type: string; value?: string } };
+      expect(where.left.type).toBe('PropertyAccess');
+      expect(where.left.variable).toBe('n');
+      expect(where.left.property).toBe('name');
+      expect(where.right.type).toBe('Literal');
+      expect(where.right.value).toBe('Ali');
+    });
+  });
+
+  describe('WHERE AND', () => {
+    it('parses WHERE with AND operator on MATCH', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.age > 25 AND n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where).toBeDefined();
+      expect(clause.where!.type).toBe('LogicalExpression');
+      expect((clause.where! as { type: 'LogicalExpression'; operator: string }).operator).toBe('AND');
+    });
+
+    it('parses WHERE with AND operator on WITH', () => {
+      const ast = parseCypher(
+        'MATCH (n:User) WITH n.name AS name, count(n) AS cnt WHERE cnt > 0 AND name = "Alice" RETURN name',
+      );
+      const withStage = ast.stages[1]! as { type: 'WITH'; clause: WithClause };
+      expect(withStage.clause.where).toBeDefined();
+      expect(withStage.clause.where!.type).toBe('LogicalExpression');
+      expect((withStage.clause.where! as { type: 'LogicalExpression'; operator: string }).operator).toBe('AND');
+    });
+
+    it('parses WHERE with multiple AND conditions', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.age > 20 AND n.age < 40 AND n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      // The left side should be the first AND (nested), right side the last condition
+      const logical = clause.where! as { type: 'LogicalExpression'; operator: string; left: { type: string }; right: { type: string } };
+      expect(logical.operator).toBe('AND');
+    });
+
+    it('parses WHERE AND with CONTAINS', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.name CONTAINS "Ali" AND n.age > 25 RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; left: { type: string; operator?: string }; right: { type: string; operator?: string } };
+      expect(logical.left.type).toBe('BinaryExpression');
+      expect((logical.left as { operator: string }).operator).toBe('CONTAINS');
+      expect(logical.right.type).toBe('BinaryExpression');
+      expect((logical.right as { operator: string }).operator).toBe('>');
+    });
+  });
+
+  describe('WHERE OR', () => {
+    it('parses WHERE with OR operator on MATCH', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.age > 35 OR n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where).toBeDefined();
+      expect(clause.where!.type).toBe('LogicalExpression');
+      expect((clause.where! as { type: 'LogicalExpression'; operator: string }).operator).toBe('OR');
+    });
+
+    it('parses WHERE with OR operator on WITH', () => {
+      const ast = parseCypher(
+        'MATCH (n:User) WITH n.name AS name, count(n) AS cnt WHERE cnt > 1 OR name = "Alice" RETURN name',
+      );
+      const withStage = ast.stages[1]! as { type: 'WITH'; clause: WithClause };
+      expect(withStage.clause.where).toBeDefined();
+      expect(withStage.clause.where!.type).toBe('LogicalExpression');
+      expect((withStage.clause.where! as { type: 'LogicalExpression'; operator: string }).operator).toBe('OR');
+    });
+
+    it('parses WHERE with multiple OR conditions', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.name = "Alice" OR n.name = "Bob" OR n.name = "Charlie" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; operator: string };
+      expect(logical.operator).toBe('OR');
+    });
+
+    it('parses WHERE OR with CONTAINS', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.name CONTAINS "Ali" OR n.name CONTAINS "Bob" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; left: { operator?: string }; right: { operator?: string } };
+      expect((logical.left as { operator: string }).operator).toBe('CONTAINS');
+      expect((logical.right as { operator: string }).operator).toBe('CONTAINS');
+    });
+  });
+
+  describe('WHERE AND + OR combined', () => {
+    it('parses WHERE with AND and OR (AND has higher precedence)', () => {
+      // n.age > 25 AND n.name = "Alice" OR n.age < 20
+      // Should be: (n.age > 25 AND n.name = "Alice") OR n.age < 20
+      const ast = parseCypher('MATCH (n:User) WHERE n.age > 25 AND n.name = "Alice" OR n.age < 20 RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; operator: string; left: { type: string; operator?: string } };
+      // Top-level should be OR
+      expect(logical.operator).toBe('OR');
+      // Left side should be AND
+      expect(logical.left.type).toBe('LogicalExpression');
+      expect((logical.left as { operator: string }).operator).toBe('AND');
+    });
+
+    it('parses WHERE with parenthesized OR inside AND', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE (n.age > 25 OR n.age < 20) AND n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; operator: string; left: { type: string; operator?: string } };
+      expect(logical.operator).toBe('AND');
+      // Left side should be OR (from parenthesized expression)
+      expect(logical.left.type).toBe('LogicalExpression');
+      expect((logical.left as { operator: string }).operator).toBe('OR');
+    });
+
+    it('parses complex WHERE with AND, OR, and CONTAINS', () => {
+      const ast = parseCypher(
+        'MATCH (n:User) WHERE (n.name CONTAINS "Ali" OR n.name CONTAINS "Bob") AND n.age > 25 RETURN n',
+      );
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; operator: string; left: { type: string; operator?: string } };
+      expect(logical.operator).toBe('AND');
+      expect(logical.left.type).toBe('LogicalExpression');
+      expect((logical.left as { operator: string }).operator).toBe('OR');
+    });
+  });
+
+  describe('WHERE with single condition (no AND/OR)', () => {
+    it('parses simple WHERE with = operator', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('BinaryExpression');
+      expect((clause.where! as { type: 'BinaryExpression'; operator: string }).operator).toBe('=');
+    });
+
+    it('parses simple WHERE with > operator', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.age > 25 RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('BinaryExpression');
+      expect((clause.where! as { type: 'BinaryExpression'; operator: string }).operator).toBe('>');
+    });
+
+    it('parses simple WHERE with < operator', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.age < 25 RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('BinaryExpression');
+      expect((clause.where! as { type: 'BinaryExpression'; operator: string }).operator).toBe('<');
+    });
+  });
+
+  describe('WHERE NOT', () => {
+    it('parses WHERE with NOT on a comparison', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE NOT n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where).toBeDefined();
+      expect(clause.where!.type).toBe('NotExpression');
+      const notExpr = clause.where! as { type: 'NotExpression'; expression: { type: string; operator?: string } };
+      expect(notExpr.expression.type).toBe('BinaryExpression');
+      expect((notExpr.expression as { operator: string }).operator).toBe('=');
+    });
+
+    it('parses WHERE with NOT on a CONTAINS', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE NOT n.name CONTAINS "Ali" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('NotExpression');
+      const notExpr = clause.where! as { type: 'NotExpression'; expression: { operator?: string } };
+      expect((notExpr.expression as { operator: string }).operator).toBe('CONTAINS');
+    });
+
+    it('parses WHERE with NOT on a comparison with > operator', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE NOT n.age > 30 RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('NotExpression');
+      const notExpr = clause.where! as { type: 'NotExpression'; expression: { operator?: string } };
+      expect((notExpr.expression as { operator: string }).operator).toBe('>');
+    });
+
+    it('parses WHERE with NOT combined with AND', () => {
+      // NOT n.age > 30 AND n.name = "Alice" => (NOT n.age > 30) AND n.name = "Alice"
+      const ast = parseCypher('MATCH (n:User) WHERE NOT n.age > 30 AND n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; operator: string; left: { type: string }; right: { type: string; operator?: string } };
+      expect(logical.operator).toBe('AND');
+      expect(logical.left.type).toBe('NotExpression');
+      expect(logical.right.type).toBe('BinaryExpression');
+      expect((logical.right as { operator: string }).operator).toBe('=');
+    });
+
+    it('parses WHERE with NOT combined with OR', () => {
+      // NOT n.age > 30 OR n.name = "Alice" => (NOT n.age > 30) OR n.name = "Alice"
+      const ast = parseCypher('MATCH (n:User) WHERE NOT n.age > 30 OR n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; operator: string; left: { type: string } };
+      expect(logical.operator).toBe('OR');
+      expect(logical.left.type).toBe('NotExpression');
+    });
+
+    it('parses WHERE with NOT on parenthesized OR', () => {
+      // NOT (n.age > 30 OR n.name = "Alice")
+      const ast = parseCypher('MATCH (n:User) WHERE NOT (n.age > 30 OR n.name = "Alice") RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('NotExpression');
+      const notExpr = clause.where! as { type: 'NotExpression'; expression: { type: string; operator?: string } };
+      expect(notExpr.expression.type).toBe('LogicalExpression');
+      expect((notExpr.expression as { operator: string }).operator).toBe('OR');
+    });
+
+    it('parses WHERE with NOT on WITH clause', () => {
+      const ast = parseCypher(
+        'MATCH (n:User) WITH n.name AS name, count(n) AS cnt WHERE NOT cnt > 1 RETURN name',
+      );
+      const withStage = ast.stages[1]! as { type: 'WITH'; clause: WithClause };
+      expect(withStage.clause.where).toBeDefined();
+      expect(withStage.clause.where!.type).toBe('NotExpression');
+    });
+
+    it('parses WHERE with triple NOT', () => {
+      // NOT NOT NOT n.name = "Alice" => NotExpression(NotExpression(NotExpression(BinaryExpression)))
+      const ast = parseCypher('MATCH (n:User) WHERE NOT NOT NOT n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('NotExpression');
+      const not1 = clause.where! as { type: 'NotExpression'; expression: { type: string } };
+      expect(not1.expression.type).toBe('NotExpression');
+      const not2 = not1.expression as { type: 'NotExpression'; expression: { type: string } };
+      expect(not2.expression.type).toBe('NotExpression');
+      const not3 = not2.expression as { type: 'NotExpression'; expression: { operator?: string } };
+      expect(not3.expression.type).toBe('BinaryExpression');
+      expect((not3.expression as { operator: string }).operator).toBe('=');
+    });
+
+    it('parses WHERE with NOT on not-equals (<>)', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE NOT n.name <> "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('NotExpression');
+      const notExpr = clause.where! as { type: 'NotExpression'; expression: { operator?: string } };
+      expect((notExpr.expression as { operator: string }).operator).toBe('<>');
+    });
+  });
 });
