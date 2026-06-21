@@ -35,10 +35,41 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Bump patch version
+      - name: Bump version
         id: version
         run: |
-          NEW=$(npm --no-git-tag-version version patch)
+          set -euo pipefail
+
+          # Skip if HEAD is already tagged (prevents double-bump from race conditions)
+          HEAD_TAG=$(git describe --exact-match --tags --match "v*" HEAD 2>/dev/null || echo "")
+          if [ -n "$HEAD_TAG" ]; then
+            echo "HEAD is already tagged as $HEAD_TAG, skipping bump"
+            echo "version=${HEAD_TAG#v}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Determine version bump level based on conventional commits since last tag
+          #   major  — commit subject with '!' (e.g. feat!: or feat(scope)!: …)
+          #            or 'BREAKING CHANGE' footer in commit body
+          #   minor  — commit subject starting with 'feat:' or 'feat('
+          #   patch  — everything else
+          LEVEL="patch"
+          LAST_TAG=$(git describe --tags --match "v*" --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            RANGE="${LAST_TAG}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+          if git log --format="%B" "$RANGE" | grep -qE '^BREAKING CHANGE'; then
+            LEVEL="major"
+          elif git log --format="%s" "$RANGE" | grep -qE '^[a-z]+(\([^)]*\))?!:'; then
+            LEVEL="major"
+          elif git log --format="%s" "$RANGE" | grep -qE '^feat:|^feat\('; then
+            LEVEL="minor"
+          fi
+          echo "Bumping $LEVEL (since $LAST_TAG)"
+          echo "level=$LEVEL" >> "$GITHUB_OUTPUT"
+          NEW=$(npm --no-git-tag-version version "$LEVEL")
           # npm 10+ outputs with 'v' prefix — strip it for consistent handling
           VERSION=${NEW#v}
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
