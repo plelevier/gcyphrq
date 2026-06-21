@@ -717,6 +717,10 @@ export class AdvancedCypherGraphologyEngine {
       return false;
     }
 
+    if (whereNode.type === 'NotExpression') {
+      return !this.evaluateWhere(whereNode.expression, context);
+    }
+
     const leftValue = this.evaluateExpression(whereNode.left, context);
     const rightValue = this.evaluateExpression(whereNode.right, context);
 

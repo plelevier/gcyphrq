@@ -1391,4 +1391,130 @@ describe('AdvancedCypherGraphologyEngine', () => {
       expect(results[0]?.total).toBe(1);
     });
   });
+
+  describe('execute - WHERE NOT', () => {
+    it('filters with NOT on equality', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT u.name = "Alice" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(3);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Bob', 'Charlie', 'Dave']);
+    });
+
+    it('filters with NOT on greater-than', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT u.age > 30 RETURN u',
+      );
+      const results = engine.execute(ast);
+      // Alice (30), Bob (25), Dave (28) — all NOT > 30
+      expect(results.length).toBe(3);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Bob', 'Dave']);
+    });
+
+    it('filters with NOT on less-than', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT u.age < 30 RETURN u',
+      );
+      const results = engine.execute(ast);
+      // Alice (30), Charlie (35) — all NOT < 30
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Charlie']);
+    });
+
+    it('filters with NOT on CONTAINS', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT u.name CONTAINS "Ali" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(3);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Bob', 'Charlie', 'Dave']);
+    });
+
+    it('filters with NOT on CONTAINS (no match for inner)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT u.name CONTAINS "xyz" RETURN u',
+      );
+      const results = engine.execute(ast);
+      // No name contains "xyz", so NOT is true for all
+      expect(results.length).toBe(4);
+    });
+
+    it('filters with NOT on WITH clause', () => {
+      const ast = parseCypher(
+        'MATCH (a:User)-[r:FRIEND]->(b:User) WITH a.name AS name, count(b) AS cnt WHERE NOT cnt > 1 RETURN name, cnt',
+      );
+      const results = engine.execute(ast);
+      // Alice cnt=1 (NOT > 1 = true), Bob cnt=1 (NOT > 1 = true)
+      expect(results.length).toBe(2);
+    });
+
+    it('filters with NOT combined with AND', () => {
+      // NOT u.age > 30 AND u.name CONTAINS "ob"
+      // Bob (25, NOT > 30 = true, contains "ob" = true) => true
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT u.age > 30 AND u.name CONTAINS "ob" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Bob');
+    });
+
+    it('filters with NOT combined with OR', () => {
+      // NOT u.age > 30 OR u.name = "Charlie"
+      // Alice (30, NOT > 30 = true) => true
+      // Bob (25, NOT > 30 = true) => true
+      // Charlie (35, NOT > 30 = false, name = "Charlie" = true) => true
+      // Dave (28, NOT > 30 = true) => true
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT u.age > 30 OR u.name = "Charlie" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(4);
+    });
+
+    it('filters with NOT on parenthesized OR', () => {
+      // NOT (u.age > 32 OR u.name = "Alice")
+      // Alice (30, NOT > 32 = true, name = "Alice" = true) => NOT(true) = false
+      // Bob (25, NOT > 32 = false, name = "Bob") => NOT(false) = true
+      // Charlie (35, > 32 = true) => NOT(true) = false
+      // Dave (28, NOT > 32 = false, name = "Dave") => NOT(false) = true
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT (u.age > 32 OR u.name = "Alice") RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Bob', 'Dave']);
+    });
+
+    it('filters with NOT on parenthesized AND', () => {
+      // NOT (u.age > 25 AND u.age < 35)
+      // Alice (30, > 25 = true, < 35 = true) => NOT(true) = false
+      // Bob (25, > 25 = false) => NOT(false) = true
+      // Charlie (35, < 35 = false) => NOT(false) = true
+      // Dave (28, > 25 = true, < 35 = true) => NOT(true) = false
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT (u.age > 25 AND u.age < 35) RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Bob', 'Charlie']);
+    });
+
+    it('filters with double NOT (NOT NOT)', () => {
+      // NOT NOT u.name = "Alice" => u.name = "Alice"
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT NOT u.name = "Alice" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Alice');
+    });
+  });
 });

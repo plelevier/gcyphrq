@@ -124,7 +124,12 @@ export interface LogicalExpression {
   right: WhereExpression;
 }
 
-export type WhereExpression = BinaryExpression | LogicalExpression;
+export interface NotExpression {
+  type: 'NotExpression';
+  expression: WhereExpression;
+}
+
+export type WhereExpression = BinaryExpression | LogicalExpression | NotExpression;
 
 export interface Projection {
   expression: Expression;

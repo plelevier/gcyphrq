@@ -591,4 +591,73 @@ describe('parseCypher', () => {
       expect((clause.where! as { type: 'BinaryExpression'; operator: string }).operator).toBe('<');
     });
   });
+
+  describe('WHERE NOT', () => {
+    it('parses WHERE with NOT on a comparison', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE NOT n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where).toBeDefined();
+      expect(clause.where!.type).toBe('NotExpression');
+      const notExpr = clause.where! as { type: 'NotExpression'; expression: { type: string; operator?: string } };
+      expect(notExpr.expression.type).toBe('BinaryExpression');
+      expect((notExpr.expression as { operator: string }).operator).toBe('=');
+    });
+
+    it('parses WHERE with NOT on a CONTAINS', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE NOT n.name CONTAINS "Ali" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('NotExpression');
+      const notExpr = clause.where! as { type: 'NotExpression'; expression: { operator?: string } };
+      expect((notExpr.expression as { operator: string }).operator).toBe('CONTAINS');
+    });
+
+    it('parses WHERE with NOT on a comparison with > operator', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE NOT n.age > 30 RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('NotExpression');
+      const notExpr = clause.where! as { type: 'NotExpression'; expression: { operator?: string } };
+      expect((notExpr.expression as { operator: string }).operator).toBe('>');
+    });
+
+    it('parses WHERE with NOT combined with AND', () => {
+      // NOT n.age > 30 AND n.name = "Alice" => (NOT n.age > 30) AND n.name = "Alice"
+      const ast = parseCypher('MATCH (n:User) WHERE NOT n.age > 30 AND n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; operator: string; left: { type: string }; right: { type: string; operator?: string } };
+      expect(logical.operator).toBe('AND');
+      expect(logical.left.type).toBe('NotExpression');
+      expect(logical.right.type).toBe('BinaryExpression');
+      expect((logical.right as { operator: string }).operator).toBe('=');
+    });
+
+    it('parses WHERE with NOT combined with OR', () => {
+      // NOT n.age > 30 OR n.name = "Alice" => (NOT n.age > 30) OR n.name = "Alice"
+      const ast = parseCypher('MATCH (n:User) WHERE NOT n.age > 30 OR n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; operator: string; left: { type: string } };
+      expect(logical.operator).toBe('OR');
+      expect(logical.left.type).toBe('NotExpression');
+    });
+
+    it('parses WHERE with NOT on parenthesized OR', () => {
+      // NOT (n.age > 30 OR n.name = "Alice")
+      const ast = parseCypher('MATCH (n:User) WHERE NOT (n.age > 30 OR n.name = "Alice") RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('NotExpression');
+      const notExpr = clause.where! as { type: 'NotExpression'; expression: { type: string; operator?: string } };
+      expect(notExpr.expression.type).toBe('LogicalExpression');
+      expect((notExpr.expression as { operator: string }).operator).toBe('OR');
+    });
+
+    it('parses WHERE with NOT on WITH clause', () => {
+      const ast = parseCypher(
+        'MATCH (n:User) WITH n.name AS name, count(n) AS cnt WHERE NOT cnt > 1 RETURN name',
+      );
+      const withStage = ast.stages[1]! as { type: 'WITH'; clause: WithClause };
+      expect(withStage.clause.where).toBeDefined();
+      expect(withStage.clause.where!.type).toBe('NotExpression');
+    });
+  });
 });

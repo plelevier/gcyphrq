@@ -707,8 +707,12 @@ function extractWithClause(clauseCtx: ParseTreeNode): WithClause | undefined {
 function extractWhereExpression(exprCtx: TreeNode): WhereExpression | undefined {
   if (!exprCtx) return undefined;
 
-  // Walk down to OrExpression (top of boolean expression hierarchy)
-  // OrExpression > XorExpression > AndExpression > NotExpression > ComparisonExpression
+  // Walk down to OrExpression (top of boolean expression hierarchy).
+  // The ANTLR4 Cypher grammar defines: Or > Xor > And > Not > Comparison.
+  // Cypher itself has no XOR operator — XorExpression is an intermediate
+  // grammar production (the grammar uses "OR" at the top level and
+  // "XOR" as the recursive rule name). We map XorExpression → OR because
+  // the actual operator text in the tree is always "OR".
   const orCtx = findDescendant(exprCtx, Ctx.OrExpression);
   if (orCtx) return extractLogicalExpression(orCtx, Ctx.XorExpression, 'OR');
 
@@ -718,11 +722,22 @@ function extractWhereExpression(exprCtx: TreeNode): WhereExpression | undefined 
   const andCtx = findDescendant(exprCtx, Ctx.AndExpression);
   if (andCtx) return extractLogicalExpression(andCtx, Ctx.NotExpression, 'AND');
 
+  // Check for top-level NOT (e.g., from a segment in extractLogicalExpression)
   const notCtx = findDescendant(exprCtx, Ctx.NotExpression);
-  if (notCtx) {
-    // For NOT, skip the NOT and extract the inner expression
-    // (We don't fully support NOT yet, just pass through the inner expression)
-    return extractWhereExpressionFromChild(notCtx);
+  if (notCtx && hasNotTerminal(notCtx)) {
+    const notCount = countNotTerminals(notCtx);
+    // Find the actual inner expression (skip NOT terminals and whitespace)
+    const innerCtx = findChild(notCtx, Ctx.OrExpression) || findChild(notCtx, Ctx.XorExpression) || findChild(notCtx, Ctx.AndExpression) || findChild(notCtx, Ctx.ComparisonExpression);
+    if (innerCtx) {
+      const inner = extractWhereExpressionFromChild(innerCtx);
+      if (inner) {
+        // For double NOT (NOT NOT expr), wrap twice
+        if (notCount >= 2) {
+          return { type: 'NotExpression' as const, expression: { type: 'NotExpression' as const, expression: inner } };
+        }
+        return { type: 'NotExpression' as const, expression: inner };
+      }
+    }
   }
 
   const compCtx = findDescendant(exprCtx, Ctx.ComparisonExpression);
@@ -830,15 +845,61 @@ function buildSyntheticTree(children: ParseTreeNode[]): ParseTreeNode {
   return { constructor: { name: 'SyntheticNode' }, children: filtered } as unknown as ParseTreeNode;
 }
 
+/** Check if a NotExpression actually has a NOT terminal (vs being a transparent wrapper). */
+function hasNotTerminal(ctx: TreeNode): boolean {
+  if (!ctx || ctx.constructor.name !== Ctx.NotExpression || !ctx.children) return false;
+  return ctx.children.some((c: ParseTreeNode) =>
+    (c.constructor.name === Ctx.TerminalNode || c.constructor.name === 'TerminalNodeImpl') && c.symbol?.text === 'NOT',
+  );
+}
+
+/** Count NOT terminals in a NotExpression (for double NOT support). */
+function countNotTerminals(ctx: TreeNode): number {
+  if (!ctx || ctx.constructor.name !== Ctx.NotExpression || !ctx.children) return 0;
+  return ctx.children.filter((c: ParseTreeNode) =>
+    (c.constructor.name === Ctx.TerminalNode || c.constructor.name === 'TerminalNodeImpl') && c.symbol?.text === 'NOT',
+  ).length;
+}
+
 /** Extract a where expression from a child context (handles NotExpression and similar wrappers). */
 function extractWhereExpressionFromChild(ctx: TreeNode): WhereExpression | undefined {
   if (!ctx) return undefined;
 
-  // If it's a NotExpression, find the inner comparison
+  // If it's a NotExpression with an actual NOT terminal, wrap the inner expression
+  if (ctx.constructor.name === Ctx.NotExpression && hasNotTerminal(ctx)) {
+    // Find the actual inner expression (skip NOT terminals and whitespace)
+    const innerCtx = findChild(ctx, Ctx.OrExpression) || findChild(ctx, Ctx.XorExpression) || findChild(ctx, Ctx.AndExpression) || findChild(ctx, Ctx.ComparisonExpression);
+    if (innerCtx) {
+      const inner = extractWhereExpressionFromChild(innerCtx);
+      if (inner) {
+        const notCount = countNotTerminals(ctx);
+        // For double NOT (NOT NOT expr), wrap twice
+        if (notCount >= 2) {
+          return { type: 'NotExpression' as const, expression: { type: 'NotExpression' as const, expression: inner } };
+        }
+        return { type: 'NotExpression' as const, expression: inner };
+      }
+    }
+    return undefined;
+  }
+
+  // Transparent NotExpression (no NOT terminal) — unwrap to inner expression
   if (ctx.constructor.name === Ctx.NotExpression) {
-    const compCtx = findDescendant(ctx, Ctx.ComparisonExpression);
+    const compCtx = findChild(ctx, Ctx.ComparisonExpression);
     if (compCtx) return extractComparison(compCtx);
     return undefined;
+  }
+
+  // If ctx itself is a ComparisonExpression, first check for nested logical expressions
+  // (e.g., NOT (a OR b) where the parentheses create a ComparisonExpression wrapping an OrExpression)
+  if (ctx.constructor.name === Ctx.ComparisonExpression) {
+    const nestedOr = findDescendant(ctx, Ctx.OrExpression);
+    if (nestedOr) return extractLogicalExpression(nestedOr, Ctx.XorExpression, 'OR');
+    const nestedXor = findDescendant(ctx, Ctx.XorExpression);
+    if (nestedXor) return extractLogicalExpression(nestedXor, Ctx.AndExpression, 'XOR');
+    const nestedAnd = findDescendant(ctx, Ctx.AndExpression);
+    if (nestedAnd) return extractLogicalExpression(nestedAnd, Ctx.NotExpression, 'AND');
+    return extractComparison(ctx);
   }
 
   // If it's an AndExpression or OrExpression, handle recursively
