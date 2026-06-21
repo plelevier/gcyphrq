@@ -35,10 +35,12 @@ jobs:
         id: version
         run: |
           NEW=$(npm --no-git-tag-version version patch)
-          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          # npm 10+ outputs with 'v' prefix — strip it for consistent handling
+          VERSION=${NEW#v}
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           git add package.json
-          git commit -m "chore: bump version to $NEW"
-          git tag "v$NEW"
+          git commit -m "chore: bump version to v$VERSION"
+          git tag "v$VERSION"
           git push origin main --tags
 
       - name: Create GitHub Release
