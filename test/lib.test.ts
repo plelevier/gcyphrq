@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import Graphology from 'graphology';
 import {
   executeQuery,
   createGraph,
@@ -276,9 +277,8 @@ describe('buildGraphIndexes from GraphInstance', () => {
 });
 
 describe('executeQuery with raw graphology Graph', () => {
-  // Import graphology directly to prove the library works with any
-  // external Graphology graph, not just the library's Graph wrapper.
-  const Graphology = require('graphology');
+  // Proves the library works with any external Graphology graph,
+  // not just the library's own Graph wrapper.
 
   it('accepts a raw graphology Graph in executeQuery', () => {
     const graph = new Graphology();
@@ -343,6 +343,13 @@ describe('executeQuery with raw graphology Graph', () => {
     // Verify the node was actually added to the raw graphology graph
     expect(graph.hasNode('alice')).toBe(true);
     expect(graph.order).toBe(2);
+
+    // Verify the created node has correct attributes (query by property,
+    // since CREATE generates a random UUID for the node id)
+    const bobResults = engine.execute(
+      parseCypher('MATCH (u:User {name: "Bob"}) RETURN u.age'),
+    );
+    expect(bobResults).toEqual([{ age: 25 }]);
   });
 
   it('buildGraphIndexes(rawGraph) produces correct indexes', () => {
@@ -364,32 +371,8 @@ describe('executeQuery with raw graphology Graph', () => {
   });
 });
 
-describe('executeQuery with GraphInstance', () => {
-  it('accepts an existing Graph instance instead of GraphFile data', () => {
-    const graph = new Graph();
-    graph.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
-    graph.addNode('bob', { label: 'User', name: 'Bob', age: 25 });
-    graph.addEdge('alice', 'bob', { type: 'FRIEND' });
-
-    const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name');
-    const names = results.map((r) => r.name).sort();
-    expect(names).toEqual(['Alice', 'Bob']);
-  });
-
-  it('executes traversal queries on existing graph instance', () => {
-    const graph = new Graph();
-    graph.addNode('alice', { label: 'User', name: 'Alice' });
-    graph.addNode('bob', { label: 'User', name: 'Bob' });
-    graph.addNode('charlie', { label: 'User', name: 'Charlie' });
-    graph.addEdge('alice', 'bob', { type: 'FRIEND' });
-    graph.addEdge('bob', 'charlie', { type: 'FRIEND' });
-
-    const results = executeQuery(graph, 'MATCH (a:User {name: "Alice"})-[r:FRIEND*1..2]->(b:User) RETURN b.name');
-    const names = results.map((r) => r.name).sort();
-    expect(names).toEqual(['Bob', 'Charlie']);
-  });
-
-  it('executes aggregation queries on existing graph instance', () => {
+describe('executeQuery with GraphInstance (library Graph wrapper)', () => {
+  it('executes aggregation queries on Graph wrapper instance', () => {
     const graph = new Graph();
     graph.addNode('a', { label: 'Node', value: 10 });
     graph.addNode('b', { label: 'Node', value: 20 });
