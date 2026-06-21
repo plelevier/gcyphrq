@@ -2,7 +2,7 @@
 
 import { parseCypher as _parseCypher } from './engine/cypher-parser';
 import { AdvancedCypherGraphologyEngine } from './engine/cypher-engine';
-import { buildGraphIndexes as buildGraphIndexesInternal } from './indexes';
+import { buildGraphIndexesFromData, buildGraphIndexesFromGraph } from './indexes';
 import { Graph, type GraphInstance } from './graph';
 import type { AdvancedCypherAST, ResultRow, GraphIndexes } from './types/cypher';
 
@@ -147,13 +147,29 @@ function buildGraph(validated: GraphFile): GraphInstance {
 }
 
 /**
- * Build pre-computed indexes from graph data for fast query execution.
+ * Build pre-computed indexes for fast query execution.
+ *
+ * **Two overloads:**
+ *
+ * 1. `buildGraphIndexes(graph)` — from an existing Graphology graph instance.
+ *    Builds indexes by iterating the graph (no original data needed).
+ * 2. `buildGraphIndexes(data, graph)` — from graph data + graph instance.
  *
  * Pass the returned indexes to `GraphEngine` constructor for O(1) label
  * and property lookups instead of full-graph scans.
  *
  * @example
  * ```ts
+ * // From an existing Graphology graph
+ * import { buildGraphIndexes, GraphEngine } from 'gcyphrq';
+ * import Graph from 'graphology';
+ *
+ * const graph = new Graph();
+ * graph.addNode('alice', { label: 'User', name: 'Alice' });
+ * const indexes = buildGraphIndexes(graph);
+ * const engine = new GraphEngine(graph, indexes);
+ *
+ * // From graph data (original API)
  * import { buildGraphIndexes, GraphEngine, createGraph } from 'gcyphrq';
  *
  * const graph = createGraph(graphData);
@@ -161,9 +177,16 @@ function buildGraph(validated: GraphFile): GraphInstance {
  * const engine = new GraphEngine(graph, indexes);
  * ```
  */
-export function buildGraphIndexes(data: GraphFile, graph: GraphInstance): GraphIndexes {
-  const validated = validateGraphData(data);
-  return buildGraphIndexesInternal(validated, graph);
+export function buildGraphIndexes(graph: GraphInstance): GraphIndexes;
+export function buildGraphIndexes(data: GraphFile, graph: GraphInstance): GraphIndexes;
+export function buildGraphIndexes(dataOrGraph: GraphFile | GraphInstance, graph?: GraphInstance): GraphIndexes {
+  // Single-argument form: build indexes from the graph instance directly
+  if (graph === undefined) {
+    return buildGraphIndexesFromGraph(dataOrGraph as GraphInstance);
+  }
+  // Two-argument form: validate data and build from data + graph
+  const validated = validateGraphData(dataOrGraph as GraphFile);
+  return buildGraphIndexesFromData(validated, graph);
 }
 
 // ── Query execution ──────────────────────────────────────────────────────────
@@ -188,30 +211,48 @@ export function parseCypher(query: string): AdvancedCypherAST {
 /**
  * Execute a Cypher query against a graph and return results as plain JSON.
  *
- * This is the simplest way to use gcyphrq: pass in graph data and a query
- * string, get back an array of result rows. Indexes are built automatically.
+ * This is the simplest way to use gcyphrq. Indexes are built automatically.
+ *
+ * **Two overloads:**
+ *
+ * 1. `executeQuery(graph, query)` — from an existing Graphology graph instance.
+ * 2. `executeQuery(graphData, query)` — from graph data (original API).
  *
  * @example
  * ```ts
+ * // From an existing Graphology graph
  * import { executeQuery } from 'gcyphrq';
+ * import Graph from 'graphology';
  *
- * const results = executeQuery(graphData, 'MATCH (u:User) RETURN u');
- * console.log(results); // [{ u: { id: 'alice', label: 'User', name: 'Alice' } }, ...]
+ * const graph = new Graph();
+ * graph.addNode('alice', { label: 'User', name: 'Alice' });
+ * const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name');
+ *
+ * // From graph data (original API)
+ * const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
  * ```
  *
- * @param graphData - Graph data in the Graphology JSON format
+ * @param graphOrData - Graph data or an existing Graphology graph instance
  * @param query - A Cypher query string
  * @returns Array of result rows
  * @throws {GraphError} If graph data is invalid
  * @throws {Error} If the query is invalid or cannot be executed
  */
-export function executeQuery(graphData: GraphFile, query: string): ResultRow[] {
-  const validated = validateGraphData(graphData);
-  const graph = buildGraph(validated);
-  const indexes = buildGraphIndexesInternal(validated, graph);
+export function executeQuery(graph: GraphInstance, query: string): ResultRow[];
+export function executeQuery(graphData: GraphFile, query: string): ResultRow[];
+export function executeQuery(graphOrData: GraphInstance | GraphFile, query: string): ResultRow[] {
+  const graph = isGraphInstance(graphOrData)
+    ? graphOrData
+    : buildGraph(validateGraphData(graphOrData as GraphFile));
+  const indexes = buildGraphIndexesFromGraph(graph);
   const engine = new AdvancedCypherGraphologyEngine(graph, indexes);
   const ast = _parseCypher(query);
   return engine.execute(ast);
+}
+
+/** Type guard to distinguish a GraphInstance from a GraphFile data object. */
+function isGraphInstance(value: GraphInstance | GraphFile): value is GraphInstance {
+  return typeof (value as GraphInstance).hasNode === 'function';
 }
 
 // ── Re-exports ───────────────────────────────────────────────────────────────

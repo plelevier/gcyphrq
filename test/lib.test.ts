@@ -6,6 +6,7 @@ import {
   GraphEngine,
   Graph,
   GraphError,
+  buildGraphIndexes,
 } from '../src/lib';
 import type {
   GraphFile,
@@ -222,6 +223,89 @@ describe('mutations', () => {
 
     const count = engine.execute(parseCypher('MATCH (u:User) RETURN count(u)'));
     expect(count).toEqual([{ 'COUNT(u)': 4 }]);
+  });
+});
+
+describe('buildGraphIndexes from GraphInstance', () => {
+  it('builds indexes from an existing Graph instance', () => {
+    const graph = new Graph();
+    graph.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
+    graph.addNode('bob', { label: 'User', name: 'Bob', age: 25 });
+    graph.addEdge('alice', 'bob', { type: 'FRIEND' });
+
+    const indexes = buildGraphIndexes(graph);
+
+    // Label index works
+    expect(indexes.labelIndex.get('User')?.size).toBe(2);
+    // Property index works
+    expect(indexes.propertyIndex.get('name')?.get('Alice')?.size).toBe(1);
+    // Edge type index works
+    expect(indexes.edgeTypeIndex.out.get('FRIEND')?.get('alice')?.length).toBe(1);
+  });
+
+  it('works with GraphEngine for indexed queries', () => {
+    const graph = new Graph();
+    graph.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
+    graph.addNode('bob', { label: 'User', name: 'Bob', age: 25 });
+    graph.addNode('charlie', { label: 'User', name: 'Charlie', age: 35 });
+    graph.addEdge('alice', 'bob', { type: 'FRIEND' });
+    graph.addEdge('bob', 'charlie', { type: 'FRIEND' });
+
+    const indexes = buildGraphIndexes(graph);
+    const engine = new GraphEngine(graph, indexes);
+
+    const results = engine.execute(parseCypher('MATCH (u:User) RETURN u.name'));
+    expect(results.length).toBe(3);
+
+    const traversal = engine.execute(parseCypher('MATCH (a:User {name: "Alice"})-[r:FRIEND]->(b:User) RETURN b.name'));
+    expect(traversal).toEqual([{ name: 'Bob' }]);
+  });
+
+  it('two-argument form still works (backward compat)', () => {
+    const graph = createGraph(sampleGraph);
+    const indexes = buildGraphIndexes(sampleGraph, graph);
+    expect(indexes.labelIndex.get('User')?.size).toBe(3);
+  });
+});
+
+describe('executeQuery with GraphInstance', () => {
+  it('accepts an existing Graph instance instead of GraphFile data', () => {
+    const graph = new Graph();
+    graph.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
+    graph.addNode('bob', { label: 'User', name: 'Bob', age: 25 });
+    graph.addEdge('alice', 'bob', { type: 'FRIEND' });
+
+    const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name');
+    const names = results.map((r) => r.name).sort();
+    expect(names).toEqual(['Alice', 'Bob']);
+  });
+
+  it('executes traversal queries on existing graph instance', () => {
+    const graph = new Graph();
+    graph.addNode('alice', { label: 'User', name: 'Alice' });
+    graph.addNode('bob', { label: 'User', name: 'Bob' });
+    graph.addNode('charlie', { label: 'User', name: 'Charlie' });
+    graph.addEdge('alice', 'bob', { type: 'FRIEND' });
+    graph.addEdge('bob', 'charlie', { type: 'FRIEND' });
+
+    const results = executeQuery(graph, 'MATCH (a:User {name: "Alice"})-[r:FRIEND*1..2]->(b:User) RETURN b.name');
+    const names = results.map((r) => r.name).sort();
+    expect(names).toEqual(['Bob', 'Charlie']);
+  });
+
+  it('executes aggregation queries on existing graph instance', () => {
+    const graph = new Graph();
+    graph.addNode('a', { label: 'Node', value: 10 });
+    graph.addNode('b', { label: 'Node', value: 20 });
+    graph.addNode('c', { label: 'Node', value: 30 });
+
+    const results = executeQuery(graph, 'MATCH (n:Node) RETURN sum(n.value)');
+    expect(results).toEqual([{ 'SUM(n)': 60 }]);
+  });
+
+  it('original GraphFile overload still works (backward compat)', () => {
+    const results = executeQuery(sampleGraph, 'MATCH (u:User) RETURN count(u)');
+    expect(results).toEqual([{ 'COUNT(u)': 3 }]);
   });
 });
 
