@@ -78,7 +78,7 @@ function buildIndexes(
     let inList = inMap.get(target);
     if (!inList) {
       inList = [];
-      edgeIn.set(target, inList);
+      inMap.set(target, inList);
     }
     inList.push({ source, edgeId });
   });
