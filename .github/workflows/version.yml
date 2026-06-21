@@ -35,10 +35,76 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Bump patch version
+      - name: Bump version
         id: version
         run: |
-          NEW=$(npm --no-git-tag-version version patch)
+          set -euo pipefail
+
+          # Skip if HEAD is already tagged (prevents double-bump from race conditions)
+          HEAD_TAG=$(git describe --exact-match --tags --match "v*" HEAD 2>/dev/null || echo "")
+          if [ -n "$HEAD_TAG" ]; then
+            echo "HEAD is already tagged as $HEAD_TAG, skipping bump"
+            echo "version=${HEAD_TAG#v}" >> "$GITHUB_OUTPUT"
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "bumped=true" >> "$GITHUB_OUTPUT"
+
+          LAST_TAG=$(git describe --tags --match "v*" --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            RANGE="${LAST_TAG}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+
+          # If package.json version differs from the last tag, assume it was manually set
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          LAST_VERSION=""
+          if [ -n "$LAST_TAG" ]; then
+            LAST_VERSION=${LAST_TAG#v}
+          fi
+          if [ -z "$LAST_VERSION" ] || [ "$CURRENT_VERSION" != "$LAST_VERSION" ]; then
+            VERSION="$CURRENT_VERSION"
+            if [ -n "$LAST_VERSION" ]; then
+              echo "Using manually set version $VERSION (differs from last release $LAST_VERSION)"
+            else
+              echo "Using version $VERSION from package.json (no previous tags)"
+            fi
+
+            # Validate: tag must not already exist and version must be higher than last tag
+            if git tag -l "v$VERSION" | grep -q .; then
+              echo "Error: tag v$VERSION already exists"
+              exit 1
+            fi
+            if [ -n "$LAST_VERSION" ]; then
+              if [ "$(printf '%s\n%s\n' "$LAST_VERSION" "$VERSION" | sort -V | head -n1)" = "$VERSION" ]; then
+                echo "Error: version $VERSION is not higher than last release $LAST_VERSION"
+                exit 1
+              fi
+            fi
+
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            git tag "v$VERSION"
+            git push origin main --tags
+            exit 0
+          fi
+
+          # Determine version bump level based on conventional commits since last tag
+          #   major  — commit subject with '!' (e.g. feat!: or feat(scope)!: …)
+          #            or 'BREAKING CHANGE' footer in commit body
+          #   minor  — commit subject starting with 'feat:' or 'feat('
+          #   patch  — everything else
+          LEVEL="patch"
+          if git log --format="%B" "$RANGE" | grep -qE '^BREAKING CHANGE'; then
+            LEVEL="major"
+          elif git log --format="%s" "$RANGE" | grep -qE '^[a-z]+(\([^)]*\))?!:'; then
+            LEVEL="major"
+          elif git log --format="%s" "$RANGE" | grep -qE '^feat:|^feat\('; then
+            LEVEL="minor"
+          fi
+          echo "Bumping $LEVEL (since $LAST_TAG)"
+          echo "level=$LEVEL" >> "$GITHUB_OUTPUT"
+          NEW=$(npm --no-git-tag-version version "$LEVEL")
           # npm 10+ outputs with 'v' prefix — strip it for consistent handling
           VERSION=${NEW#v}
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -48,6 +114,7 @@ jobs:
           git push origin main --tags
 
       - name: Create GitHub Release
+        if: steps.version.outputs.bumped == 'true'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.version }}
@@ -55,7 +122,9 @@ jobs:
           generate_release_notes: true
 
       - run: npm ci
+        if: steps.version.outputs.bumped == 'true'
       # prepublishOnly (build + test) runs automatically as part of npm publish
       - run: npm publish --provenance --access public
+        if: steps.version.outputs.bumped == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
