@@ -730,13 +730,7 @@ function extractWhereExpression(exprCtx: TreeNode): WhereExpression | undefined 
     const innerCtx = findChild(notCtx, Ctx.OrExpression) || findChild(notCtx, Ctx.XorExpression) || findChild(notCtx, Ctx.AndExpression) || findChild(notCtx, Ctx.ComparisonExpression);
     if (innerCtx) {
       const inner = extractWhereExpressionFromChild(innerCtx);
-      if (inner) {
-        // For double NOT (NOT NOT expr), wrap twice
-        if (notCount >= 2) {
-          return { type: 'NotExpression' as const, expression: { type: 'NotExpression' as const, expression: inner } };
-        }
-        return { type: 'NotExpression' as const, expression: inner };
-      }
+      if (inner) return wrapInNotExpressions(inner, notCount);
     }
   }
 
@@ -849,16 +843,25 @@ function buildSyntheticTree(children: ParseTreeNode[]): ParseTreeNode {
 function hasNotTerminal(ctx: TreeNode): boolean {
   if (!ctx || ctx.constructor.name !== Ctx.NotExpression || !ctx.children) return false;
   return ctx.children.some((c: ParseTreeNode) =>
-    (c.constructor.name === Ctx.TerminalNode || c.constructor.name === 'TerminalNodeImpl') && c.symbol?.text === 'NOT',
+    c.constructor.name === Ctx.TerminalNode && c.symbol?.text === 'NOT',
   );
 }
 
-/** Count NOT terminals in a NotExpression (for double NOT support). */
+/** Count NOT terminals in a NotExpression (for double/triple NOT support). */
 function countNotTerminals(ctx: TreeNode): number {
   if (!ctx || ctx.constructor.name !== Ctx.NotExpression || !ctx.children) return 0;
   return ctx.children.filter((c: ParseTreeNode) =>
-    (c.constructor.name === Ctx.TerminalNode || c.constructor.name === 'TerminalNodeImpl') && c.symbol?.text === 'NOT',
+    c.constructor.name === Ctx.TerminalNode && c.symbol?.text === 'NOT',
   ).length;
+}
+
+/** Wrap an inner expression in N NotExpression nodes (for double/triple NOT). */
+function wrapInNotExpressions(inner: WhereExpression, count: number): WhereExpression {
+  let result: WhereExpression = inner;
+  for (let i = 0; i < count; i++) {
+    result = { type: 'NotExpression' as const, expression: result };
+  }
+  return result;
 }
 
 /** Extract a where expression from a child context (handles NotExpression and similar wrappers). */
@@ -871,14 +874,7 @@ function extractWhereExpressionFromChild(ctx: TreeNode): WhereExpression | undef
     const innerCtx = findChild(ctx, Ctx.OrExpression) || findChild(ctx, Ctx.XorExpression) || findChild(ctx, Ctx.AndExpression) || findChild(ctx, Ctx.ComparisonExpression);
     if (innerCtx) {
       const inner = extractWhereExpressionFromChild(innerCtx);
-      if (inner) {
-        const notCount = countNotTerminals(ctx);
-        // For double NOT (NOT NOT expr), wrap twice
-        if (notCount >= 2) {
-          return { type: 'NotExpression' as const, expression: { type: 'NotExpression' as const, expression: inner } };
-        }
-        return { type: 'NotExpression' as const, expression: inner };
-      }
+      if (inner) return wrapInNotExpressions(inner, countNotTerminals(ctx));
     }
     return undefined;
   }

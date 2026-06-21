@@ -659,5 +659,27 @@ describe('parseCypher', () => {
       expect(withStage.clause.where).toBeDefined();
       expect(withStage.clause.where!.type).toBe('NotExpression');
     });
+
+    it('parses WHERE with triple NOT', () => {
+      // NOT NOT NOT n.name = "Alice" => NotExpression(NotExpression(NotExpression(BinaryExpression)))
+      const ast = parseCypher('MATCH (n:User) WHERE NOT NOT NOT n.name = "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('NotExpression');
+      const not1 = clause.where! as { type: 'NotExpression'; expression: { type: string } };
+      expect(not1.expression.type).toBe('NotExpression');
+      const not2 = not1.expression as { type: 'NotExpression'; expression: { type: string } };
+      expect(not2.expression.type).toBe('NotExpression');
+      const not3 = not2.expression as { type: 'NotExpression'; expression: { operator?: string } };
+      expect(not3.expression.type).toBe('BinaryExpression');
+      expect((not3.expression as { operator: string }).operator).toBe('=');
+    });
+
+    it('parses WHERE with NOT on not-equals (<>)', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE NOT n.name <> "Alice" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('NotExpression');
+      const notExpr = clause.where! as { type: 'NotExpression'; expression: { operator?: string } };
+      expect((notExpr.expression as { operator: string }).operator).toBe('<>');
+    });
   });
 });

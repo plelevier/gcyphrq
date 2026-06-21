@@ -1516,5 +1516,40 @@ describe('AdvancedCypherGraphologyEngine', () => {
       expect(results.length).toBe(1);
       expect(node(results[0]!, 'u').name).toBe('Alice');
     });
+
+    it('filters with triple NOT (NOT NOT NOT)', () => {
+      // NOT NOT NOT u.name = "Alice" => NOT u.name = "Alice"
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT NOT NOT u.name = "Alice" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(3);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Bob', 'Charlie', 'Dave']);
+    });
+
+    it('filters with NOT on not-equals (<>)', () => {
+      // NOT u.name <> "Alice" => u.name = "Alice"
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT u.name <> "Alice" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Alice');
+    });
+
+    it('filters with NOT combined with <>', () => {
+      // NOT u.age <> 30 AND u.name CONTAINS "li"
+      // Alice (30, NOT <> 30 = true, contains "li" = true) => true
+      // Bob (25, NOT <> 30 = false) => false
+      // Charlie (35, NOT <> 30 = false) => false
+      // Dave (28, NOT <> 30 = false) => false
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT u.age <> 30 AND u.name CONTAINS "li" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Alice');
+    });
   });
 });
