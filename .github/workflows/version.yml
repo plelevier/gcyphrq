@@ -57,19 +57,27 @@ jobs:
             RANGE="HEAD"
           fi
 
-          # If package.json was manually edited in this batch, use the version as-is
-          if git log --name-only --format="" "$RANGE" | grep -q "^package\.json$"; then
-            VERSION=$(node -p "require('./package.json').version")
-            echo "Using manually set version $VERSION"
+          # If package.json version differs from the last tag, assume it was manually set
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          LAST_VERSION=""
+          if [ -n "$LAST_TAG" ]; then
+            LAST_VERSION=${LAST_TAG#v}
+          fi
+          if [ -z "$LAST_VERSION" ] || [ "$CURRENT_VERSION" != "$LAST_VERSION" ]; then
+            VERSION="$CURRENT_VERSION"
+            if [ -n "$LAST_VERSION" ]; then
+              echo "Using manually set version $VERSION (differs from last release $LAST_VERSION)"
+            else
+              echo "Using version $VERSION from package.json (no previous tags)"
+            fi
 
             # Validate: tag must not already exist and version must be higher than last tag
             if git tag -l "v$VERSION" | grep -q .; then
               echo "Error: tag v$VERSION already exists"
               exit 1
             fi
-            if [ -n "$LAST_TAG" ]; then
-              LAST_VERSION=${LAST_TAG#v}
-              if [ "$(printf '%s\n%s\n' "$LAST_VERSION" "$VERSION" | sort -V | head -n1)" = "$VERSION" ] && [ "$LAST_VERSION" != "$VERSION" ]; then
+            if [ -n "$LAST_VERSION" ]; then
+              if [ "$(printf '%s\n%s\n' "$LAST_VERSION" "$VERSION" | sort -V | head -n1)" = "$VERSION" ]; then
                 echo "Error: version $VERSION is not higher than last release $LAST_VERSION"
                 exit 1
               fi
