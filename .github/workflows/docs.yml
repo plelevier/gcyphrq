@@ -21,11 +21,14 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - uses: actions/configure-pages@v5
       - name: Build Jekyll site
         uses: actions/jekyll-build-pages@v1
         with:
-          source: ./docs/gh-pages
+          source: ./docs
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
 
