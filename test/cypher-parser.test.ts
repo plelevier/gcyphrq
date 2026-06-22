@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseCypher } from '../src/engine/cypher-parser';
-import type { MatchClause, WithClause, WriteClause, UnwindClause } from '../src/types/cypher';
+import type { MatchClause, MergeClause, WithClause, WriteClause, UnwindClause } from '../src/types/cypher';
 
 describe('parseCypher', () => {
   describe('MATCH clause', () => {
@@ -208,6 +208,7 @@ describe('parseCypher', () => {
       const ast = parseCypher('MATCH (n:User {name: "Dave"}) DELETE n RETURN n');
       const writeStage = ast.stages[1]! as { type: 'WRITE'; clause: WriteClause };
       expect(writeStage.clause.type).toBe('DELETE');
+      if (writeStage.clause.type !== 'DELETE') return;
       expect(writeStage.clause.variable).toBe('n');
     });
   });
@@ -978,6 +979,96 @@ describe('parseCypher', () => {
       expect(clause.variable).toBe('tag');
       expect(clause.expression.type).toBe('PropertyAccess');
       expect((clause.expression as { type: 'PropertyAccess'; variable: string }).variable).toBe('myList');
+    });
+  });
+
+  describe('MERGE clause', () => {
+    it('parses a simple MERGE with a single node pattern', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) RETURN n');
+      expect(ast.stages.length).toBe(1);
+      expect(ast.stages[0]?.type).toBe('MERGE');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.type).toBe('MERGE');
+      expect(clause.hasChains).toBe(false);
+      expect(clause.sourcePattern.variable).toBe('n');
+      expect(clause.sourcePattern.label).toBe('User');
+      expect(clause.sourcePattern.properties).toEqual({ name: 'Alice' });
+      expect(clause.onCreate).toBeUndefined();
+      expect(clause.onMatch).toBeUndefined();
+    });
+
+    it('parses MERGE with ON CREATE SET', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) ON CREATE SET n.createdAt = 0 RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.onCreate).toBeDefined();
+      expect(clause.onCreate!.actionType).toBe('CREATE');
+      expect(clause.onCreate!.setActions).toHaveLength(1);
+      expect(clause.onCreate!.setActions[0]).toEqual({
+        variable: 'n',
+        property: 'createdAt',
+        value: 0,
+      });
+    });
+
+    it('parses MERGE with ON MATCH SET', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) ON MATCH SET n.lastSeen = 0 RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.onMatch).toBeDefined();
+      expect(clause.onMatch!.actionType).toBe('MATCH');
+      expect(clause.onMatch!.setActions).toHaveLength(1);
+      expect(clause.onMatch!.setActions[0]).toEqual({
+        variable: 'n',
+        property: 'lastSeen',
+        value: 0,
+      });
+    });
+
+    it('parses MERGE with both ON CREATE and ON MATCH', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) ON CREATE SET n.createdAt = 0 ON MATCH SET n.lastSeen = 0 RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.onCreate).toBeDefined();
+      expect(clause.onCreate!.actionType).toBe('CREATE');
+      expect(clause.onMatch).toBeDefined();
+      expect(clause.onMatch!.actionType).toBe('MATCH');
+    });
+
+    it('parses MERGE with a relationship chain', () => {
+      const ast = parseCypher('MERGE (a:User {name: "Alice"})-[:FRIEND]->(b:User {name: "Bob"}) RETURN a, b');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.hasChains).toBe(true);
+      expect(clause.sourcePattern.variable).toBe('a');
+      expect(clause.sourcePattern.label).toBe('User');
+      expect(clause.relationPattern.type).toBe('FRIEND');
+      expect(clause.relationPattern.direction).toBe('OUT');
+      expect(clause.targetPattern.variable).toBe('b');
+      expect(clause.targetPattern.label).toBe('User');
+    });
+
+    it('parses MERGE with relationship and ON CREATE/ON MATCH', () => {
+      const ast = parseCypher('MERGE (a:User)-[:FRIEND]->(b:User) ON CREATE SET a.createdAt = 0 ON MATCH SET a.lastSeen = 0 RETURN a, b');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.hasChains).toBe(true);
+      expect(clause.onCreate!.actionType).toBe('CREATE');
+      expect(clause.onMatch!.actionType).toBe('MATCH');
+    });
+
+    it('parses MERGE with undirected relationship', () => {
+      const ast = parseCypher('MERGE (a:User)-[:FRIEND]-(b:User) RETURN a, b');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.relationPattern.direction).toBe('UNDIRECTED');
+    });
+
+    it('parses MERGE with inbound relationship', () => {
+      const ast = parseCypher('MERGE (a:User)<-[:FRIEND]-(b:User) RETURN a, b');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.relationPattern.direction).toBe('IN');
+    });
+
+    it('parses MERGE followed by MATCH', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) MATCH (n)-[:FRIEND]->(f) RETURN n, f');
+      expect(ast.stages.length).toBe(2);
+      expect(ast.stages[0]?.type).toBe('MERGE');
+      expect(ast.stages[1]?.type).toBe('MATCH');
     });
   });
 });

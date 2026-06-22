@@ -352,6 +352,57 @@ RETURN s.name, outDegree
 
 ---
 
+## MERGE (Create or Match)
+
+`MERGE` combines `MATCH` and `CREATE` in one clause. It tries to match the pattern against existing nodes/relationships. If found, it binds the existing elements. If not found, it creates the missing elements.
+
+### Basic MERGE
+
+Ensure a node exists, creating it if needed:
+
+```cypher
+MERGE (u:User {name: "Alice"}) RETURN u
+```
+
+### MERGE with ON CREATE / ON MATCH
+
+Apply different properties depending on whether the element was created or matched:
+
+```cypher
+MERGE (u:User {name: "Alice"})
+ON CREATE SET u.createdAt = 0
+ON MATCH SET u.lastSeen = 0
+RETURN u
+```
+
+### MERGE with Relationships
+
+MERGE supports relationship chains. Missing nodes and edges are created as needed:
+
+```cypher
+MERGE (a:User {name: "Alice"})-[:FRIEND]->(b:User {name: "Bob"})
+RETURN a, b
+```
+
+### MERGE with Directional Relationships
+
+```cypher
+MERGE (a:User)<-[:FRIEND]-(b:User)  -- inbound
+MERGE (a:User)-[:FRIEND]-(b:User)   -- undirected
+```
+
+### MERGE followed by MATCH
+
+Use MERGE to ensure data exists, then query it:
+
+```cypher
+MERGE (u:User {name: "Alice"})
+MATCH (u)-[:FRIEND]->(f)
+RETURN u, f
+```
+
+---
+
 ## Unsupported Features
 
 The following Cypher features are **not** supported by the engine:
@@ -359,9 +410,10 @@ The following Cypher features are **not** supported by the engine:
 - **Subqueries** — `CALL {}` syntax
 - **APOC procedures** — `CALL apoc.*`
 - **Multiple MATCH in same stage** — use `WITH` to chain stages
-- **MERGE** — use `CREATE` or `MATCH` + `CREATE` instead
 - **FOREACH** — not implemented; use multiple `SET` clauses with `MATCH` instead
 - **UNION** — not implemented; run separate queries and merge results externally (e.g. with `jq` or in your application code)
+- **MERGE with WHERE** — use property filters in the pattern instead
+- **MERGE with DELETE/REMOVE** — only SET is supported in ON CREATE/ON MATCH
 
 
 ## Next Steps

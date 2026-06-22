@@ -110,7 +110,37 @@ export interface SetClause {
   value: CypherLiteral;
 }
 
-export type WriteClause = CreateClause | DeleteClause | SetClause;
+// ── MERGE clause types ───────────────────────────────────────────────────────
+
+/** A single SET action within a MERGE ON CREATE / ON MATCH block. */
+export interface MergeSetAction {
+  variable: string;
+  property: string;
+  value: CypherLiteral;
+}
+
+/** An ON CREATE or ON MATCH action block inside a MERGE clause. */
+export interface MergeAction {
+  /** 'CREATE' for ON CREATE, 'MATCH' for ON MATCH */
+  actionType: 'CREATE' | 'MATCH';
+  /** SET actions to apply (only SET is supported in ON CREATE/ON MATCH) */
+  setActions: MergeSetAction[];
+}
+
+export interface MergeClause {
+  type: 'MERGE';
+  /** Whether the pattern includes a relationship chain */
+  hasChains: boolean;
+  sourcePattern: NodePattern;
+  relationPattern: RelationPattern;
+  targetPattern: NodePattern;
+  /** ON CREATE SET actions (empty array if absent) */
+  onCreate: MergeAction | undefined;
+  /** ON MATCH SET actions (empty array if absent) */
+  onMatch: MergeAction | undefined;
+}
+
+export type WriteClause = CreateClause | DeleteClause | SetClause | MergeClause;
 
 export interface PropertyAccessExpression {
   type: 'PropertyAccess';
@@ -206,6 +236,7 @@ export type Stage =
   | { type: 'MATCH'; clause: MatchClause }
   | { type: 'WITH'; clause: WithClause }
   | { type: 'WRITE'; clause: WriteClause }
+  | { type: 'MERGE'; clause: MergeClause }
   | { type: 'UNWIND'; clause: UnwindClause };
 
 export interface AdvancedCypherAST {

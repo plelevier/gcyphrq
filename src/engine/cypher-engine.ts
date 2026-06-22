@@ -4,7 +4,11 @@ import type {
   AdvancedCypherAST,
   AggregationExpression,
   MatchClause,
+  MergeAction,
+  MergeClause,
+  MergeSetAction,
   OrderByItem,
+  RelationPattern,
   WithClause,
   WriteClause,
   UnwindClause,
@@ -107,6 +111,8 @@ export class AdvancedCypherGraphologyEngine {
         contexts = this.executeWith(stage.clause, contexts);
       } else if (stage.type === 'WRITE') {
         this.executeWrite(stage.clause, contexts);
+      } else if (stage.type === 'MERGE') {
+        contexts = this.executeMerge(stage.clause, contexts);
       } else if (stage.type === 'UNWIND') {
         contexts = this.executeUnwind(stage.clause, contexts);
       }
@@ -694,6 +700,257 @@ export class AdvancedCypherGraphologyEngine {
     // Invalidate indexes so subsequent stages use full-graph scan
     // (indexes are a snapshot at construction time and cannot be incrementally updated)
     this.indexes = undefined;
+  }
+
+  // ── 3b. MERGE STAGE ────────────────────────────────────────────────────────
+  // MERGE tries to MATCH the pattern. If found, binds existing elements and
+  // applies ON MATCH SET. If not found, creates missing elements and applies
+  // ON CREATE SET. Each incoming context produces exactly one output context.
+
+  private executeMerge(
+    clause: MergeClause,
+    incomingContexts: (QueryContext | ContextChain)[],
+  ): (QueryContext | ContextChain)[] {
+    const { sourcePattern, relationPattern, targetPattern, hasChains, onCreate, onMatch } = clause;
+    const outgoingContexts: (QueryContext | ContextChain)[] = [];
+
+    for (const context of incomingContexts) {
+      let created = false;
+      const overrides: QueryContext = {};
+
+      if (!hasChains) {
+        // ── Single-node MERGE ──────────────────────────────────────────────
+        const { id: sourceId, created: sourceCreated } = this.findOrCreateSingleNode(sourcePattern);
+        created = sourceCreated;
+        const sourceAttr = this.graph.getNodeAttributes(sourceId);
+        const sourceNode = { id: sourceId, ...sourceAttr } as CypherNode;
+        overrides[sourcePattern.variable] = sourceNode;
+      } else {
+        // ── Relationship chain MERGE ───────────────────────────────────────
+        const result = this.findOrCreateChain(
+          sourcePattern,
+          relationPattern,
+          targetPattern,
+          onCreate,
+          context,
+        );
+        created = result.created;
+        overrides[sourcePattern.variable] = result.sourceNode;
+        overrides[targetPattern.variable] = result.targetNode;
+        if (relationPattern.variable) {
+          overrides[relationPattern.variable] = result.edges;
+        }
+      }
+
+      const chain: ContextChain = {
+        [CHAIN_BASE]: context,
+        [CHAIN_OVERRIDES]: overrides,
+      };
+
+      // Apply ON CREATE SET or ON MATCH SET
+      const action = created ? onCreate : onMatch;
+      if (action && action.setActions.length > 0) {
+        this.applyMergeSetActions(action.setActions, chain, hasChains ? relationPattern.variable : undefined);
+      }
+
+      outgoingContexts.push(chain);
+    }
+
+    // Invalidate indexes so subsequent stages see the updated graph
+    this.indexes = undefined;
+
+    return outgoingContexts;
+  }
+
+  /** Find an existing node matching the pattern, or create one. Returns { id, created }. */
+  private findOrCreateSingleNode(pattern: NodePattern): { id: string; created: boolean } {
+    const candidates = this.getMatchingNodeIds(pattern);
+    if (candidates.length > 0) {
+      return { id: candidates[0]!, created: false };
+    }
+
+    // Create the node
+    const newId = randomUUID();
+    const attrs: Record<string, unknown> = { ...pattern.properties };
+    if (pattern.label) {
+      attrs[this.config.labelProperty] = pattern.label;
+    }
+    this.graph.addNode(newId, attrs);
+    return { id: newId, created: true };
+  }
+
+  /** Find or create a relationship chain (source)-[rel]->(target). */
+  private findOrCreateChain(
+    sourcePattern: NodePattern,
+    relationPattern: RelationPattern,
+    targetPattern: NodePattern,
+    onCreate: MergeAction | undefined,
+    context: QueryContext | ContextChain,
+  ): {
+    sourceNode: CypherNode;
+    targetNode: CypherNode;
+    edges: CypherEdge[];
+    created: boolean;
+  } {
+    // Resolve source node from context or graph
+    let sourceId: string | undefined;
+    const boundSource = resolveChainValue(context, sourcePattern.variable);
+    if (boundSource && typeof boundSource === 'object' && !Array.isArray(boundSource) && 'id' in boundSource) {
+      sourceId = (boundSource as CypherNode).id;
+    }
+
+    // If source not bound, find or create it
+    let sourceCreated = false;
+    if (!sourceId) {
+      const result = this.findOrCreateSingleNode(sourcePattern);
+      sourceId = result.id;
+      sourceCreated = result.created;
+    } else {
+      // Validate bound source matches pattern
+      const freshAttrs = this.graph.getNodeAttributes(sourceId);
+      if (!this.matchNodeCriteria(freshAttrs, sourcePattern)) {
+        // Bound source doesn't match — treat as no match, create new source
+        const result = this.findOrCreateSingleNode(sourcePattern);
+        sourceId = result.id;
+        sourceCreated = result.created;
+      }
+    }
+
+    // Resolve target node from context or graph
+    let targetId: string | undefined;
+    const boundTarget = resolveChainValue(context, targetPattern.variable);
+    if (boundTarget && typeof boundTarget === 'object' && !Array.isArray(boundTarget) && 'id' in boundTarget) {
+      targetId = (boundTarget as CypherNode).id;
+    }
+
+    // If target not bound, find or create it
+    let targetCreated = false;
+    if (!targetId) {
+      const result = this.findOrCreateSingleNode(targetPattern);
+      targetId = result.id;
+      targetCreated = result.created;
+    } else {
+      const freshAttrs = this.graph.getNodeAttributes(targetId);
+      if (!this.matchNodeCriteria(freshAttrs, targetPattern)) {
+        const result = this.findOrCreateSingleNode(targetPattern);
+        targetId = result.id;
+        targetCreated = result.created;
+      }
+    }
+
+    // Check if the relationship already exists
+    let edgeId: string | undefined;
+    let edgeSource = sourceId;
+    let edgeTarget = targetId;
+
+    if (relationPattern.direction === 'OUT') {
+      edgeId = this.findEdgeBetween(sourceId, targetId, relationPattern.type);
+    } else if (relationPattern.direction === 'IN') {
+      edgeId = this.findEdgeBetween(targetId, sourceId, relationPattern.type);
+      edgeSource = targetId;
+      edgeTarget = sourceId;
+    } else {
+      // Undirected: check both directions
+      edgeId = this.findEdgeBetween(sourceId, targetId, relationPattern.type);
+      if (edgeId) {
+        edgeSource = sourceId;
+        edgeTarget = targetId;
+      } else {
+        edgeId = this.findEdgeBetween(targetId, sourceId, relationPattern.type);
+        if (edgeId) {
+          edgeSource = targetId;
+          edgeTarget = sourceId;
+        }
+      }
+    }
+
+    let edgeCreated = false;
+    let edges: CypherEdge[];
+
+    if (edgeId) {
+      // Relationship exists — read it
+      const edgeAttrs = this.graph.getEdgeAttributes(edgeId);
+      edges = [{ id: edgeId, source: edgeSource, target: edgeTarget, ...edgeAttrs } as CypherEdge];
+    } else {
+      // Create the relationship
+      edgeCreated = true;
+      const newEdgeId = randomUUID();
+      const edgeAttrs: Record<string, unknown> = {};
+      if (relationPattern.type) {
+        edgeAttrs[this.config.edgeTypeProperty] = relationPattern.type;
+      }
+      this.graph.addEdgeWithKey(newEdgeId, edgeSource, edgeTarget, edgeAttrs);
+      edges = [{ id: newEdgeId, source: edgeSource, target: edgeTarget, ...edgeAttrs } as CypherEdge];
+    }
+
+    const sourceAttr = this.graph.getNodeAttributes(sourceId);
+    const targetAttr = this.graph.getNodeAttributes(targetId);
+
+    return {
+      sourceNode: { id: sourceId, ...sourceAttr } as CypherNode,
+      targetNode: { id: targetId, ...targetAttr } as CypherNode,
+      edges,
+      created: sourceCreated || targetCreated || edgeCreated,
+    };
+  }
+
+  /** Find an edge between two nodes with the given type. Returns the edge ID or undefined. */
+  private findEdgeBetween(sourceId: string, targetId: string, type?: string): string | undefined {
+    let foundEdgeId: string | undefined;
+    this.graph.forEachOutboundEdge(sourceId, (edgeId, attrs, src, tgt) => {
+      if (foundEdgeId) return;
+      if (tgt === targetId) {
+        if (!type || attrs[this.config.edgeTypeProperty] === type) {
+          foundEdgeId = edgeId;
+        }
+      }
+    });
+    // Fallback: iterate all edges if the above didn't work
+    if (!foundEdgeId) {
+      this.graph.forEachEdge((edgeId, attrs, src, tgt) => {
+        if (foundEdgeId) return;
+        if (src === sourceId && tgt === targetId) {
+          if (!type || attrs[this.config.edgeTypeProperty] === type) {
+            foundEdgeId = edgeId;
+          }
+        }
+      });
+    }
+    return foundEdgeId;
+  }
+
+  /** Apply SET actions from ON CREATE / ON MATCH to a context chain. */
+  private applyMergeSetActions(
+    actions: MergeSetAction[],
+    chain: ContextChain,
+    relationVariable?: string,
+  ): void {
+    for (const action of actions) {
+      const varName = action.variable;
+      // Check if this is a relationship variable
+      if (relationVariable && varName === relationVariable) {
+        const edgeArray = chain[CHAIN_OVERRIDES][varName] as CypherEdge[] | undefined;
+        if (edgeArray && edgeArray.length > 0) {
+          const edge = edgeArray[0]!;
+          if (edge.id) {
+            this.graph.setEdgeAttribute(edge.id, action.property, action.value);
+            // Update the in-context edge with fresh data
+            const freshAttrs = this.graph.getEdgeAttributes(edge.id);
+            edgeArray[0] = { id: edge.id, source: edge.source, target: edge.target, ...freshAttrs } as CypherEdge;
+          }
+        }
+        continue;
+      }
+
+      // Node variable
+      const targetNode = chain[CHAIN_OVERRIDES][varName] as CypherNode | undefined;
+      if (targetNode && targetNode.id) {
+        this.graph.setNodeAttribute(targetNode.id, action.property, action.value);
+        // Update the in-context node with fresh data
+        const fresh = { id: targetNode.id, ...this.graph.getNodeAttributes(targetNode.id) } as CypherNode;
+        chain[CHAIN_OVERRIDES][varName] = fresh;
+      }
+    }
   }
 
   // ── 4. RETURN PROJECTION STAGE ─────────────────────────────────────────────

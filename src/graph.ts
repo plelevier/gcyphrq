@@ -26,6 +26,7 @@ export interface GraphInstance {
   forEachEdge(id: string, cb: (e: string, a: Record<string, unknown>, s: string, t: string) => void): void;
   forEachEdge(cb: (e: string, a: Record<string, unknown>, s: string, t: string) => void): void;
   setNodeAttribute(id: string, attr: string, value: unknown): void;
+  setEdgeAttribute(id: string, attr: string, value: unknown): void;
   hasNode(id: string): boolean;
   dropNode(id: string): void;
   order: number;
@@ -48,6 +49,7 @@ interface RawGraph {
   forEachEdge(id: string, cb: (e: string, a: Record<string, unknown>, s: string, t: string) => void): void;
   forEachEdge(cb: (e: string, a: Record<string, unknown>, s: string, t: string) => void): void;
   setNodeAttribute(id: string, attr: string, value: unknown): void;
+  setEdgeAttribute(id: string, attr: string, value: unknown): void;
   hasNode(id: string): boolean;
   dropNode(id: string): void;
   order: number;
@@ -117,6 +119,7 @@ function wrapGraph(raw: RawGraph): GraphInstance {
     forEachInboundEdge: wrapInbound,
     forEachEdge: raw.forEachEdge.bind(raw),
     setNodeAttribute: raw.setNodeAttribute.bind(raw),
+    setEdgeAttribute: raw.setEdgeAttribute.bind(raw),
     hasNode: raw.hasNode.bind(raw),
     dropNode: raw.dropNode.bind(raw),
     get order() { return raw.order; },
@@ -171,6 +174,7 @@ export class Graph {
     }
   }
   setNodeAttribute(id: string, attr: string, value: unknown): void { this._instance.setNodeAttribute(id, attr, value); }
+  setEdgeAttribute(id: string, attr: string, value: unknown): void { this._instance.setEdgeAttribute(id, attr, value); }
   hasNode(id: string): boolean { return this._instance.hasNode(id); }
   dropNode(id: string): void { this._instance.dropNode(id); }
   get order(): number { return this._instance.order; }
@@ -216,6 +220,7 @@ function assertGraphApi(graph: GraphInstance): void {
     'forEachInboundEdge',
     'forEachEdge',
     'setNodeAttribute',
+    'setEdgeAttribute',
     'hasNode',
     'dropNode',
   ];
