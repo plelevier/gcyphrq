@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Graph, type GraphInstance } from '../src/graph';
 import { AdvancedCypherGraphologyEngine } from '../src/engine/cypher-engine';
 import { parseCypher } from '../src/engine/cypher-parser';
-import { DEFAULT_CONFIG, type CypherNode, type GraphIndexes } from '../src/types/cypher';
+import { DEFAULT_CONFIG, type CypherNode, type CypherEdge, type GraphIndexes } from '../src/types/cypher';
 
 /** Cast a result-row value to CypherNode for test assertions. */
 function node<T extends Record<string, unknown>>(row: T, key: keyof T): CypherNode {
@@ -2209,6 +2209,204 @@ describe('AdvancedCypherGraphologyEngine', () => {
       expect(results[0]?.val).toBe(1);
       expect(results[1]?.val).toBe('hello');
       expect(results[2]?.val).toBe(true);
+    });
+  });
+
+  describe('execute - MERGE', () => {
+    it('MERGE creates a node when it does not exist', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (u:User {name: "Bob"}) RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Bob');
+      expect(node(results[0]!, 'u').label).toBe('User');
+    });
+
+    it('MERGE matches an existing node', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (u:User {name: "Alice"}) RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').id).toBe('alice');
+    });
+
+    it('MERGE does not create duplicate nodes', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      // Run MERGE twice — second time should match, not create
+      const ast = parseCypher('MERGE (u:User {name: "Alice"}) RETURN u');
+      const results1 = e.execute(ast);
+      expect(results1.length).toBe(1);
+      const firstId = node(results1[0]!, 'u').id;
+
+      // Engine indexes are invalidated after MERGE, so create a fresh engine
+      const e2 = new AdvancedCypherGraphologyEngine(g);
+      const results2 = e2.execute(ast);
+      expect(results2.length).toBe(1);
+      const secondId = node(results2[0]!, 'u').id;
+
+      expect(firstId).toBe(secondId);
+      expect(g.order).toBe(1); // Only one node in the graph
+    });
+
+    it('MERGE with ON CREATE SET applies properties on creation', () => {
+      const g = new Graph();
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (u:User {name: "Bob"}) ON CREATE SET u.status = "new" RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Bob');
+      expect(node(results[0]!, 'u').status).toBe('new');
+    });
+
+    it('MERGE with ON MATCH SET applies properties on match', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (u:User {name: "Alice"}) ON MATCH SET u.status = "existing" RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').status).toBe('existing');
+    });
+
+    it('MERGE with both ON CREATE and ON MATCH', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      // First run: Alice exists, ON MATCH should apply
+      const ast = parseCypher('MERGE (u:User {name: "Alice"}) ON CREATE SET u.status = "new" ON MATCH SET u.status = "existing" RETURN u');
+      const results1 = e.execute(ast);
+      expect(node(results1[0]!, 'u').status).toBe('existing');
+
+      // Second run: Bob doesn't exist, ON CREATE should apply
+      const e2 = new AdvancedCypherGraphologyEngine(g);
+      const ast2 = parseCypher('MERGE (u:User {name: "Bob"}) ON CREATE SET u.status = "new" ON MATCH SET u.status = "existing" RETURN u');
+      const results2 = e2.execute(ast2);
+      expect(node(results2[0]!, 'u').status).toBe('new');
+    });
+
+    it('MERGE with relationship chain creates missing nodes and edge', () => {
+      const g = new Graph();
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (a:User {name: "Alice"})-[:FRIEND]->(b:User {name: "Bob"}) RETURN a, b');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'a').name).toBe('Alice');
+      expect(node(results[0]!, 'b').name).toBe('Bob');
+      expect(g.order).toBe(2); // Two nodes created
+    });
+
+    it('MERGE with relationship chain matches existing nodes and creates edge', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      g.addNode('bob', { label: 'User', name: 'Bob' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (a:User {name: "Alice"})-[:FRIEND]->(b:User {name: "Bob"}) RETURN a, b');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'a').id).toBe('alice');
+      expect(node(results[0]!, 'b').id).toBe('bob');
+      expect(g.order).toBe(2); // No new nodes
+    });
+
+    it('MERGE with relationship chain does not create duplicate edge', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      g.addNode('bob', { label: 'User', name: 'Bob' });
+      g.addEdge('alice', 'bob', { type: 'FRIEND' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (a:User {name: "Alice"})-[:FRIEND]->(b:User {name: "Bob"}) RETURN a, b');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+
+      // Count edges in graph
+      let edgeCount = 0;
+      g.forEachEdge(() => { edgeCount++; });
+      expect(edgeCount).toBe(1); // Original edge only
+    });
+
+    it('MERGE followed by MATCH uses created node', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      g.addNode('bob', { label: 'User', name: 'Bob' });
+      g.addEdge('alice', 'bob', { type: 'FRIEND' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      // MERGE a new user, then MATCH their friends
+      const ast = parseCypher('MERGE (u:User {name: "Charlie"}) RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Charlie');
+    });
+
+    it('MERGE with multiple incoming contexts creates one node per context', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      g.addNode('bob', { label: 'User', name: 'Bob' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      // For each existing user, MERGE a corresponding "profile" node
+      const ast = parseCypher('MATCH (u:User) MERGE (p:Profile {ownerName: u.name}) RETURN u.name, p');
+      const results = e.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => r.name).sort();
+      expect(names).toEqual(['Alice', 'Bob']);
+    });
+
+    it('MERGE with undirected relationship', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      g.addNode('bob', { label: 'User', name: 'Bob' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (a:User {name: "Alice"})-[:FRIEND]-(b:User {name: "Bob"}) RETURN a, b');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'a').name).toBe('Alice');
+      expect(node(results[0]!, 'b').name).toBe('Bob');
+    });
+
+    it('MERGE with ON CREATE SET on relationship', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      g.addNode('bob', { label: 'User', name: 'Bob' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (a:User {name: "Alice"})-[r:KNOWS]->(b:User {name: "Bob"}) ON CREATE SET r.since = 2024 RETURN a, r, b');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      const edges = results[0]!.r as CypherEdge[];
+      expect(edges).toHaveLength(1);
+      expect(edges[0]?.since).toBe(2024);
+    });
+
+    it('MERGE with ON MATCH SET on existing relationship', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      g.addNode('bob', { label: 'User', name: 'Bob' });
+      g.addEdge('alice', 'bob', { type: 'FRIEND' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (a:User {name: "Alice"})-[r:FRIEND]->(b:User {name: "Bob"}) ON MATCH SET r.updated = true RETURN a, r, b');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      const edges = results[0]!.r as CypherEdge[];
+      expect(edges).toHaveLength(1);
+      expect(edges[0]?.updated).toBe(true);
     });
   });
 });

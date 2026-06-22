@@ -2,6 +2,9 @@ import { createRequire } from 'module';
 import type {
   AdvancedCypherAST,
   MatchClause,
+  MergeClause,
+  MergeAction,
+  MergeSetAction,
   NodePattern,
   OrderByItem,
   RelationPattern,
@@ -53,6 +56,8 @@ const Ctx = {
   LiteralEntry: 'LiteralEntryContext',
   MapLiteral: 'MapLiteralContext',
   MatchClause: 'MatchClauseContext',
+  MergeClause: 'MergeClauseContext',
+  MergeAction: 'MergeActionContext',
   NodeLabel: 'NodeLabelContext',
   NodeLabels: 'NodeLabelsContext',
   NodePattern: 'NodePatternContext',
@@ -1284,6 +1289,112 @@ function extractUnwindClause(clauseCtx: ParseTreeNode): UnwindClause | undefined
   return { type: 'UNWIND' as const, expression: expr, variable };
 }
 
+// ── MERGE clause extraction ──────────────────────────────────────────────────
+
+function extractMergeSetActions(setCtx: TreeNode): MergeSetAction[] {
+  if (!setCtx) return [];
+  const actions: MergeSetAction[] = [];
+  const setItems = findAllChildren(setCtx, Ctx.SetItem);
+  for (const item of setItems) {
+    const propExpr = findChild(item, Ctx.PropertyExpression);
+    if (!propExpr) continue;
+    const atom = findChild(propExpr, Ctx.Atom);
+    if (!atom) continue;
+    const varCtx = findChild(atom, Ctx.Variable);
+    const variable = getSymbolicName(varCtx);
+    if (!variable) continue;
+
+    const propLookup = findChild(propExpr, Ctx.PropertyLookup);
+    if (!propLookup) continue;
+    const propKeyCtx = findChild(propLookup, Ctx.PropertyKey);
+    const property = getSymbolicName(propKeyCtx);
+    if (!property) continue;
+
+    const exprCtx = findChild(item, Ctx.Expression);
+    const valueExpr = evaluateExpression(exprCtx);
+    if (!valueExpr || valueExpr.type !== 'Literal') continue;
+
+    actions.push({ variable, property, value: valueExpr.value });
+  }
+  return actions;
+}
+
+function extractMergeAction(actionCtx: TreeNode): MergeAction | undefined {
+  if (!actionCtx) return undefined;
+
+  const onCreate = hasTerminal(actionCtx, 'CREATE');
+  const onMatch = hasTerminal(actionCtx, 'MATCH');
+
+  if (!onCreate && !onMatch) return undefined;
+
+  const setCtx = findChild(actionCtx, Ctx.SetClause);
+  const setActions = setCtx ? extractMergeSetActions(setCtx) : [];
+
+  return {
+    actionType: onCreate ? 'CREATE' : 'MATCH',
+    setActions,
+  };
+}
+
+function extractMergeClause(clauseCtx: ParseTreeNode): MergeClause {
+  const mergeCtx = findChild(clauseCtx, Ctx.MergeClause);
+  if (!mergeCtx) throw new Error('Failed to parse MERGE: missing MergeClause node.');
+
+  // MERGE has PatternPart directly (not wrapped in Pattern like MATCH does)
+  const patternPart = findChild(mergeCtx, Ctx.PatternPart);
+  if (!patternPart) throw new Error('Failed to parse MERGE: missing PatternPart node.');
+  const anonPart = findChild(patternPart, Ctx.AnonymousPatternPart);
+  if (!anonPart) throw new Error('Failed to parse MERGE: missing AnonymousPatternPart node.');
+  const element = findChild(anonPart, Ctx.PatternElement);
+  if (!element) throw new Error('Failed to parse MERGE: missing PatternElement node.');
+
+  const nodePatterns = findAllChildren(element, Ctx.NodePattern);
+  const chains = findAllChildren(element, Ctx.PatternElementChain);
+
+  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', label: undefined, properties: undefined };
+
+  let relationPattern: RelationPattern = { variable: undefined, type: undefined, minDepth: undefined, maxDepth: undefined, direction: 'UNDIRECTED' };
+  let targetPattern: NodePattern = { variable: '', label: undefined, properties: undefined };
+
+  const hasChains = chains.length > 0;
+
+  if (chains.length > 1) {
+    throw new Error('Multi-hop MERGE patterns are not supported. Use multiple MERGE stages.');
+  }
+
+  if (hasChains) {
+    const chain = chains[0];
+    const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
+    relationPattern = extractRelationPattern(relPatternCtx);
+
+    const targetNodeCtx = findChild(chain, Ctx.NodePattern);
+    if (targetNodeCtx) {
+      targetPattern = extractNodePattern(targetNodeCtx);
+    }
+  } else if (nodePatterns.length > 1) {
+    targetPattern = extractNodePattern(nodePatterns[1]);
+  }
+
+  // Extract ON CREATE / ON MATCH actions
+  const mergeActions = findAllChildren(mergeCtx, Ctx.MergeAction);
+  let onCreate: MergeAction | undefined;
+  let onMatch: MergeAction | undefined;
+
+  for (const actionCtx of mergeActions) {
+    const action = extractMergeAction(actionCtx);
+    if (!action) continue;
+    if (action.actionType === 'CREATE') {
+      if (onCreate) throw new Error('Multiple ON CREATE actions are not supported in MERGE.');
+      onCreate = action;
+    } else {
+      if (onMatch) throw new Error('Multiple ON MATCH actions are not supported in MERGE.');
+      onMatch = action;
+    }
+  }
+
+  return { type: 'MERGE', hasChains, sourcePattern, relationPattern, targetPattern, onCreate, onMatch };
+}
+
 // ── Main parser ──────────────────────────────────────────────────────────────
 
 export function parseCypher(query: string): AdvancedCypherAST {
@@ -1337,6 +1448,9 @@ export function parseCypher(query: string): AdvancedCypherAST {
     } else if (findChild(clause, Ctx.DeleteClause)) {
       const writeClause = extractWriteClause(clause);
       if (writeClause) stages.push({ type: 'WRITE', clause: writeClause });
+    } else if (findChild(clause, Ctx.MergeClause)) {
+      const mergeClause = extractMergeClause(clause);
+      stages.push({ type: 'MERGE', clause: mergeClause });
     } else if (findChild(clause, Ctx.UnwindClause)) {
       const unwindClause = extractUnwindClause(clause);
       if (unwindClause) stages.push({ type: 'UNWIND', clause: unwindClause });
