@@ -5,250 +5,114 @@ description: "Use for querying graph data with Cypher — service dependencies, 
 
 # gcyphrq
 
-Execute Cypher queries against in-memory graphs built from JSON files. The CLI tool is `gcyphrq`. Use `-e` + `-g` to run queries, or `--install --global/--local` to install the skill for AI coding agents.
+Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 
-## Usage
+## Workflow
 
-```
-gcyphrq [options]
+1. **Find the graph file** — look for `.json` files with `{nodes, edges}` structure (Graphology format). The user may name it directly or it may be in `infra/`, `graph/`, `data/`, etc.
+2. **Build the Cypher query** — use the patterns below or load `references/queries.md` for use-case-specific examples
+3. **Run:** `gcyphrq -g <graph.json> -e '<cypher>'`
+4. **Interpret results** — graph format `{nodes, edges}` for structure; rows format `[...]` for scalars/aggregations
 
-Options:
-  -e, --expr <query>   Cypher query expression (required for queries)
-  -g, --graph <file>   Path to a JSON graph file (required for queries, or "-" for stdin)
-  --install            Install the gcyphrq skill for AI coding agents
-  --global             Install skill globally with symlinks (requires --install)
-  --local              Install skill per-project with copies (requires --install)
-  -h, --help           Show this help message
-```
-
-### Install the skill
-
-Install this skill for your AI coding agent (pi, Claude Code, OpenCode):
+## CLI Reference
 
 ```bash
-gcyphrq --install --global    # symlinks in agent config directories
-gcyphrq --install --local     # copies into project subdirectories
+gcyphrq -g graph.json -e 'MATCH (n:Service) RETURN n'    # query file
+cat graph.json | gcyphrq -g - -e '...'                    # stdin
+gcyphrq -g g.json -e '...' --format rows                  # force rows output
 ```
 
-### Run a query
+| Flag | Description |
+|---|---|
+| `-e <query>` | Cypher expression (required) |
+| `-g <file\|->` | graph JSON file or `-` for stdin (required) |
+| `--format graph\|rows` | `graph` (default, chainable) or `rows` (array of objects) |
 
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n) RETURN n'
-```
-
-### Pipe from stdin
-
-```bash
-cat <graph.json> | gcyphrq -g - -e 'MATCH (n) RETURN n'
-```
-
-### Pipe output to jq
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n) RETURN n.name' | jq '.[].n'
-```
+Graph format output can be piped back via `-g -` to chain queries. Scalar results (property access, aggregations) auto-fall back to rows format.
 
 ## Graph File Format
 
-```json
-{
-  "nodes": [
-    { "id": "alice", "label": "User", "name": "Alice", ... }
-  ],
-  "edges": [
-    { "source": "alice", "target": "bob", "type": "FRIEND", ... }
-  ]
-}
-```
+Graphology JSON: `{ nodes: [{ key, attributes }], edges: [{ source, target, attributes }] }`.
 
-- **Node `id`** — unique identifier, used as the Graphology node key
-- **Node `label`** — used for label filtering in Cypher (`:User`, `:Service`)
-- **All other properties** — available for property filtering (`{name: "Alice"}`)
-- **Edge `type`** — used for relationship type filtering (`[:FRIEND]`, `[:RPC]`)
+- `attributes.label` → Cypher node label (`:Service`)
+- `attributes.type` on edges → relationship type (`[:TCP]`)
+- All other attributes → filterable properties (`{name: "X"}`, `{region: "us-east-1"}`)
 
-## Supported Cypher Features
+## Supported Cypher
 
-| Feature | Syntax | Supported |
-|---|---|---|
-| Node matching with label | `MATCH (n:Label)` | ✅ |
-| Node matching with properties | `MATCH (n:Label {key: "val"})` | ✅ |
-| Directional edges | `->`, `<-`, `-` | ✅ |
-| Relationship type filter | `-[:TYPE]->` | ✅ |
-| Variable-length paths | `-[*min..max]->` | ✅ |
-| Edge variable binding | `-[r:TYPE]->` | ✅ |
-| `OPTIONAL MATCH` | `OPTIONAL MATCH (a)-[]->(b)` | ✅ |
-| `RETURN` with property access | `RETURN n.name` | ✅ |
-| `RETURN` with aliases | `RETURN n AS node` | ✅ |
-| `WITH` pipelining | `WITH n, count(m) AS c` | ✅ |
-| Aggregations | `count()`, `sum()`, `avg()`, `min()`, `max()` | ✅ |
-| `WHERE` on `MATCH` and `WITH` | `WHERE c > 5` | ✅ |
-| `WHERE` operators | `>`, `<`, `=`, `<>`, `CONTAINS` | ✅ |
-| `WHERE` logical operators | `AND`, `OR`, `NOT` | ✅ |
-| `WHERE` IS NULL / IS NOT NULL | `WHERE n.prop IS NULL` | ✅ |
-| `CREATE` nodes | `CREATE (n:Label {key: val})` | ✅ |
-| `SET` properties | `SET n.prop = value` | ✅ |
-| `DELETE` nodes | `DELETE n` | ✅ |
-| Multiple chained MATCH | `MATCH (a) MATCH (b)` | ❌ single MATCH per stage |
-| `ORDER BY` (single/multi-column, ASC/DESC) | `ORDER BY n.name ASC, n.age DESC` | ✅ |
-| `SKIP` | `SKIP 10` | ✅ |
-| `LIMIT` | `LIMIT 10` | ✅ |
-| Subqueries, `CALL`, APOC | — | ❌ |
+| Category | Supported |
+|---|---|
+| Matching | `MATCH (n:Label {prop: val})-[:TYPE*min..max]->(m)`, `OPTIONAL MATCH`, edge binding `-[r:TYPE]->` |
+| Filtering | `WHERE`: `=`, `<>`, `>`, `<`, `CONTAINS`, `IS NULL`, `IS NOT NULL`, `AND`/`OR`/`NOT` |
+| Pipelining | `WITH`, `count()`, `sum()`, `avg()`, `min()`, `max()` |
+| Output | `RETURN` (nodes, properties, aliases), `ORDER BY`, `SKIP`, `LIMIT` |
+| Mutations | `CREATE`, `SET`, `DELETE` (in-memory only) |
+| **Not supported** | chained `MATCH`, subqueries, `CALL`, APOC, `labels()`, `head()` |
 
-## What This Skill Is For
+## When to Use
 
-Use this skill whenever the user asks about:
+Trigger for: service dependencies, blast radius / impact analysis, path tracing, infrastructure topology, replication / failover, monitoring coverage, degree analysis, external dependencies, graph mutations.
 
-- **Service dependencies** — "What does X depend on?"
-- **Blast radius / impact analysis** — "If X goes down, what breaks?"
-- **Path tracing** — "Show me the path from A to B"
-- **Infrastructure topology** — "How are things connected?"
-- **Replication / failover** — "What's the replication setup?"
-- **External dependencies** — "Which services call external APIs?"
-- **Monitoring coverage** — "What's being monitored?"
-- **Degree analysis** — "Which nodes have the most connections?"
-- **Graph mutations** — "Add a new node", "Update a property"
+## Cypher Patterns
 
-## Query Patterns
+> Replace `<graph>` with the actual graph file path. Full command: `gcyphrq -g <graph> -e '<cypher>'`
 
-### List all nodes of a given label
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label) RETURN n'
-```
-
-### Filter nodes by property
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label {prop: "value"}) RETURN n'
-```
-
-### Find nodes connected to a specific node
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n)-[]->(target {name: "Target"}) RETURN n'
-```
-
-### Trace paths between nodes (variable-length)
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (a {name: "A"})-[r*1..3]->(b {name: "B"}) RETURN a, r, b'
-```
-
-### Blast radius (N hops from a node, undirected)
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (root {name: "Root"})-[r*1..2]-(affected) RETURN root, r, affected'
-```
-
-### Blast radius (downstream only, directed)
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (root {name: "Root"})-[r*1..2]->(downstream) RETURN root, r, downstream'
-```
-
-### Count connections per node
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label)-[]->(target) WITH n, count(target) AS degree RETURN n, degree'
-```
-
-### Filter by connection count
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label)-[]->(target) WITH n, count(target) AS degree WHERE degree > 2 RETURN n, degree'
-```
-
-### WHERE on MATCH with AND
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE n.type = "RPC" AND n.name CONTAINS "Service" RETURN n'
-```
-
-### WHERE on MATCH with OR
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE n.type = "RPC" OR n.type = "Worker" RETURN n'
-```
-
-### WHERE on MATCH with NOT
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE NOT n.status = "deprecated" RETURN n'
-```
-
-### WHERE with CONTAINS (substring match)
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE n.name CONTAINS "api" RETURN n'
-```
-
-### WHERE with <> (not-equals)
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE n.region <> "us-east-1" RETURN n'
-```
-
-### WHERE with IS NULL (null check)
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE n.status IS NULL RETURN n'
-```
-
-### WHERE with IS NOT NULL (not-null check)
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE n.status IS NOT NULL RETURN n'
-```
-
-### Complex WHERE with AND, OR, NOT and parentheses
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label) WHERE (n.type = "RPC" OR n.type = "CDN") AND NOT n.name = "CloudFront CDN" RETURN n'
-```
-
-### OPTIONAL MATCH (find nodes without connections)
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label) OPTIONAL MATCH (n)-[]->(m) WHERE m IS NULL RETURN n, m'
-```
-
-### Sort and paginate
-
-```bash
-gcyphrq -g <graph.json> -e 'MATCH (n:Label) RETURN n.name ORDER BY n.name ASC SKIP 10 LIMIT 10'
-```
-
-### Create, update, delete (in-memory only)
-
-```bash
-# Add a node
-gcyphrq -g <graph.json> -e 'CREATE (n:Label {name: "New Node"}) RETURN n'
-
-# Update a property
-gcyphrq -g <graph.json> -e 'MATCH (n:Label {name: "Existing"}) SET n.status = "updated" RETURN n'
-
-# Delete a node
-gcyphrq -g <graph.json> -e 'MATCH (n:Label {name: "Existing"}) DELETE n'
-```
-
-> **Note:** Mutations are in-memory only. They do not modify the source JSON file.
+| Task | Cypher |
+|---|---|
+| List nodes by label | `MATCH (n:Service) RETURN n` |
+| Filter by property | `MATCH (n:Service {type: "RPC"}) RETURN n` |
+| Incoming connections | `MATCH (s)-[:TCP]->(db:Database {name: "PostgreSQL"}) RETURN s` |
+| Outgoing connections | `MATCH (db:Database)-[]->(t) RETURN db, t` |
+| Path tracing | `MATCH (a {name: "X"})-[r*1..3]->(b {name: "Y"}) RETURN a, r, b` |
+| Blast radius (all directions) | `MATCH (root {name: "X"})-[r*1..2]-(affected) RETURN root, r, affected` |
+| Blast radius (downstream) | `MATCH (root {name: "X"})-[r*1..2]->(d) RETURN root, r, d` |
+| Out-degree per node | `MATCH (n)-[]->(t) WITH n, count(t) AS deg RETURN n, deg` |
+| Out-degree threshold | `MATCH (n)-[]->(t) WITH n, count(t) AS deg WHERE deg > 2 RETURN n, deg` |
+| In-degree per node | `MATCH (src)-[]->(n) WITH n, count(src) AS deg RETURN n, deg` |
+| WHERE AND | `MATCH (n:Service) WHERE n.type = "RPC" AND n.region = "us-east-1" RETURN n` |
+| WHERE OR | `MATCH (n:Service) WHERE n.type = "RPC" OR n.type = "Worker" RETURN n` |
+| WHERE NOT | `MATCH (n:Service) WHERE NOT n.type = "RPC" RETURN n` |
+| CONTAINS | `MATCH (n) WHERE n.name CONTAINS "api" RETURN n` |
+| IS NULL | `MATCH (n) WHERE n.status IS NULL RETURN n` |
+| IS NOT NULL | `MATCH (n) WHERE n.status IS NOT NULL RETURN n` |
+| OPTIONAL MATCH | `MATCH (n) OPTIONAL MATCH (n)-[]->(m) WHERE m IS NULL RETURN n` |
+| Sort + paginate | `MATCH (n:Service) RETURN n.name ORDER BY n.name ASC SKIP 10 LIMIT 5` |
+| Group by property | `MATCH (n:Service) WITH n.type AS t, count(n) AS c RETURN t, c` |
+| Count all edges | `MATCH ()-[r]->() RETURN count(r) AS total` |
+| CREATE | `CREATE (n:Service {name: "X", type: "RPC"}) RETURN n` |
+| SET | `MATCH (n {name: "X"}) SET n.status = "updated" RETURN n` |
+| DELETE | `MATCH (n {name: "X"}) DELETE n` |
 
 ## Output Format
 
-The tool outputs raw JSON — a JSON array of result objects. No prefixes, no markdown, no extra text. Stdout is pipe-friendly.
+- **`graph` (default):** `{ nodes: [{key, attributes}], edges: [{source, target, attributes}] }` — chainable via `-g -`. Preserves unique nodes/edges and all properties. Loses variable bindings and row pairing.
+- **`rows` (auto-fallback or `--format rows`):** `[ {alias: val}, ... ]` — use for scalars, aggregations, or `jq` piping.
 
-Errors go to stderr with `Error: ` prefix and exit code 1.
+Errors go to stderr with `Error: ` prefix, exit code 1.
 
 ## Key Limitations
 
-- **Single MATCH per stage** — the engine processes one MATCH clause at a time. Chained `MATCH (a) MATCH (b)` is not supported.
-- **No subqueries** — `CALL {}`, APOC procedures, and other extensions are not available.
-- **WHERE operators** — supports `>`, `<`, `=`, `<>`, `CONTAINS`, `IS NULL`, `IS NOT NULL` and logical `AND`, `OR`, `NOT`. Works on both `MATCH` and `WITH` clauses. No regex or custom functions.
-- **Aggregation edge cases** — `avg()`, `min()`, `max()` return null when no numeric values exist.
-- **Property access in RETURN** — returns the full node object or a single property. Nested property access beyond one level is not supported.
-- **ORDER BY on RETURN and WITH** — supported on both, multi-column with ASC/DESC.
-- **SKIP on RETURN and WITH** — supported on both. Use with ORDER BY + LIMIT for pagination.
+- Single `MATCH` per stage (no `MATCH (a) MATCH (b)`)
+- No subqueries, `CALL`, APOC, `labels()`, `head()`
+- No regex or custom functions in `WHERE`
+- `avg()`/`min()`/`max()` return null on empty numeric sets
+- No nested property access beyond one level
+
+## Bundled Reference Graph
+
+`references/example-graph.json` — 8 nodes, 10 edges:
+
+| Node | Label | Key Properties |
+|---|---|---|
+| API Gateway, Auth Service, User Service | Service | type: RPC, region |
+| Notification Worker | Service | type: Worker, region |
+| PostgreSQL Primary, Redis Cache | Database | type: relational / cache |
+| Kafka Cluster | Infrastructure | type: MessageQueue |
+| Prometheus | Monitoring | type: Metrics |
+
+Edges: HTTPS (API→services), TCP (services→DBs/queues), Metrics (services→Prometheus).
 
 ## References
 
-- `references/queries.md` — Detailed query examples organized by use case. Load this file when the user asks about specific graph questions (service dependencies, blast radius, monitoring coverage, replication, etc.) and you need concrete query patterns to adapt.
+- `references/example-graph.json` — Bundled test graph
+- `references/queries.md` — Use-case query examples (blast radius, dependencies, monitoring, etc.). Load when the user asks a specific infrastructure question and you need a concrete pattern to adapt.

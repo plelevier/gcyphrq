@@ -1,11 +1,30 @@
 {
+  "options": {
+    "type": "directed",
+    "allowSelfLoops": false,
+    "multi": false
+  },
+  "attributes": {
+    "name": "Social Graph",
+    "description": "A small social network with 3 users and friend relationships"
+  },
   "nodes": [
-    { "id": "alice", "label": "User", "name": "Alice" },
-    { "id": "bob", "label": "User", "name": "Bob" },
-    { "id": "charlie", "label": "User", "name": "Charlie" }
+    { "key": "alice", "attributes": { "label": "User", "name": "Alice" } },
+    { "key": "bob", "attributes": { "label": "User", "name": "Bob" } },
+    { "key": "charlie", "attributes": { "label": "User", "name": "Charlie" } }
   ],
   "edges": [
-    { "source": "alice", "target": "bob", "type": "FRIEND" },
-    { "source": "bob", "target": "charlie", "type": "FRIEND" }
+    {
+      "key": "alice-friend-bob",
+      "source": "alice",
+      "target": "bob",
+      "attributes": { "type": "FRIEND" }
+    },
+    {
+      "key": "bob-friend-charlie",
+      "source": "bob",
+      "target": "charlie",
+      "attributes": { "type": "FRIEND" }
+    }
   ]
 }

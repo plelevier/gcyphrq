@@ -11,7 +11,9 @@ export interface CypherNode {
 export interface CypherEdge {
   id: string;
   type?: string;
-  [key: string]: CypherLiteral | undefined;
+  source: string;
+  target: string;
+  [key: string]: CypherLiteral | string | undefined;
 }
 
 // ── Index types ──────────────────────────────────────────────────────────────

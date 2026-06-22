@@ -249,7 +249,9 @@ export class AdvancedCypherGraphologyEngine {
 
         // Shared edge history array (optimisation #1) — push/pop instead
         // of array copy. Snapshot only when recording a match.
-        const edgeHistory: string[] = [];
+        // Each entry tracks edgeId, source node, and target node.
+        type EdgeStep = { edgeId: string; source: string; target: string };
+        const edgeHistory: EdgeStep[] = [];
 
         const explore = (currentId: string) => {
           // Cycle guard at entry: skip nodes already on the current path.
@@ -273,7 +275,7 @@ export class AdvancedCypherGraphologyEngine {
             if (relationPattern.variable) {
               // Snapshot edge history only on match (optimisation #1)
               chain[CHAIN_OVERRIDES][relationPattern.variable] = edgeHistory.map(
-                (edgeId) => ({ id: edgeId, ...this.graph.getEdgeAttributes(edgeId) } as CypherEdge),
+                ({ edgeId, source, target }) => ({ id: edgeId, source, target, ...this.graph.getEdgeAttributes(edgeId) } as CypherEdge),
               );
             }
 
@@ -301,8 +303,8 @@ export class AdvancedCypherGraphologyEngine {
                   },
                 };
                 if (relationPattern.variable) {
-                  chain[CHAIN_OVERRIDES][relationPattern.variable] = [...edgeHistory, edgeId].map(
-                    (eid) => ({ id: eid, ...this.graph.getEdgeAttributes(eid) } as CypherEdge),
+                  chain[CHAIN_OVERRIDES][relationPattern.variable] = [...edgeHistory, { edgeId, source: currentId, target: currentId }].map(
+                    ({ edgeId: eid, source, target }) => ({ id: eid, source, target, ...this.graph.getEdgeAttributes(eid) } as CypherEdge),
                   );
                 }
                 outgoingContexts.push(chain);
@@ -310,7 +312,7 @@ export class AdvancedCypherGraphologyEngine {
               return;
             }
 
-            edgeHistory.push(edgeId);
+            edgeHistory.push({ edgeId, source: currentId, target: neighborId });
             explore(neighborId);
             edgeHistory.pop();
           });

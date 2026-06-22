@@ -1,0 +1,24 @@
+{
+  "nodes": [
+    { "key": "api-gateway", "attributes": { "label": "Service", "name": "API Gateway", "type": "RPC", "region": "us-east-1" } },
+    { "key": "auth-service", "attributes": { "label": "Service", "name": "Auth Service", "type": "RPC", "region": "us-east-1" } },
+    { "key": "user-service", "attributes": { "label": "Service", "name": "User Service", "type": "RPC", "region": "us-west-2" } },
+    { "key": "notification-worker", "attributes": { "label": "Service", "name": "Notification Worker", "type": "Worker", "region": "us-east-1" } },
+    { "key": "postgres-primary", "attributes": { "label": "Database", "name": "PostgreSQL Primary", "type": "relational" } },
+    { "key": "redis-cache", "attributes": { "label": "Database", "name": "Redis Cache", "type": "cache" } },
+    { "key": "kafka", "attributes": { "label": "Infrastructure", "name": "Kafka Cluster", "type": "MessageQueue" } },
+    { "key": "prometheus", "attributes": { "label": "Monitoring", "name": "Prometheus", "type": "Metrics" } }
+  ],
+  "edges": [
+    { "source": "api-gateway", "target": "auth-service", "attributes": { "type": "HTTPS" } },
+    { "source": "api-gateway", "target": "user-service", "attributes": { "type": "HTTPS" } },
+    { "source": "auth-service", "target": "postgres-primary", "attributes": { "type": "TCP" } },
+    { "source": "auth-service", "target": "redis-cache", "attributes": { "type": "TCP" } },
+    { "source": "user-service", "target": "postgres-primary", "attributes": { "type": "TCP" } },
+    { "source": "user-service", "target": "kafka", "attributes": { "type": "TCP" } },
+    { "source": "kafka", "target": "notification-worker", "attributes": { "type": "TCP" } },
+    { "source": "api-gateway", "target": "prometheus", "attributes": { "type": "Metrics" } },
+    { "source": "auth-service", "target": "prometheus", "attributes": { "type": "Metrics" } },
+    { "source": "user-service", "target": "prometheus", "attributes": { "type": "Metrics" } }
+  ]
+}

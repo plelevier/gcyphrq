@@ -1,6 +1,6 @@
-import type { GraphFile } from './lib';
 import type { GraphIndexes } from './types/cypher';
 import type { GraphInstance } from './graph';
+import type { NormalizedGraphFile } from './lib';
 
 // ── Index construction ───────────────────────────────────────────────────────
 
@@ -94,7 +94,7 @@ function buildIndexes(
  * Build pre-computed indexes directly from a Graphology graph instance.
  *
  * Iterates nodes and edges on the graph to build label, property, and
- * edge-type adjacency indexes. No original `GraphFile` data is required.
+ * edge-type adjacency indexes. No original graph data is required.
  *
  * This is the preferred path when you already have a Graphology `Graph`
  * (e.g. built externally or programmatically) and want to use it with
@@ -128,7 +128,7 @@ export function buildGraphIndexesFromGraph(graph: GraphInstance): GraphIndexes {
  * @param graph - Constructed Graphology graph (provides real edge IDs)
  * @returns Indexes for use with `GraphEngine`
  */
-export function buildGraphIndexesFromData(data: GraphFile, graph: GraphInstance): GraphIndexes {
+export function buildGraphIndexesFromData(data: NormalizedGraphFile, graph: GraphInstance): GraphIndexes {
   const nodeEntries: [string, Record<string, unknown>][] = data.nodes.map((node) => [node.id, node]);
   return buildIndexes(nodeEntries, graph);
 }

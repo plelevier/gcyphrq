@@ -24,12 +24,12 @@ gcyphrq [options]
 |---|---|
 | `-e, --expr <query>` | Cypher query expression (**required** for queries) |
 | `-g, --graph <file>` | Path to a JSON graph file, or `"-"` to read from stdin (**required** for queries) |
-| `--install` | Install the gcyphrq skill for AI coding agents |
-| `--global` | Install skill globally with symlinks (requires `--install`) |
-| `--local` | Install skill per-project with copies (requires `--install`) |
+| `--format <graph\|rows>` | Output format: `graph` (default) or `rows`. Note: when returning only scalar values (property access, aggregations), the CLI auto-falls back to `rows` regardless of this setting |
+| `--install <mode>` | Install the gcyphrq skill for AI coding agents. Mode: `global` (symlinks) or `local` (copies into current directory) |
+| `-v, --version` | Show version number |
 | `-h, --help` | Show help message |
 
-Either `-e` + `-g` (query mode) or `--install` + `--global`/`--local` (install mode) is required. These modes are mutually exclusive. The tool exits with code 1 and prints to stderr if no valid mode is provided.
+Either `-e` + `-g` (query mode) or `--install <mode>` (install mode) is required. These modes are mutually exclusive. The tool exits with code 1 and prints to stderr if no valid mode is provided.
 
 ## Loading a Graph
 
@@ -47,11 +47,74 @@ cat my-graph.json | gcyphrq -g - -e 'MATCH (u:User) RETURN u'
 
 ## Output Format
 
-The CLI outputs **raw JSON** — a JSON array of result objects with no prefixes, no markdown, and no extra text. Stdout is pipe-friendly for downstream tools like `jq`:
+The CLI outputs **raw JSON** with no prefixes, no markdown, and no extra text. Stdout is pipe-friendly for downstream tools like `jq`.
+
+### Graph format (default)
+
+By default, results are output as a [Graphology JSON graph](https://graphology.github.io/) — a `{nodes, edges}` structure that can be piped back into `gcyphrq` for chaining:
 
 ```bash
-gcyphrq -g examples/social-graph.json -e 'MATCH (u:User) RETURN u.name' | jq '.[0].name'
+# Returns graph format — nodes and edges extracted from the result
+$ gcyphrq -g graph.json -e 'MATCH (u:User) RETURN u'
+{
+  "nodes": [
+    { "key": "alice", "attributes": { "label": "User", "name": "Alice" } },
+    ...
+  ],
+  "edges": []
+}
 ```
+
+When the query returns only scalar values (property access, aggregations), the output falls back to rows format automatically:
+
+```bash
+# Returns rows — scalar values don't map to nodes/edges
+$ gcyphrq -g graph.json -e 'MATCH (u:User) RETURN u.name'
+[
+  { "name": "Alice" },
+  { "name": "Bob" }
+]
+```
+
+### Rows format
+
+Use `--format rows` to force the traditional row-based output (array of result objects). This is useful for downstream tools like `jq` that expect an array:
+
+```bash
+$ gcyphrq -g graph.json -e 'MATCH (u:User) RETURN u.name' --format rows
+[
+  { "name": "Alice" },
+  { "name": "Bob" }
+]
+```
+
+### Chaining queries
+
+Graph format output can be piped to another `gcyphrq` invocation using `-g -` (stdin). This lets you build subgraphs and query them further:
+
+```bash
+# Step 1: extract all nodes
+# Step 2: filter to Services only
+# Step 3: filter to RPC services
+# Step 4: return names as scalars (auto-falls back to rows)
+gcyphrq -g graph.json -e 'MATCH (n) RETURN n' \
+  | gcyphrq -g - -e 'MATCH (s:Service) RETURN s' \
+  | gcyphrq -g - -e 'MATCH (s:Service {type: "RPC"}) RETURN s' \
+  | gcyphrq -g - -e 'MATCH (s) RETURN s.name'
+```
+
+**Why graph format is the default:** The engine internally produces rows (one per match), but graph format is the natural *chaining* format — it produces a valid subgraph you can query further. Rows format is preserved via `--format rows` for cases where you need the full result set with variable bindings and row-level structure.
+
+**What graph format preserves:**
+- Unique nodes and edges from all result rows
+- All node properties and edge attributes
+- Edge `source`/`target` connection info
+
+**What graph format loses (use `--format rows` instead):**
+- Variable bindings (`a` vs `b` in `MATCH (a)-[]->(b) RETURN a, b`)
+- Row cardinality and pairing (deduplication collapses duplicates)
+- Path structure (variable-length path edges are flattened into a set)
+- Aggregation results (`count()`, `avg()`, etc. — always returned as rows)
 
 ## Error Handling
 
@@ -67,38 +130,24 @@ This separation of stdout (results) and stderr (errors) ensures you can safely p
 
 ### Quick inspection
 
-List all nodes of a specific label:
+List all nodes of a specific label (returns graph format):
+
+```bash
+gcyphrq -g graph.json -e 'MATCH (s:Service) RETURN s'
+```
+
+Return scalar properties (auto-falls back to rows format):
 
 ```bash
 gcyphrq -g graph.json -e 'MATCH (s:Service) RETURN s.name'
 ```
 
-### Filter with WHERE (on MATCH)
+### Filter with WHERE
+
+See the [Query Guide — WHERE](query-guide) for the full reference (AND, OR, NOT, IS NULL, etc.).
 
 ```bash
-gcyphrq -g graph.json -e 'MATCH (s:Service) WHERE s.type = "RPC" RETURN s.name'
-```
-
-### Filter with WHERE (on WITH)
-
-```bash
-gcyphrq -g graph.json -e 'MATCH (s:Service) WITH s WHERE s.name CONTAINS "api" RETURN s.name'
-```
-
-### WHERE with AND, OR, NOT
-
-```bash
-# AND — both conditions must be true
 gcyphrq -g graph.json -e 'MATCH (s:Service) WHERE s.type = "RPC" AND s.name CONTAINS "Service" RETURN s.name'
-
-# OR — either condition can be true
-gcyphrq -g graph.json -e 'MATCH (s:Service) WHERE s.type = "RPC" OR s.type = "CDN" RETURN s.name'
-
-# NOT — negate a condition
-gcyphrq -g graph.json -e 'MATCH (s:Service) WHERE NOT s.type = "Batch" RETURN s.name'
-
-# <> — not-equals
-gcyphrq -g graph.json -e 'MATCH (s:Service) WHERE s.name <> "Old Service" RETURN s.name'
 ```
 
 ### Aggregation
@@ -132,10 +181,10 @@ Install the gcyphrq skill for AI coding agents (pi, Claude Code, OpenCode):
 
 ```bash
 # Install globally (symlinks in agent config directories)
-gcyphrq --install --global
+gcyphrq --install global
 
-# Install locally (copies into project subdirectories)
-gcyphrq --install --local
+# Install locally (copies into current directory)
+gcyphrq --install local
 ```
 
 The `--install` command detects which agents are installed on your system and sets up the skill for each one. See the [Skill Guide](skill) for details.

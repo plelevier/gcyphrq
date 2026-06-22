@@ -5,6 +5,7 @@ import GraphModule from 'graphology';
 export interface GraphInstance {
   addNode(id: string, attrs?: Record<string, unknown>): void;
   addEdge(a: string, b: string, attrs?: Record<string, unknown>): void;
+  addEdgeWithKey(key: string, a: string, b: string, attrs?: Record<string, unknown>): void;
   getNodeAttributes(id: string): Record<string, unknown>;
   getEdgeAttributes(id: string): Record<string, unknown>;
   filterNodes(fn: (id: string, attrs: Record<string, unknown>) => boolean): string[];
@@ -33,6 +34,7 @@ function assertGraphApi(graph: GraphInstance): void {
   const requiredMethods = [
     'addNode',
     'addEdge',
+    'addEdgeWithKey',
     'getNodeAttributes',
     'getEdgeAttributes',
     'filterNodes',
