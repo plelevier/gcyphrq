@@ -10,6 +10,7 @@ import type {
   WriteClause,
   Expression,
   BinaryExpression,
+  ListLiteralExpression,
   WhereExpression,
   IsNullExpression,
   ReturnClause,
@@ -46,6 +47,7 @@ const Ctx = {
   LabelName: 'LabelNameContext',
   LeftArrowHead: 'LeftArrowHeadContext',
   Literal: 'LiteralContext',
+  ListLiteral: 'ListLiteralContext',
   LiteralEntry: 'LiteralEntryContext',
   MapLiteral: 'MapLiteralContext',
   MatchClause: 'MatchClauseContext',
@@ -300,12 +302,16 @@ function evaluateExpression(exprCtx: TreeNode): Expression | undefined {
       }
     }
 
+    // Check for DISTINCT keyword inside the function invocation
+    const hasDistinct = hasTerminal(funcCtx, 'DISTINCT');
+
     if (funcName && argName) {
       return {
         type: 'Aggregation' as const,
         aggregationType: funcName.toUpperCase() as 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX',
         variable: argName,
         property: argProperty,
+        distinct: !!hasDistinct,
       };
     }
   }
@@ -325,6 +331,10 @@ function evaluateExpression(exprCtx: TreeNode): Expression | undefined {
       return { type: 'PropertyAccess' as const, variable: name, property: undefined };
     }
   }
+
+  // List literal (e.g., ["Alice", "Bob"])
+  const listLitExpr = extractListLiteralExpression(atom);
+  if (listLitExpr) return listLitExpr;
 
   // Literal
   const literalCtx = findChild(atom, Ctx.Literal);
@@ -551,6 +561,9 @@ function computeDefaultAlias(expr: Expression): string {
   if (expr.type === 'Aggregation') {
     return `${expr.aggregationType}(${expr.variable})`;
   }
+  if (expr.type === 'ListLiteral') {
+    return 'list';
+  }
   return String(expr.value);
 }
 
@@ -598,7 +611,7 @@ function extractReturnBody(returnBody: ParseTreeNode | null): Projection[] {
   for (const { expr, hasAs, asAlias } of parsedItems) {
     if (hasAs) {
       if (asAlias) {
-        projections.push({ expression: expr, alias: asAlias });
+        projections.push({ expression: expr, alias: asAlias, distinct: false });
         usedAliases.add(asAlias);
       }
       continue;
@@ -622,7 +635,7 @@ function extractReturnBody(returnBody: ParseTreeNode | null): Projection[] {
     }
     usedAliases.add(alias);
 
-    projections.push({ expression: expr, alias });
+    projections.push({ expression: expr, alias, distinct: false });
   }
 
   return projections;
@@ -680,10 +693,16 @@ function extractReturnClause(clauseCtx: ParseTreeNode): ReturnClause | undefined
   if (!returnCtx) return undefined;
 
   const returnBody = findChild(returnCtx, Ctx.ReturnBody);
-  const projections = extractReturnBody(returnBody);
+  let projections = extractReturnBody(returnBody);
   const orderBy = extractOrderBy(returnBody);
   const skip = extractSkip(returnBody);
   const limit = extractLimit(returnBody);
+
+  // Check for DISTINCT keyword at the ReturnClause level
+  const hasDistinct = hasTerminal(returnCtx, 'DISTINCT');
+  if (hasDistinct) {
+    projections = projections.map((p) => ({ ...p, distinct: true }));
+  }
 
   return { projections, orderBy, skip, limit };
 }
@@ -708,23 +727,41 @@ function extractWithClause(clauseCtx: ParseTreeNode): WithClause | undefined {
 function extractWhereExpression(exprCtx: TreeNode): WhereExpression | undefined {
   if (!exprCtx) return undefined;
 
+  // For NotExpression without NOT terminal (transparent wrapper),
+  // directly use its direct child BEFORE using findDescendant, because
+  // findDescendant can find OrExpression/XorExpression/AndExpression
+  // inside list literals like [Alice, Bob]
+  if (exprCtx.constructor.name === Ctx.NotExpression && !hasNotTerminal(exprCtx)) {
+    // Use extractWhereExpressionFromChild for direct children to properly
+    // handle nested logical expressions (e.g., ComparisonExpression wrapping OrExpression)
+    const directOr = findChild(exprCtx, Ctx.OrExpression);
+    if (directOr) return extractWhereExpressionFromChild(directOr);
+    const directXor = findChild(exprCtx, Ctx.XorExpression);
+    if (directXor) return extractWhereExpressionFromChild(directXor);
+    const directAnd = findChild(exprCtx, Ctx.AndExpression);
+    if (directAnd) return extractWhereExpressionFromChild(directAnd);
+    const directComp = findChild(exprCtx, Ctx.ComparisonExpression);
+    if (directComp) return extractWhereExpressionFromChild(directComp);
+    return undefined;
+  }
+
   // Walk down to OrExpression (top of boolean expression hierarchy).
   // The ANTLR4 Cypher grammar defines: Or > Xor > And > Not > Comparison.
   // Cypher itself has no XOR operator — XorExpression is an intermediate
   // grammar production (the grammar uses "OR" at the top level and
   // "XOR" as the recursive rule name). We map XorExpression → OR because
   // the actual operator text in the tree is always "OR".
-  const orCtx = findDescendant(exprCtx, Ctx.OrExpression);
+  const orCtx = findDescendantOutsideList(exprCtx, Ctx.OrExpression);
   if (orCtx) return extractLogicalExpression(orCtx, Ctx.XorExpression, 'OR');
 
-  const xorCtx = findDescendant(exprCtx, Ctx.XorExpression);
+  const xorCtx = findDescendantOutsideList(exprCtx, Ctx.XorExpression);
   if (xorCtx) return extractLogicalExpression(xorCtx, Ctx.AndExpression, 'XOR');
 
-  const andCtx = findDescendant(exprCtx, Ctx.AndExpression);
+  const andCtx = findDescendantOutsideList(exprCtx, Ctx.AndExpression);
   if (andCtx) return extractLogicalExpression(andCtx, Ctx.NotExpression, 'AND');
 
   // Check for top-level NOT (e.g., from a segment in extractLogicalExpression)
-  const notCtx = findDescendant(exprCtx, Ctx.NotExpression);
+  const notCtx = findDescendantOutsideList(exprCtx, Ctx.NotExpression);
   if (notCtx && hasNotTerminal(notCtx)) {
     const notCount = countNotTerminals(notCtx);
     // Find the actual inner expression (skip NOT terminals and whitespace)
@@ -735,7 +772,7 @@ function extractWhereExpression(exprCtx: TreeNode): WhereExpression | undefined 
     }
   }
 
-  const compCtx = findDescendant(exprCtx, Ctx.ComparisonExpression);
+  const compCtx = findDescendantOutsideList(exprCtx, Ctx.ComparisonExpression);
   if (compCtx) return extractComparison(compCtx);
 
   return undefined;
@@ -748,6 +785,22 @@ function findDescendant(ctx: TreeNode, name: string): ParseTreeNode | undefined 
   if (ctx.children) {
     for (const child of ctx.children) {
       const found = findDescendant(child, name);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+/** Find the first descendant with the given constructor name, stopping at ListLiteral boundaries.
+ * This prevents finding OrExpression/XorExpression/AndExpression inside list literals like [Alice, Bob]. */
+function findDescendantOutsideList(ctx: TreeNode, name: string): ParseTreeNode | undefined {
+  if (!ctx) return undefined;
+  if (ctx.constructor.name === name) return ctx as ParseTreeNode;
+  if (ctx.children) {
+    for (const child of ctx.children) {
+      // Stop at ListLiteral boundaries to avoid finding expressions inside lists
+      if (child.constructor.name === Ctx.ListLiteral) continue;
+      const found = findDescendantOutsideList(child, name);
       if (found) return found;
     }
   }
@@ -882,31 +935,44 @@ function extractWhereExpressionFromChild(ctx: TreeNode): WhereExpression | undef
 
   // Transparent NotExpression (no NOT terminal) — unwrap to inner expression
   if (ctx.constructor.name === Ctx.NotExpression) {
-    const compCtx = findChild(ctx, Ctx.ComparisonExpression);
-    if (compCtx) return extractComparison(compCtx);
+    // Use direct child to avoid findDescendant finding ComparisonExpression
+    // inside list literals like [Alice, Bob]
+    const directComp = findChild(ctx, Ctx.ComparisonExpression);
+    if (directComp) return extractComparison(directComp);
     return undefined;
   }
 
   // If ctx itself is a ComparisonExpression, first check for nested logical expressions
   // (e.g., NOT (a OR b) where the parentheses create a ComparisonExpression wrapping an OrExpression)
   if (ctx.constructor.name === Ctx.ComparisonExpression) {
-    const nestedOr = findDescendant(ctx, Ctx.OrExpression);
+    const nestedOr = findDescendantOutsideList(ctx, Ctx.OrExpression);
     if (nestedOr) return extractLogicalExpression(nestedOr, Ctx.XorExpression, 'OR');
-    const nestedXor = findDescendant(ctx, Ctx.XorExpression);
+    const nestedXor = findDescendantOutsideList(ctx, Ctx.XorExpression);
     if (nestedXor) return extractLogicalExpression(nestedXor, Ctx.AndExpression, 'XOR');
-    const nestedAnd = findDescendant(ctx, Ctx.AndExpression);
+    const nestedAnd = findDescendantOutsideList(ctx, Ctx.AndExpression);
     if (nestedAnd) return extractLogicalExpression(nestedAnd, Ctx.NotExpression, 'AND');
     return extractComparison(ctx);
   }
 
+  // Handle AndExpression and OrExpression directly (when called from extractLogicalExpression)
+  if (ctx.constructor.name === Ctx.AndExpression) {
+    return extractLogicalExpression(ctx, Ctx.NotExpression, 'AND');
+  }
+  if (ctx.constructor.name === Ctx.OrExpression) {
+    return extractLogicalExpression(ctx, Ctx.XorExpression, 'OR');
+  }
+  if (ctx.constructor.name === Ctx.XorExpression) {
+    return extractLogicalExpression(ctx, Ctx.AndExpression, 'XOR');
+  }
+
   // If it's an AndExpression or OrExpression, handle recursively
-  const andCtx = findDescendant(ctx, Ctx.AndExpression);
+  const andCtx = findDescendantOutsideList(ctx, Ctx.AndExpression);
   if (andCtx) return extractLogicalExpression(andCtx, Ctx.NotExpression, 'AND');
 
-  const orCtx = findDescendant(ctx, Ctx.OrExpression);
+  const orCtx = findDescendantOutsideList(ctx, Ctx.OrExpression);
   if (orCtx) return extractLogicalExpression(orCtx, Ctx.XorExpression, 'OR');
 
-  const compCtx = findDescendant(ctx, Ctx.ComparisonExpression);
+  const compCtx = findDescendantOutsideList(ctx, Ctx.ComparisonExpression);
   if (compCtx) return extractComparison(compCtx);
 
   return undefined;
@@ -934,7 +1000,7 @@ function extractComparison(compCtx: TreeNode): BinaryExpression | IsNullExpressi
     return undefined;
   }
 
-  // StringListNullOperatorExpression handles CONTAINS, IS NULL, and IS NOT NULL
+  // StringListNullOperatorExpression handles CONTAINS, STARTS WITH, ENDS WITH, IN, IS NULL, and IS NOT NULL
   const strCtx = findDescendant(compCtx, Ctx.StringListNullOperatorExpression);
   if (strCtx && strCtx.children) {
     // Check for IS NULL / IS NOT NULL first (single PropertyOrLabelsExpression + IS [+ NOT] + NULL)
@@ -965,21 +1031,55 @@ function extractComparison(compCtx: TreeNode): BinaryExpression | IsNullExpressi
       }
     }
 
-    // CONTAINS operator (two PropertyOrLabelsExpression children with CONTAINS terminal)
-    const hasContains = strCtx.children.some((c: ParseTreeNode) =>
-      c.constructor.name === Ctx.TerminalNode && c.symbol?.text === 'CONTAINS',
-    );
-    if (hasContains) {
-      // CONTAINS: left and right are PropertyOrLabelsExpression children of StringListNullOperatorExpression
-      const propExprs = strCtx.children!.filter(
-        (c: ParseTreeNode) => c.constructor.name === Ctx.PropertyOrLabelsExpression,
-      ) as ParseTreeNode[];
+    // Two-operand operators: CONTAINS, STARTS WITH, ENDS WITH, IN
+    const propExprs = strCtx.children!.filter(
+      (c: ParseTreeNode) => c.constructor.name === Ctx.PropertyOrLabelsExpression,
+    ) as ParseTreeNode[];
 
-      if (propExprs.length >= 2) {
+    if (propExprs.length >= 2) {
+      // Check operator terminals
+      const hasContains = strCtx.children.some((c: ParseTreeNode) =>
+        c.constructor.name === Ctx.TerminalNode && c.symbol?.text === 'CONTAINS',
+      );
+      const hasStartsWith = strCtx.children.some((c: ParseTreeNode) =>
+        c.constructor.name === Ctx.TerminalNode && c.symbol?.text === 'STARTS',
+      );
+      const hasEndsWith = strCtx.children.some((c: ParseTreeNode) =>
+        c.constructor.name === Ctx.TerminalNode && c.symbol?.text === 'ENDS',
+      );
+      const hasIn = strCtx.children.some((c: ParseTreeNode) =>
+        c.constructor.name === Ctx.TerminalNode && c.symbol?.text === 'IN',
+      );
+
+      if (hasContains) {
         const left = extractValueExpressionFromPropertyOrLabels(propExprs[0]);
         const right = extractValueExpressionFromPropertyOrLabels(propExprs[1]);
         if (left && right) {
           return { type: 'BinaryExpression' as const, operator: 'CONTAINS', left, right };
+        }
+      }
+
+      if (hasStartsWith) {
+        const left = extractValueExpressionFromPropertyOrLabels(propExprs[0]);
+        const right = extractValueExpressionFromPropertyOrLabels(propExprs[1]);
+        if (left && right) {
+          return { type: 'BinaryExpression' as const, operator: 'STARTS WITH', left, right };
+        }
+      }
+
+      if (hasEndsWith) {
+        const left = extractValueExpressionFromPropertyOrLabels(propExprs[0]);
+        const right = extractValueExpressionFromPropertyOrLabels(propExprs[1]);
+        if (left && right) {
+          return { type: 'BinaryExpression' as const, operator: 'ENDS WITH', left, right };
+        }
+      }
+
+      if (hasIn) {
+        const left = extractValueExpressionFromPropertyOrLabels(propExprs[0]);
+        const right = extractValueExpressionFromPropertyOrLabels(propExprs[1]);
+        if (left && right) {
+          return { type: 'BinaryExpression' as const, operator: 'IN', left, right };
         }
       }
     }
@@ -988,7 +1088,25 @@ function extractComparison(compCtx: TreeNode): BinaryExpression | IsNullExpressi
   return undefined;
 }
 
-/** Extract a value expression from a PropertyOrLabelsExpression (used for CONTAINS RHS). */
+/** Extract a list literal expression from an AtomContext. */
+function extractListLiteralExpression(ctx: TreeNode): ListLiteralExpression | undefined {
+  const listLitCtx = findDescendant(ctx, Ctx.ListLiteral);
+  if (!listLitCtx) return undefined;
+  const listExprs = findAllChildren(listLitCtx, Ctx.Expression);
+  const values: CypherLiteral[] = [];
+  for (const le of listExprs) {
+    const val = evaluateExpression(le);
+    if (val && val.type === 'Literal') {
+      values.push(val.value);
+    }
+  }
+  if (values.length > 0) {
+    return { type: 'ListLiteral' as const, values };
+  }
+  return undefined;
+}
+
+/** Extract a value expression from a PropertyOrLabelsExpression (used for CONTAINS/IN/STARTS WITH/ENDS WITH RHS). */
 function extractValueExpressionFromPropertyOrLabels(ctx: TreeNode): Expression | undefined {
   if (!ctx) return undefined;
 
@@ -1010,6 +1128,10 @@ function extractValueExpressionFromPropertyOrLabels(ctx: TreeNode): Expression |
       return { type: 'PropertyAccess' as const, variable: name, property: undefined };
     }
   }
+
+  // List literal (e.g., ["Alice", "Bob"] for IN operator)
+  const listLitExpr = extractListLiteralExpression(atom);
+  if (listLitExpr) return listLitExpr;
 
   // Literal (e.g., string literal for CONTAINS)
   const literalCtx = findChild(atom, Ctx.Literal);

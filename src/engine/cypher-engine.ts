@@ -17,6 +17,7 @@ import type {
   CypherNode,
   CypherEdge,
   CypherValue,
+  CypherLiteral,
   ResultRow,
   GraphIndexes,
   GraphConfig,
@@ -522,6 +523,8 @@ export class AdvancedCypherGraphologyEngine {
     // Single pass: extract numeric values for all aggregation variables
     const numericCache = new Map<string, number[]>();
     const nonNullCache = new Map<string, number>();
+    // For DISTINCT: track seen values per aggregation key
+    const distinctSeen = new Map<string, Set<string>>();
 
     for (const row of rows) {
       for (const expr of aggVars.values()) {
@@ -533,7 +536,20 @@ export class AdvancedCypherGraphologyEngine {
         if (val !== null && val !== undefined) {
           nonNullCache.set(key, (nonNullCache.get(key) ?? 0) + 1);
         }
-        if (typeof val === 'number') {
+        // For DISTINCT aggregations, track unique values for all types (not just numbers)
+        if (expr.distinct) {
+          if (!distinctSeen.has(key)) distinctSeen.set(key, new Set());
+          const seen = distinctSeen.get(key)!;
+          const valStr = JSON.stringify(val);
+          if (!seen.has(valStr)) {
+            seen.add(valStr);
+            if (typeof val === 'number') {
+              if (!numericCache.has(key)) numericCache.set(key, []);
+              const arr = numericCache.get(key);
+              if (arr) arr.push(val);
+            }
+          }
+        } else if (typeof val === 'number') {
           if (!numericCache.has(key)) numericCache.set(key, []);
           const arr = numericCache.get(key);
           if (arr) arr.push(val);
@@ -550,7 +566,9 @@ export class AdvancedCypherGraphologyEngine {
       const nonNullCount = nonNullCache.get(key) ?? 0;
 
       if (expr.aggregationType === 'COUNT') {
-        newContext[p.alias] = nonNullCount;
+        newContext[p.alias] = expr.distinct
+          ? (distinctSeen.get(key)?.size ?? 0)
+          : nonNullCount;
       } else if (expr.aggregationType === 'SUM') {
         newContext[p.alias] = numericValues.reduce((a, b) => a + b, 0);
       } else if (expr.aggregationType === 'AVG') {
@@ -694,6 +712,21 @@ export class AdvancedCypherGraphologyEngine {
         });
         return res;
       });
+
+      // Apply DISTINCT: deduplicate rows based on projected values.
+      // Use null-byte separator to avoid collision with values containing the separator.
+      const hasDistinct = clause.projections.some((p) => p.distinct);
+      if (hasDistinct) {
+        const seen = new Set<string>();
+        results = results.filter((row) => {
+          const key = clause.projections
+            .map((p) => JSON.stringify(row[p.alias]))
+            .join('\0');
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
     }
 
     return results;
@@ -710,8 +743,16 @@ export class AdvancedCypherGraphologyEngine {
       return obj as CypherValue;
     }
     if (expr.type === 'Literal') return expr.value;
+    if (expr.type === 'ListLiteral') return expr.values;
     if (expr.type === 'Aggregation') return undefined;
     return undefined;
+  }
+
+  /** Extract a flat array of CypherLiteral values from a ListLiteral expression or a single literal. */
+  private extractListValues(expr: Expression): CypherLiteral[] {
+    if (expr.type === 'ListLiteral') return expr.values;
+    if (expr.type === 'Literal') return [expr.value];
+    return [];
   }
 
   private evaluateWhere(whereNode: WhereExpression, context: QueryContext): boolean {
@@ -740,21 +781,36 @@ export class AdvancedCypherGraphologyEngine {
 
     switch (whereNode.operator) {
       case '>':
-        if (typeof leftValue !== 'number' || typeof rightValue !== 'number') {
-          throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
+        if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+          return leftValue > rightValue;
         }
-        return leftValue > rightValue;
+        if (typeof leftValue === 'string' && typeof rightValue === 'string') {
+          return leftValue > rightValue;
+        }
+        throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
       case '<':
-        if (typeof leftValue !== 'number' || typeof rightValue !== 'number') {
-          throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
+        if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+          return leftValue < rightValue;
         }
-        return leftValue < rightValue;
+        if (typeof leftValue === 'string' && typeof rightValue === 'string') {
+          return leftValue < rightValue;
+        }
+        throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
       case '=':
         return leftValue === rightValue;
       case '<>':
         return leftValue !== rightValue;
       case 'CONTAINS':
         return String(leftValue).includes(String(rightValue));
+      case 'STARTS WITH':
+        return String(leftValue).startsWith(String(rightValue));
+      case 'ENDS WITH':
+        return String(leftValue).endsWith(String(rightValue));
+      case 'IN': {
+        const rightList = this.extractListValues(whereNode.right);
+        return rightList.includes(leftValue as CypherLiteral);
+      }
+
       default:
         return false;
     }

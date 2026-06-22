@@ -62,7 +62,7 @@ export interface GraphIndexes {
   config?: GraphConfig;
 }
 
-export type CypherValue = CypherNode | CypherEdge[] | CypherLiteral | null | undefined;
+export type CypherValue = CypherNode | CypherEdge[] | CypherLiteral[] | CypherLiteral | null | undefined;
 
 // ── AST types ────────────────────────────────────────────────────────────────
 
@@ -123,18 +123,24 @@ export interface LiteralExpression {
   value: CypherLiteral;
 }
 
+export interface ListLiteralExpression {
+  type: 'ListLiteral';
+  values: CypherLiteral[];
+}
+
 export interface AggregationExpression {
   type: 'Aggregation';
   aggregationType: 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX';
   variable: string;
   property: string | undefined;
+  distinct: boolean;
 }
 
-export type Expression = PropertyAccessExpression | LiteralExpression | AggregationExpression;
+export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | AggregationExpression;
 
 export interface BinaryExpression {
   type: 'BinaryExpression';
-  operator: '>' | '<' | '=' | '<>' | 'CONTAINS';
+  operator: '>' | '<' | '=' | '<>' | 'CONTAINS' | 'STARTS WITH' | 'ENDS WITH' | 'IN';
   left: Expression;
   right: Expression;
 }
@@ -162,6 +168,7 @@ export type WhereExpression = BinaryExpression | LogicalExpression | NotExpressi
 export interface Projection {
   expression: Expression;
   alias: string;
+  distinct: boolean;
 }
 
 export interface WithClause {
@@ -197,6 +204,6 @@ export interface AdvancedCypherAST {
 
 // ── Runtime types ────────────────────────────────────────────────────────────
 
-export type QueryContext = Record<string, CypherNode | CypherEdge[] | CypherLiteral | null | undefined>;
+export type QueryContext = Record<string, CypherNode | CypherEdge[] | CypherLiteral[] | CypherLiteral | null | undefined>;
 
-export type ResultRow = Record<string, CypherNode | CypherEdge[] | CypherLiteral | null | undefined>;
+export type ResultRow = Record<string, CypherNode | CypherEdge[] | CypherLiteral[] | CypherLiteral | null | undefined>;

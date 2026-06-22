@@ -1762,4 +1762,308 @@ describe('AdvancedCypherGraphologyEngine', () => {
       expect(charlieResult!.f).toBeNull();
     });
   });
+
+  describe('execute - WHERE IN', () => {
+    it('filters with WHERE IN (match found)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name IN ["Alice", "Bob"] RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Bob']);
+    });
+
+    it('filters with WHERE IN (no match)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name IN ["Eve", "Frank"] RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(0);
+    });
+
+    it('filters with WHERE IN on numeric values', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.age IN [25, 35] RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Bob', 'Charlie']);
+    });
+
+    it('filters with WHERE NOT IN', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT (u.name IN ["Alice", "Bob"]) RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Charlie', 'Dave']);
+    });
+
+    it('filters with WHERE IN combined with AND', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name IN ["Alice", "Bob", "Charlie"] AND u.age > 28 RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Charlie']);
+    });
+
+    it('filters with WHERE IN on WITH clause', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WITH u.name AS name WHERE name IN ["Alice", "Charlie"] RETURN name',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => r.name).sort();
+      expect(names).toEqual(['Alice', 'Charlie']);
+    });
+  });
+
+  describe('execute - WHERE STARTS WITH / ENDS WITH', () => {
+    it('filters with WHERE STARTS WITH (match found)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name STARTS WITH "Al" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Alice');
+    });
+
+    it('filters with WHERE STARTS WITH (no match)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name STARTS WITH "xyz" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(0);
+    });
+
+    it('filters with WHERE ENDS WITH (match found)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name ENDS WITH "ie" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Charlie');
+    });
+
+    it('filters with WHERE ENDS WITH (no match)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name ENDS WITH "xyz" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(0);
+    });
+
+    it('filters with WHERE NOT STARTS WITH', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT (u.name STARTS WITH "A") RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(3);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Bob', 'Charlie', 'Dave']);
+    });
+
+    it('filters with WHERE NOT ENDS WITH', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE NOT (u.name ENDS WITH "e") RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Bob'); // Alice, Charlie, Dave all end with 'e'
+    });
+
+    it('filters with WHERE STARTS WITH combined with AND', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name STARTS WITH "C" AND u.age > 30 RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Charlie');
+    });
+
+    it('filters with WHERE STARTS WITH on WITH clause', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WITH u.name AS name WHERE name STARTS WITH "A" RETURN name',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.name).toBe('Alice');
+    });
+  });
+
+  describe('execute - string comparison', () => {
+    it('filters with WHERE < on strings', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name < "C" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Bob']);
+    });
+
+    it('filters with WHERE > on strings', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name > "C" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Charlie', 'Dave']); // Charlie > C (prefix), Dave > C
+    });
+
+    it('filters with WHERE < on strings (no match)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name < "A" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(0);
+    });
+
+    it('filters with WHERE > on strings (no match)', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name > "Z" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(0);
+    });
+
+    it('filters with WHERE < on strings combined with AND', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.name > "A" AND u.name < "D" RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(3);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Bob', 'Charlie']); // Alice, Bob, Charlie are all > "A" and < "D"
+    });
+
+    it('still works with numeric < and >', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) WHERE u.age > 25 AND u.age < 35 RETURN u',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(2);
+      const names = results.map((r) => node(r, 'u').name).sort();
+      expect(names).toEqual(['Alice', 'Dave']);
+    });
+  });
+
+  describe('execute - DISTINCT', () => {
+    it('RETURN DISTINCT deduplicates results', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', dept: 'Eng' });
+      g.addNode('b', { label: 'User', name: 'Bob', dept: 'Eng' });
+      g.addNode('c', { label: 'User', name: 'Charlie', dept: 'Sales' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (u:User) RETURN DISTINCT u.dept');
+      const results = e.execute(ast);
+      expect(results.length).toBe(2);
+      const depts = results.map((r) => r.dept).sort();
+      expect(depts).toEqual(['Eng', 'Sales']);
+    });
+
+    it('RETURN DISTINCT with no duplicates returns all', () => {
+      const ast = parseCypher('MATCH (u:User) RETURN DISTINCT u.name');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(4);
+    });
+
+    it('RETURN DISTINCT with ORDER BY', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', dept: 'Sales' });
+      g.addNode('b', { label: 'User', name: 'Bob', dept: 'Eng' });
+      g.addNode('c', { label: 'User', name: 'Charlie', dept: 'Eng' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (u:User) RETURN DISTINCT u.dept ORDER BY u.dept');
+      const results = e.execute(ast);
+      expect(results.length).toBe(2);
+      expect(results[0]!.dept).toBe('Eng');
+      expect(results[1]!.dept).toBe('Sales');
+    });
+
+    it('count(DISTINCT x) counts unique values', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', dept: 'Eng' });
+      g.addNode('b', { label: 'User', name: 'Bob', dept: 'Eng' });
+      g.addNode('c', { label: 'User', name: 'Charlie', dept: 'Sales' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (u:User) RETURN count(DISTINCT u.dept) AS uniqueDepts');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.uniqueDepts).toBe(2);
+    });
+
+    it('count(DISTINCT x) with all unique values', () => {
+      const ast = parseCypher('MATCH (u:User) RETURN count(DISTINCT u.name) AS uniqueNames');
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.uniqueNames).toBe(4);
+    });
+
+    it('count(DISTINCT x.property) with numeric values', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', score: 10 });
+      g.addNode('b', { label: 'User', name: 'Bob', score: 10 });
+      g.addNode('c', { label: 'User', name: 'Charlie', score: 20 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (u:User) RETURN count(DISTINCT u.score) AS uniqueScores');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.uniqueScores).toBe(2);
+    });
+
+    it('sum(DISTINCT x) sums unique values', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', score: 10 });
+      g.addNode('b', { label: 'User', name: 'Bob', score: 10 });
+      g.addNode('c', { label: 'User', name: 'Charlie', score: 20 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (u:User) RETURN sum(DISTINCT u.score) AS total');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.total).toBe(30); // 10 + 20 (not 10 + 10 + 20)
+    });
+
+    it('avg(DISTINCT x) averages unique values', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', score: 10 });
+      g.addNode('b', { label: 'User', name: 'Bob', score: 10 });
+      g.addNode('c', { label: 'User', name: 'Charlie', score: 20 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (u:User) RETURN avg(DISTINCT u.score) AS avgScore');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.avgScore).toBe(15); // (10 + 20) / 2
+    });
+
+    it('count(DISTINCT x) in WITH clause', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', dept: 'Eng' });
+      g.addNode('b', { label: 'User', name: 'Bob', dept: 'Eng' });
+      g.addNode('c', { label: 'User', name: 'Charlie', dept: 'Sales' });
+      g.addEdge('a', 'b', { type: 'COLLEAGUE' });
+      g.addEdge('b', 'a', { type: 'COLLEAGUE' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (u:User)-[r:COLLEAGUE]->(c:User) WITH u.name AS name, count(DISTINCT c.name) AS uniqueColleagues RETURN name, uniqueColleagues',
+      );
+      const results = e.execute(ast);
+      expect(results.length).toBe(2);
+      const aliceResult = results.find(r => r.name === 'Alice');
+      expect(aliceResult?.uniqueColleagues).toBe(1);
+    });
+  });
 });
