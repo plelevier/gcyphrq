@@ -486,12 +486,21 @@ Options for `buildGraphIndexes` and `executeQuery`. Extends `GraphOptions` with 
 
 ```ts
 interface IndexBuildOptions extends GraphOptions {
-  config?: {
-    /** Node attribute key used as the Cypher label (default: `"label"`). */
-    labelProperty?: string;
-    /** Edge attribute key used as the Cypher relationship type (default: `"type"`). */
-    edgeTypeProperty?: string;
-  };
+  /** Partial config for label/edge-type property names. */
+  config?: Partial<GraphConfig>;
+}
+```
+
+#### `GraphConfig`
+
+The resolved config used internally. Both fields are required.
+
+```ts
+interface GraphConfig {
+  /** Node attribute key used as the Cypher label (default: `"label"`). */
+  labelProperty: string;
+  /** Edge attribute key used as the Cypher relationship type (default: `"type"`). */
+  edgeTypeProperty: string;
 }
 ```
 

@@ -4,6 +4,7 @@ import { parseCypher as _parseCypher } from './engine/cypher-parser';
 import { AdvancedCypherGraphologyEngine } from './engine/cypher-engine';
 import { buildGraphIndexesFromData, buildGraphIndexesFromGraph } from './indexes';
 import { Graph, wrapExternalGraph, type GraphInstance, type GraphType } from './graph';
+import { DEFAULT_CONFIG } from './types/cypher';
 import type { AdvancedCypherAST, ResultRow, GraphIndexes, GraphConfig } from './types/cypher';
 
 // ── Graph file format types ──────────────────────────────────────────────────
@@ -80,8 +81,6 @@ export class GraphError extends Error {
 
 // ── Config resolution ────────────────────────────────────────────────────────
 
-const DEFAULT_CONFIG: GraphConfig = { labelProperty: 'label', edgeTypeProperty: 'type' };
-
 /**
  * Resolve a partial IndexBuildOptions.config into a fully-resolved GraphConfig.
  * Missing fields default to `'label'` and `'type'` respectively.
@@ -142,12 +141,12 @@ export interface IndexBuildOptions extends GraphOptions {
    * const indexes = buildGraphIndexes(graph, { config: { labelProperty: 'kind', edgeTypeProperty: 'rel' } });
    * ```
    */
-  config?: {
-    /** Node attribute key used as the Cypher label (default: `"label"`). */
-    labelProperty?: string;
-    /** Edge attribute key used as the Cypher relationship type (default: `"type"`). */
-    edgeTypeProperty?: string;
-  };
+  /**
+   * Configuration for the property names used as node labels and edge types.
+   * By default gcyphrq reads `label` from node attributes and `type` from
+   * edge attributes. Use this to point at different property names.
+   */
+  config?: Partial<GraphConfig>;
 }
 
 interface ValidationResult {
@@ -449,7 +448,7 @@ export function buildGraphIndexes(
   if (secondArgIsGraph) {
     // (data, graph) or (data, graph, opts)
     const data = dataOrGraph as GraphInput;
-    const { normalized } = validateGraphData(data);
+    const { normalized } = validateGraphData(data, opts);
     const cfg = opts ? resolveConfig(opts) : DEFAULT_CONFIG;
     return buildGraphIndexesFromData(normalized, graphOrOpts as GraphInstance, cfg, opts?.onWarning);
   }

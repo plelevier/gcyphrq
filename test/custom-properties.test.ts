@@ -26,7 +26,7 @@ const config: IndexBuildOptions = { config: { labelProperty: 'category', edgeTyp
 describe('custom label/edge-type properties', () => {
   describe('library API', () => {
     it('matches nodes by custom label property', () => {
-      const graph = createGraph(graphDataCustom, config);
+      const graph = createGraph(graphDataCustom);
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (s:Service) RETURN s.name AS name');
@@ -38,7 +38,7 @@ describe('custom label/edge-type properties', () => {
     });
 
     it('matches edges by custom edge type property', () => {
-      const graph = createGraph(graphDataCustom, config);
+      const graph = createGraph(graphDataCustom);
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (a)-[r:CALLS]->(b) RETURN a.name AS from, b.name AS to');
@@ -50,7 +50,7 @@ describe('custom label/edge-type properties', () => {
     });
 
     it('traverses with chained MATCH and custom edge type', () => {
-      const graph = createGraph(graphDataCustom, config);
+      const graph = createGraph(graphDataCustom);
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher(
@@ -64,7 +64,7 @@ describe('custom label/edge-type properties', () => {
     });
 
     it('supports OPTIONAL MATCH with custom properties', () => {
-      const graph = createGraph(graphDataCustom, config);
+      const graph = createGraph(graphDataCustom);
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher(
@@ -78,7 +78,7 @@ describe('custom label/edge-type properties', () => {
     });
 
     it('supports variable-length paths with custom edge type', () => {
-      const graph = createGraph(graphDataCustom, config);
+      const graph = createGraph(graphDataCustom);
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher(
@@ -92,7 +92,7 @@ describe('custom label/edge-type properties', () => {
     });
 
     it('supports aggregations with custom label property', () => {
-      const graph = createGraph(graphDataCustom, config);
+      const graph = createGraph(graphDataCustom);
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (s:Service) RETURN count(s) AS cnt');
@@ -103,7 +103,7 @@ describe('custom label/edge-type properties', () => {
     });
 
     it('supports WHERE with custom properties', () => {
-      const graph = createGraph(graphDataCustom, config);
+      const graph = createGraph(graphDataCustom);
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (n:Service {tier: "frontend"}) RETURN n.name AS name');
@@ -114,7 +114,7 @@ describe('custom label/edge-type properties', () => {
     });
 
     it('supports CREATE with custom label property', () => {
-      const graph = createGraph(graphDataCustom, config);
+      const graph = createGraph(graphDataCustom);
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('CREATE (n:Service {name: "NewService"}) RETURN n');
@@ -138,7 +138,7 @@ describe('custom label/edge-type properties', () => {
         ],
       };
 
-      const graph = createGraph(undirectedData, config);
+      const graph = createGraph(undirectedData);
       const indexes = buildGraphIndexes(undirectedData, graph, config);
       const engine = new GraphEngine(graph, indexes);
 
@@ -153,7 +153,7 @@ describe('custom label/edge-type properties', () => {
     });
 
     it('supports IN direction with custom edge type', () => {
-      const graph = createGraph(graphDataCustom, config);
+      const graph = createGraph(graphDataCustom);
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (b)<-[:CALLS]-(a) RETURN a.name AS from, b.name AS to');
@@ -228,7 +228,7 @@ describe('custom label/edge-type properties', () => {
     });
 
     it('works with (graph, opts) overload', () => {
-      const graph = createGraph(graphDataCustom, config);
+      const graph = createGraph(graphDataCustom);
       const indexes = buildGraphIndexes(graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (s:Service) RETURN count(s) AS cnt');
@@ -240,7 +240,7 @@ describe('custom label/edge-type properties', () => {
 
     it('works with (data, opts) overload', () => {
       const indexes = buildGraphIndexes(graphDataCustom, config);
-      const graph = createGraph(graphDataCustom, config);
+      const graph = createGraph(graphDataCustom);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (s:Service) RETURN count(s) AS cnt');
       const results = engine.execute(ast);

@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { DEFAULT_CONFIG } from '../types/cypher';
 import type {
   AdvancedCypherAST,
   AggregationExpression,
@@ -87,7 +88,7 @@ export class AdvancedCypherGraphologyEngine {
   constructor(graph: GraphInstance, indexes?: GraphIndexes) {
     this.graph = graph;
     this.indexes = indexes;
-    this.config = indexes?.config ?? { labelProperty: 'label', edgeTypeProperty: 'type' };
+    this.config = indexes?.config ?? DEFAULT_CONFIG;
   }
 
   /**

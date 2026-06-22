@@ -31,6 +31,9 @@ export interface GraphConfig {
   edgeTypeProperty: string;
 }
 
+/** Default config: `label` for node labels, `type` for edge types. */
+export const DEFAULT_CONFIG: GraphConfig = { labelProperty: 'label', edgeTypeProperty: 'type' };
+
 // ── Index types ──────────────────────────────────────────────────────────────
 
 /**
