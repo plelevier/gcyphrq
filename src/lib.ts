@@ -614,6 +614,7 @@ export type {
   CreateClause,
   DeleteClause,
   SetClause,
+  UnwindClause,
   NodePattern,
   RelationPattern,
   Direction,

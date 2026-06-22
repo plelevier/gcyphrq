@@ -1,6 +1,6 @@
 ---
 name: gcyphrq
-description: "Use for querying graph data with Cypher — service dependencies, infrastructure topology, blast radius analysis, path tracing. Runs against JSON graph files with an in-memory Cypher engine supporting MATCH, OPTIONAL MATCH, WITH, aggregations, ORDER BY, SKIP, LIMIT, variable-length paths, IS NULL/IS NOT NULL, and mutations."
+description: "Use for querying graph data with Cypher — service dependencies, infrastructure topology, blast radius analysis, path tracing. Runs against JSON graph files with an in-memory Cypher engine supporting MATCH, OPTIONAL MATCH, WITH, UNWIND, RETURN DISTINCT, aggregations (including DISTINCT), ORDER BY, SKIP, LIMIT, variable-length paths, IN/STARTS WITH/ENDS WITH, IS NULL/IS NOT NULL, string comparisons, and mutations."
 ---
 
 # gcyphrq
@@ -46,9 +46,10 @@ Graphology JSON: `{ nodes: [{ key, attributes }], edges: [{ source, target, attr
 | Category | Supported |
 |---|---|
 | Matching | `MATCH (n:Label {prop: val})-[:TYPE*min..max]->(m)`, `OPTIONAL MATCH`, edge binding `-[r:TYPE]->` |
-| Filtering | `WHERE`: `=`, `<>`, `>`, `<`, `CONTAINS`, `IS NULL`, `IS NOT NULL`, `AND`/`OR`/`NOT` |
-| Pipelining | `WITH`, `count()`, `sum()`, `avg()`, `min()`, `max()` |
-| Output | `RETURN` (nodes, properties, aliases), `ORDER BY`, `SKIP`, `LIMIT` |
+| Filtering | `WHERE`: `=`, `<>`, `>`, `<`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `IS NULL`, `IS NOT NULL`, `AND`/`OR`/`NOT`. `<`/`>` work with strings too. |
+| Pipelining | `WITH`, `count()`, `sum()`, `avg()`, `min()`, `max()`, `count(DISTINCT)`, `sum(DISTINCT)`, `avg(DISTINCT)` |
+| Expansion | `UNWIND list AS var` (expands list to one row per element) |
+| Output | `RETURN` (nodes, properties, aliases), `RETURN DISTINCT`, `ORDER BY`, `SKIP`, `LIMIT` |
 | Mutations | `CREATE`, `SET`, `DELETE` (in-memory only) |
 | **Not supported** | chained `MATCH`, subqueries, `CALL`, APOC, `labels()`, `head()` |
 
@@ -85,6 +86,13 @@ Trigger for: service dependencies, blast radius / impact analysis, path tracing,
 | CREATE | `CREATE (n:Service {name: "X", type: "RPC"}) RETURN n` |
 | SET | `MATCH (n {name: "X"}) SET n.status = "updated" RETURN n` |
 | DELETE | `MATCH (n {name: "X"}) DELETE n` |
+| IN | `MATCH (n:Service) WHERE n.type IN ["RPC", "Worker"] RETURN n` |
+| STARTS WITH | `MATCH (n:Service) WHERE n.name STARTS WITH "api" RETURN n` |
+| ENDS WITH | `MATCH (n:Service) WHERE n.name ENDS WITH "service" RETURN n` |
+| RETURN DISTINCT | `MATCH (n:Service) RETURN DISTINCT n.type` |
+| count(DISTINCT) | `MATCH (n:Service) RETURN count(DISTINCT n.region) AS uniqueRegions` |
+| UNWIND | `UNWIND ["a", "b", "c"] AS x RETURN x` |
+| UNWIND with MATCH | `MATCH (n:Service) UNWIND n.tags AS tag RETURN n.name, tag` |
 
 ## Output Format
 

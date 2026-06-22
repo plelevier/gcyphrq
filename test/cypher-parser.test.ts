@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseCypher } from '../src/engine/cypher-parser';
-import type { MatchClause, WithClause, WriteClause } from '../src/types/cypher';
+import type { MatchClause, WithClause, WriteClause, UnwindClause } from '../src/types/cypher';
 
 describe('parseCypher', () => {
   describe('MATCH clause', () => {
@@ -766,6 +766,218 @@ describe('parseCypher', () => {
       expect((logical.left as { negated: boolean }).negated).toBe(true);
       expect(logical.right.type).toBe('BinaryExpression');
       expect((logical.right as { operator: string }).operator).toBe('>');
+    });
+  });
+
+  describe('WHERE IN', () => {
+    it('parses WHERE with IN operator on MATCH', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.name IN ["Alice", "Bob"] RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where).toBeDefined();
+      expect(clause.where!.type).toBe('BinaryExpression');
+      expect((clause.where! as { type: 'BinaryExpression'; operator: string }).operator).toBe('IN');
+    });
+
+    it('parses WHERE IN with string list', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.name IN ["Alice", "Bob"] RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      const where = clause.where! as { type: 'BinaryExpression'; left: { type: string; variable?: string; property?: string }; right: { type: string; values?: unknown[] } };
+      expect(where.left.type).toBe('PropertyAccess');
+      expect(where.left.variable).toBe('n');
+      expect(where.left.property).toBe('name');
+      expect(where.right.type).toBe('ListLiteral');
+      expect(where.right.values).toEqual(['Alice', 'Bob']);
+    });
+
+    it('parses WHERE IN with numeric list', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.age IN [25, 30, 35] RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      const where = clause.where! as { type: 'BinaryExpression'; right: { type: string; values?: unknown[] } };
+      expect(where.right.type).toBe('ListLiteral');
+      expect(where.right.values).toEqual([25, 30, 35]);
+    });
+
+    it('parses WHERE IN on WITH clause', () => {
+      const ast = parseCypher(
+        'MATCH (n:User) WITH n.name AS name WHERE name IN ["Alice"] RETURN name',
+      );
+      const withStage = ast.stages[1]! as { type: 'WITH'; clause: WithClause };
+      expect(withStage.clause.where).toBeDefined();
+      expect(withStage.clause.where!.type).toBe('BinaryExpression');
+      expect((withStage.clause.where! as { type: 'BinaryExpression'; operator: string }).operator).toBe('IN');
+    });
+
+    it('parses WHERE IN combined with AND', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.name IN ["Alice", "Bob"] AND n.age > 20 RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; operator: string; left: { type: string; operator?: string }; right: { type: string; operator?: string } };
+      expect(logical.operator).toBe('AND');
+      expect(logical.left.type).toBe('BinaryExpression');
+      expect((logical.left as { operator: string }).operator).toBe('IN');
+      expect(logical.right.type).toBe('BinaryExpression');
+      expect((logical.right as { operator: string }).operator).toBe('>');
+    });
+  });
+
+  describe('WHERE STARTS WITH / ENDS WITH', () => {
+    it('parses WHERE with STARTS WITH operator', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.name STARTS WITH "Al" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where).toBeDefined();
+      expect(clause.where!.type).toBe('BinaryExpression');
+      expect((clause.where! as { type: 'BinaryExpression'; operator: string }).operator).toBe('STARTS WITH');
+    });
+
+    it('parses WHERE with ENDS WITH operator', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.name ENDS WITH "ie" RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where).toBeDefined();
+      expect(clause.where!.type).toBe('BinaryExpression');
+      expect((clause.where! as { type: 'BinaryExpression'; operator: string }).operator).toBe('ENDS WITH');
+    });
+
+    it('parses WHERE STARTS WITH on WITH clause', () => {
+      const ast = parseCypher(
+        'MATCH (n:User) WITH n.name AS name WHERE name STARTS WITH "A" RETURN name',
+      );
+      const withStage = ast.stages[1]! as { type: 'WITH'; clause: WithClause };
+      expect(withStage.clause.where!.type).toBe('BinaryExpression');
+      expect((withStage.clause.where! as { type: 'BinaryExpression'; operator: string }).operator).toBe('STARTS WITH');
+    });
+
+    it('parses WHERE ENDS WITH combined with AND', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE n.name ENDS WITH "ie" AND n.age > 25 RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('LogicalExpression');
+      const logical = clause.where! as { type: 'LogicalExpression'; operator: string; left: { type: string; operator?: string }; right: { type: string; operator?: string } };
+      expect(logical.operator).toBe('AND');
+      expect((logical.left as { operator: string }).operator).toBe('ENDS WITH');
+      expect((logical.right as { operator: string }).operator).toBe('>');
+    });
+
+    it('parses WHERE NOT STARTS WITH', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE NOT (n.name STARTS WITH "A") RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('NotExpression');
+      const notExpr = clause.where! as { type: 'NotExpression'; expression: { type: string; operator?: string } };
+      expect(notExpr.expression.type).toBe('BinaryExpression');
+      expect((notExpr.expression as { operator: string }).operator).toBe('STARTS WITH');
+    });
+
+    it('parses WHERE NOT ENDS WITH', () => {
+      const ast = parseCypher('MATCH (n:User) WHERE NOT (n.name ENDS WITH "e") RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.where!.type).toBe('NotExpression');
+      const notExpr = clause.where! as { type: 'NotExpression'; expression: { type: string; operator?: string } };
+      expect(notExpr.expression.type).toBe('BinaryExpression');
+      expect((notExpr.expression as { operator: string }).operator).toBe('ENDS WITH');
+    });
+  });
+
+  describe('RETURN DISTINCT', () => {
+    it('parses RETURN DISTINCT with single projection', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN DISTINCT n.name');
+      expect(ast.return!.projections.length).toBe(1);
+      expect(ast.return!.projections[0]!.distinct).toBe(true);
+    });
+
+    it('parses RETURN DISTINCT with multiple projections', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN DISTINCT n.name, n.age');
+      expect(ast.return!.projections.length).toBe(2);
+      expect(ast.return!.projections[0]!.distinct).toBe(true);
+      expect(ast.return!.projections[1]!.distinct).toBe(true);
+    });
+
+    it('parses RETURN without DISTINCT (default false)', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN n.name');
+      expect(ast.return!.projections[0]!.distinct).toBe(false);
+    });
+  });
+
+  describe('count(DISTINCT x)', () => {
+    it('parses count(DISTINCT x) aggregation', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN count(DISTINCT n.name) AS uniqueNames');
+      const proj = ast.return!.projections[0]!;
+      expect(proj.expression.type).toBe('Aggregation');
+      const agg = proj.expression as { type: 'Aggregation'; aggregationType: string; distinct: boolean };
+      expect(agg.aggregationType).toBe('COUNT');
+      expect(agg.distinct).toBe(true);
+    });
+
+    it('parses count(x) without DISTINCT (default false)', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN count(n) AS total');
+      const proj = ast.return!.projections[0]!;
+      const agg = proj.expression as { type: 'Aggregation'; distinct: boolean };
+      expect(agg.distinct).toBe(false);
+    });
+
+    it('parses sum(DISTINCT x.property) aggregation', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN sum(DISTINCT n.score) AS total');
+      const proj = ast.return!.projections[0]!;
+      const agg = proj.expression as { type: 'Aggregation'; aggregationType: string; distinct: boolean; property?: string };
+      expect(agg.aggregationType).toBe('SUM');
+      expect(agg.distinct).toBe(true);
+      expect(agg.property).toBe('score');
+    });
+
+    it('parses avg(DISTINCT x) aggregation', () => {
+      const ast = parseCypher('MATCH (n:User) RETURN avg(DISTINCT n.score) AS avgScore');
+      const proj = ast.return!.projections[0]!;
+      const agg = proj.expression as { type: 'Aggregation'; aggregationType: string; distinct: boolean };
+      expect(agg.aggregationType).toBe('AVG');
+      expect(agg.distinct).toBe(true);
+    });
+  });
+
+  describe('UNWIND clause', () => {
+    it('parses UNWIND with a list literal', () => {
+      const ast = parseCypher('UNWIND [1, 2, 3] AS x RETURN x');
+      expect(ast.stages.length).toBe(1);
+      expect(ast.stages[0]?.type).toBe('UNWIND');
+      const clause = (ast.stages[0]! as { type: 'UNWIND'; clause: UnwindClause }).clause;
+      expect(clause.type).toBe('UNWIND');
+      expect(clause.variable).toBe('x');
+      expect(clause.expression.type).toBe('ListLiteral');
+      expect((clause.expression as { type: 'ListLiteral'; values: unknown[] }).values).toEqual([1, 2, 3]);
+    });
+
+    it('parses UNWIND with a string list', () => {
+      const ast = parseCypher('UNWIND ["Alice", "Bob", "Charlie"] AS name RETURN name');
+      const clause = (ast.stages[0]! as { type: 'UNWIND'; clause: UnwindClause }).clause;
+      expect(clause.variable).toBe('name');
+      expect((clause.expression as { type: 'ListLiteral'; values: unknown[] }).values).toEqual(['Alice', 'Bob', 'Charlie']);
+    });
+
+    it('parses UNWIND followed by WITH and RETURN', () => {
+      const ast = parseCypher('UNWIND [1, 2, 3] AS x WITH x * 2 AS doubled RETURN doubled');
+      expect(ast.stages.length).toBe(2);
+      expect(ast.stages[0]?.type).toBe('UNWIND');
+      expect(ast.stages[1]?.type).toBe('WITH');
+      expect(ast.return).toBeDefined();
+    });
+
+    it('parses UNWIND with a variable reference', () => {
+      const ast = parseCypher('MATCH (n:User) UNWIND n.tags AS tag RETURN n.name, tag');
+      expect(ast.stages.length).toBe(2);
+      expect(ast.stages[0]?.type).toBe('MATCH');
+      expect(ast.stages[1]?.type).toBe('UNWIND');
+      const clause = (ast.stages[1]! as { type: 'UNWIND'; clause: UnwindClause }).clause;
+      expect(clause.variable).toBe('tag');
+      expect(clause.expression.type).toBe('PropertyAccess');
+      const pa = clause.expression as { type: 'PropertyAccess'; variable: string; property: string };
+      expect(pa.variable).toBe('n');
+      expect(pa.property).toBe('tags');
+    });
+
+    it('parses UNWIND with a bare variable reference', () => {
+      const ast = parseCypher('MATCH (n:User) WITH n.tags AS myList UNWIND myList AS tag RETURN tag');
+      expect(ast.stages.length).toBe(3);
+      expect(ast.stages[2]?.type).toBe('UNWIND');
+      const clause = (ast.stages[2]! as { type: 'UNWIND'; clause: UnwindClause }).clause;
+      expect(clause.variable).toBe('tag');
+      expect(clause.expression.type).toBe('PropertyAccess');
+      expect((clause.expression as { type: 'PropertyAccess'; variable: string }).variable).toBe('myList');
     });
   });
 });

@@ -7,6 +7,7 @@ import type {
   OrderByItem,
   WithClause,
   WriteClause,
+  UnwindClause,
   Expression,
   BinaryExpression,
   WhereExpression,
@@ -17,6 +18,7 @@ import type {
   CypherNode,
   CypherEdge,
   CypherValue,
+  CypherLiteral,
   ResultRow,
   GraphIndexes,
   GraphConfig,
@@ -105,6 +107,8 @@ export class AdvancedCypherGraphologyEngine {
         contexts = this.executeWith(stage.clause, contexts);
       } else if (stage.type === 'WRITE') {
         this.executeWrite(stage.clause, contexts);
+      } else if (stage.type === 'UNWIND') {
+        contexts = this.executeUnwind(stage.clause, contexts);
       }
     }
 
@@ -441,6 +445,47 @@ export class AdvancedCypherGraphologyEngine {
     };
   }
 
+  // ── 1b. UNWIND STAGE ─────────────────────────────────────────────────────
+  // Expands a list expression into one row per element. The list can be a
+  // literal list ([1, 2, 3]) or a variable reference (e.g., a property
+  // containing a list). If the list is null or missing, the row is dropped
+  // (matching Neo4j semantics).
+
+  private executeUnwind(
+    clause: UnwindClause,
+    incomingContexts: (QueryContext | ContextChain)[],
+  ): (QueryContext | ContextChain)[] {
+    const outgoingContexts: (QueryContext | ContextChain)[] = [];
+
+    for (const context of incomingContexts) {
+      const flat = isContextChain(context) ? materialiseChain(context) : context;
+      const listValue = this.evaluateExpression(clause.expression, flat);
+
+      // If the list is null/undefined, drop the row (Neo4j semantics)
+      if (listValue === null || listValue === undefined) continue;
+
+      // Must be an array
+      if (!Array.isArray(listValue)) {
+        // Wrap single values in an array for convenience
+        outgoingContexts.push({
+          [CHAIN_BASE]: context,
+          [CHAIN_OVERRIDES]: { [clause.variable]: listValue },
+        });
+        continue;
+      }
+
+      // Expand: one context per element
+      for (const element of listValue) {
+        outgoingContexts.push({
+          [CHAIN_BASE]: context,
+          [CHAIN_OVERRIDES]: { [clause.variable]: element },
+        });
+      }
+    }
+
+    return outgoingContexts;
+  }
+
   // ── 2. WITH & IMPLICIT GROUPING AGGREGATIONS STAGE ─────────────────────────
   // Optimisations applied:
   //   #4  Context chains throughout, materialised only for grouping
@@ -522,6 +567,8 @@ export class AdvancedCypherGraphologyEngine {
     // Single pass: extract numeric values for all aggregation variables
     const numericCache = new Map<string, number[]>();
     const nonNullCache = new Map<string, number>();
+    // For DISTINCT: track seen values per aggregation key
+    const distinctSeen = new Map<string, Set<string>>();
 
     for (const row of rows) {
       for (const expr of aggVars.values()) {
@@ -533,7 +580,20 @@ export class AdvancedCypherGraphologyEngine {
         if (val !== null && val !== undefined) {
           nonNullCache.set(key, (nonNullCache.get(key) ?? 0) + 1);
         }
-        if (typeof val === 'number') {
+        // For DISTINCT aggregations, track unique values for all types (not just numbers)
+        if (expr.distinct) {
+          if (!distinctSeen.has(key)) distinctSeen.set(key, new Set());
+          const seen = distinctSeen.get(key)!;
+          const valStr = JSON.stringify(val);
+          if (!seen.has(valStr)) {
+            seen.add(valStr);
+            if (typeof val === 'number') {
+              if (!numericCache.has(key)) numericCache.set(key, []);
+              const arr = numericCache.get(key);
+              if (arr) arr.push(val);
+            }
+          }
+        } else if (typeof val === 'number') {
           if (!numericCache.has(key)) numericCache.set(key, []);
           const arr = numericCache.get(key);
           if (arr) arr.push(val);
@@ -550,7 +610,9 @@ export class AdvancedCypherGraphologyEngine {
       const nonNullCount = nonNullCache.get(key) ?? 0;
 
       if (expr.aggregationType === 'COUNT') {
-        newContext[p.alias] = nonNullCount;
+        newContext[p.alias] = expr.distinct
+          ? (distinctSeen.get(key)?.size ?? 0)
+          : nonNullCount;
       } else if (expr.aggregationType === 'SUM') {
         newContext[p.alias] = numericValues.reduce((a, b) => a + b, 0);
       } else if (expr.aggregationType === 'AVG') {
@@ -672,28 +734,61 @@ export class AdvancedCypherGraphologyEngine {
     } else {
       const materialised = contexts.map((c) => materialiseChain(c));
 
-      let workingContexts = materialised;
+      // Project rows, keeping context alongside for ORDER BY evaluation
+      const projected = materialised.map((context) => {
+        const row: ResultRow = {};
+        clause.projections.forEach((p) => {
+          row[p.alias] = this.evaluateExpression(p.expression, context);
+        });
+        return { row, context };
+      });
+
+      // Apply DISTINCT before ORDER BY (Cypher semantics: DISTINCT → ORDER BY → SKIP → LIMIT)
+      const hasDistinct = clause.projections.some((p) => p.distinct);
+      if (hasDistinct) {
+        const seen = new Set<string>();
+        const deduped: typeof projected = [];
+        for (const { row, context } of projected) {
+          const key = clause.projections
+            .map((p) => JSON.stringify(row[p.alias]))
+            .join('\0');
+          if (!seen.has(key)) {
+            seen.add(key);
+            deduped.push({ row, context });
+          }
+        }
+        projected.splice(0, projected.length, ...deduped);
+      }
+
+      // ORDER BY applied after DISTINCT
       if (clause.orderBy && clause.orderBy.length > 0) {
-        workingContexts = this.applyOrderByToContexts(workingContexts, clause.orderBy);
+        const keyed = projected.map(({ row, context }) => ({
+          row,
+          context,
+          keys: clause.orderBy!.map((item) => this.evaluateExpression(item.expression, context)),
+        }));
+        keyed.sort((a, b) => {
+          for (let i = 0; i < clause.orderBy!.length; i++) {
+            const cmp = this.compareValues(a.keys[i], b.keys[i]);
+            const item = clause.orderBy![i];
+            if (cmp !== 0 && item) return item.direction === 'DESC' ? -cmp : cmp;
+          }
+          return 0;
+        });
+        projected.splice(0, projected.length, ...keyed.map((k) => ({ row: k.row, context: k.context })));
       }
 
       // SKIP applied after ORDER BY, before LIMIT
       if (clause.skip !== undefined && clause.skip !== null) {
-        workingContexts = workingContexts.slice(clause.skip);
+        projected.splice(0, clause.skip);
       }
 
-      // LIMIT applied to contexts before projection
+      // LIMIT applied after SKIP
       if (clause.limit !== undefined && clause.limit !== null) {
-        workingContexts = workingContexts.slice(0, clause.limit);
+        projected.length = Math.min(projected.length, clause.limit);
       }
 
-      results = workingContexts.map((context) => {
-        const res: ResultRow = {};
-        clause.projections.forEach((p) => {
-          res[p.alias] = this.evaluateExpression(p.expression, context);
-        });
-        return res;
-      });
+      results = projected.map((p) => p.row);
     }
 
     return results;
@@ -710,8 +805,17 @@ export class AdvancedCypherGraphologyEngine {
       return obj as CypherValue;
     }
     if (expr.type === 'Literal') return expr.value;
+    if (expr.type === 'ListLiteral') return expr.values as CypherValue;
+    if (expr.type === 'MapLiteral') return expr.values as CypherValue;
     if (expr.type === 'Aggregation') return undefined;
     return undefined;
+  }
+
+  /** Extract a flat array of CypherLiteral values from a ListLiteral expression or a single literal. */
+  private extractListValues(expr: Expression): CypherLiteral[] {
+    if (expr.type === 'ListLiteral') return expr.values.filter((v): v is CypherLiteral => typeof v !== 'object' || v === null);
+    if (expr.type === 'Literal') return [expr.value];
+    return [];
   }
 
   private evaluateWhere(whereNode: WhereExpression, context: QueryContext): boolean {
@@ -740,21 +844,36 @@ export class AdvancedCypherGraphologyEngine {
 
     switch (whereNode.operator) {
       case '>':
-        if (typeof leftValue !== 'number' || typeof rightValue !== 'number') {
-          throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
+        if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+          return leftValue > rightValue;
         }
-        return leftValue > rightValue;
+        if (typeof leftValue === 'string' && typeof rightValue === 'string') {
+          return leftValue > rightValue;
+        }
+        throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
       case '<':
-        if (typeof leftValue !== 'number' || typeof rightValue !== 'number') {
-          throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
+        if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+          return leftValue < rightValue;
         }
-        return leftValue < rightValue;
+        if (typeof leftValue === 'string' && typeof rightValue === 'string') {
+          return leftValue < rightValue;
+        }
+        throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
       case '=':
         return leftValue === rightValue;
       case '<>':
         return leftValue !== rightValue;
       case 'CONTAINS':
         return String(leftValue).includes(String(rightValue));
+      case 'STARTS WITH':
+        return String(leftValue).startsWith(String(rightValue));
+      case 'ENDS WITH':
+        return String(leftValue).endsWith(String(rightValue));
+      case 'IN': {
+        const rightList = this.extractListValues(whereNode.right);
+        return rightList.includes(leftValue as CypherLiteral);
+      }
+
       default:
         return false;
     }

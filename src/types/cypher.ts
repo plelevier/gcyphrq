@@ -62,7 +62,7 @@ export interface GraphIndexes {
   config?: GraphConfig;
 }
 
-export type CypherValue = CypherNode | CypherEdge[] | CypherLiteral | null | undefined;
+export type CypherValue = CypherNode | CypherEdge[] | CypherLiteral[] | CypherLiteral | Record<string, CypherLiteral> | null | undefined;
 
 // ── AST types ────────────────────────────────────────────────────────────────
 
@@ -123,18 +123,29 @@ export interface LiteralExpression {
   value: CypherLiteral;
 }
 
+export interface ListLiteralExpression {
+  type: 'ListLiteral';
+  values: (CypherLiteral | Record<string, CypherLiteral>)[];
+}
+
+export interface MapLiteralExpression {
+  type: 'MapLiteral';
+  values: Record<string, CypherLiteral>;
+}
+
 export interface AggregationExpression {
   type: 'Aggregation';
   aggregationType: 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX';
   variable: string;
   property: string | undefined;
+  distinct: boolean;
 }
 
-export type Expression = PropertyAccessExpression | LiteralExpression | AggregationExpression;
+export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression;
 
 export interface BinaryExpression {
   type: 'BinaryExpression';
-  operator: '>' | '<' | '=' | '<>' | 'CONTAINS';
+  operator: '>' | '<' | '=' | '<>' | 'CONTAINS' | 'STARTS WITH' | 'ENDS WITH' | 'IN';
   left: Expression;
   right: Expression;
 }
@@ -162,6 +173,7 @@ export type WhereExpression = BinaryExpression | LogicalExpression | NotExpressi
 export interface Projection {
   expression: Expression;
   alias: string;
+  distinct: boolean;
 }
 
 export interface WithClause {
@@ -184,10 +196,17 @@ export interface ReturnClause {
   limit: number | undefined;
 }
 
+export interface UnwindClause {
+  type: 'UNWIND';
+  expression: Expression;
+  variable: string;
+}
+
 export type Stage =
   | { type: 'MATCH'; clause: MatchClause }
   | { type: 'WITH'; clause: WithClause }
-  | { type: 'WRITE'; clause: WriteClause };
+  | { type: 'WRITE'; clause: WriteClause }
+  | { type: 'UNWIND'; clause: UnwindClause };
 
 export interface AdvancedCypherAST {
   type: 'Query';
@@ -197,6 +216,6 @@ export interface AdvancedCypherAST {
 
 // ── Runtime types ────────────────────────────────────────────────────────────
 
-export type QueryContext = Record<string, CypherNode | CypherEdge[] | CypherLiteral | null | undefined>;
+export type QueryContext = Record<string, CypherNode | CypherEdge[] | CypherLiteral[] | CypherLiteral | Record<string, CypherLiteral> | null | undefined>;
 
-export type ResultRow = Record<string, CypherNode | CypherEdge[] | CypherLiteral | null | undefined>;
+export type ResultRow = Record<string, CypherNode | CypherEdge[] | CypherLiteral[] | CypherLiteral | Record<string, CypherLiteral> | null | undefined>;

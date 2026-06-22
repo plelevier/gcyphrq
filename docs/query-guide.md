@@ -108,6 +108,31 @@ RETURN u, c
 
 ---
 
+## UNWIND
+
+Expands a list into one row per element. If the list is `null` or missing, the row is dropped:
+
+```cypher
+UNWIND [1, 2, 3] AS x RETURN x
+UNWIND ["Alice", "Bob"] AS name RETURN name
+```
+
+Combine with `MATCH` to expand a list property:
+
+```cypher
+MATCH (u:User) UNWIND u.tags AS tag RETURN u.name, tag
+```
+
+Use with `WITH` for aggregation after expansion:
+
+```cypher
+MATCH (u:User) UNWIND u.tags AS tag
+WITH u.name AS name, tag
+RETURN name, tag ORDER BY name, tag
+```
+
+---
+
 ## RETURN
 
 ### Return full nodes, properties, and aliases
@@ -116,6 +141,22 @@ RETURN u, c
 MATCH (u:User) RETURN u
 MATCH (u:User) RETURN u.name, u.age
 MATCH (u:User) RETURN u.name AS userName, u.age AS userAge
+```
+
+### RETURN DISTINCT
+
+Deduplicate results based on all projected values:
+
+```cypher
+MATCH (u:User) RETURN DISTINCT u.dept
+MATCH (u:User) RETURN DISTINCT u.name, u.age
+```
+
+DISTINCT is applied before `ORDER BY`, `SKIP`, and `LIMIT`:
+
+```cypher
+MATCH (u:User) RETURN DISTINCT u.dept ORDER BY u.dept ASC
+MATCH (u:User) RETURN DISTINCT u.name SKIP 1 LIMIT 2
 ```
 
 ---
@@ -136,10 +177,19 @@ RETURN u.name, friendCount
 | Function | Description |
 |---|---|
 | `count(x)` | Count non-null values |
+| `count(DISTINCT x)` | Count unique non-null values |
 | `sum(x.prop)` | Sum numeric values |
+| `sum(DISTINCT x.prop)` | Sum unique numeric values |
 | `avg(x.prop)` | Average (null if no values) |
+| `avg(DISTINCT x.prop)` | Average of unique values |
 | `min(x.prop)` | Minimum (null if no values) |
 | `max(x.prop)` | Maximum (null if no values) |
+
+```cypher
+MATCH (u:User) RETURN count(DISTINCT u.dept) AS uniqueDepts
+MATCH (u:User) RETURN sum(DISTINCT u.score) AS totalScore
+MATCH (u:User) RETURN avg(DISTINCT u.score) AS avgScore
+```
 
 ---
 
@@ -176,8 +226,13 @@ RETURN s.name, outDegree
 | `<` | `WHERE count < 5` |
 | `<>` | `WHERE name <> "api"` |
 | `CONTAINS` | `WHERE name CONTAINS "api"` |
+| `STARTS WITH` | `WHERE name STARTS WITH "api"` |
+| `ENDS WITH` | `WHERE name ENDS WITH "api"` |
+| `IN` | `WHERE name IN ["Alice", "Bob"]` |
 | `IS NULL` | `WHERE email IS NULL` |
 | `IS NOT NULL` | `WHERE email IS NOT NULL` |
+
+> **Note:** `>` and `<` work with both numeric and string values (lexicographic comparison for strings).
 
 ### Logical operators (`AND`, `OR`, `NOT`)
 
@@ -197,6 +252,20 @@ MATCH (u:User) WHERE (u.age > 32 OR u.age < 26) AND u.name CONTAINS "a" RETURN u
 // IS NULL / IS NOT NULL
 MATCH (u:User) WHERE u.email IS NULL RETURN u
 MATCH (u:User) WHERE u.email IS NOT NULL RETURN u
+
+// IN operator
+MATCH (u:User) WHERE u.name IN ["Alice", "Bob"] RETURN u
+MATCH (u:User) WHERE u.age IN [25, 30, 35] RETURN u
+MATCH (u:User) WHERE NOT (u.name IN ["Alice", "Bob"]) RETURN u
+
+// STARTS WITH / ENDS WITH
+MATCH (u:User) WHERE u.name STARTS WITH "Al" RETURN u
+MATCH (u:User) WHERE u.name ENDS WITH "ie" RETURN u
+MATCH (u:User) WHERE NOT (u.name STARTS WITH "A") RETURN u
+
+// String comparisons
+MATCH (u:User) WHERE u.name > "C" RETURN u
+MATCH (u:User) WHERE u.name < "C" AND u.name > "A" RETURN u
 ```
 
 > **Note:** `AND` has higher precedence than `OR`. Use parentheses to control evaluation order.
