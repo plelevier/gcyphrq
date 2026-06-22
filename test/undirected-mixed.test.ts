@@ -42,7 +42,7 @@ describe('Undirected graphs', () => {
   it('finds paths in both directions', () => {
     const results = executeQuery(undirectedGraph, 'MATCH (c:Person)-[:KNOWS*1..2]-(a:Person) WHERE c.name = "Charlie" AND a.name = "Alice" RETURN c.name, a.name');
     expect(results.length).toBe(1);
-    expect(results[0]['a.name']).toBe('Alice');
+    expect(results[0]!['a.name']).toBe('Alice');
   });
 
   it('variable-length paths work bidirectionally', () => {
@@ -93,10 +93,10 @@ describe('Mixed graphs', () => {
   it('traverses directed edges in correct direction', () => {
     const results = executeQuery(mixedGraph, 'MATCH (a:Person)-[:FOLLOWS]->(b:Person) RETURN a.name, b.name ORDER BY a.name');
     expect(results.length).toBe(2); // a->b, c->d
-    expect(results[0]['a.name']).toBe('Alice');
-    expect(results[0]['b.name']).toBe('Bob');
-    expect(results[1]['a.name']).toBe('Charlie');
-    expect(results[1]['b.name']).toBe('Diana');
+    expect(results[0]!['a.name']).toBe('Alice');
+    expect(results[0]!['b.name']).toBe('Bob');
+    expect(results[1]!['a.name']).toBe('Charlie');
+    expect(results[1]!['b.name']).toBe('Diana');
   });
 
   it('traverses directed edges in reverse with <-', () => {
@@ -299,7 +299,7 @@ describe('Undirected/mixed edge cases', () => {
     // Self-loop should appear once, not duplicated
     const results = executeQuery(graph, 'MATCH (a)-[:SELF]->(b) RETURN a.id, b.id');
     expect(results.length).toBe(1);
-    expect(results[0]['a.id']).toBe(results[0]['b.id']);
+    expect(results[0]!['a.id']).toBe(results[0]!['b.id']);
   });
 
   it('single-quoted string literals work in WHERE clauses', () => {
@@ -313,7 +313,7 @@ describe('Undirected/mixed edge cases', () => {
     });
     const results = executeQuery(graph, "MATCH (a:Person) WHERE a.name = 'Alice' RETURN a.name");
     expect(results.length).toBe(1);
-    expect(results[0]['name']).toBe('Alice');
+    expect(results[0]!['name']).toBe('Alice');
   });
 
   it('single-quoted string literals work in inline property filters', () => {
@@ -327,7 +327,7 @@ describe('Undirected/mixed edge cases', () => {
     });
     const results = executeQuery(graph, "MATCH (a:Person {name: 'Alice'})-[r]->(b:Person) RETURN a.name, b.name");
     expect(results.length).toBe(1);
-    expect(results[0]['a.name']).toBe('Alice');
-    expect(results[0]['b.name']).toBe('Bob');
+    expect(results[0]!['a.name']).toBe('Alice');
+    expect(results[0]!['b.name']).toBe('Bob');
   });
 });
