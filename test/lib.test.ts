@@ -531,14 +531,41 @@ describe('Graphology JSON format', () => {
     expect(graph.order).toBe(0);
   });
 
-  it('throws for unsupported options.type', () => {
+  it('throws for invalid options.type', () => {
     expect(() =>
       createGraph({
-        options: { type: 'undirected' },
+        // @ts-expect-error testing invalid type
+        options: { type: 'invalid' },
         nodes: [{ key: 'a', attributes: { label: 'N' } }],
         edges: [],
       }),
-    ).toThrow(/Unsupported graph option:.*"type".*"undirected"/);
+    ).toThrow(/Unsupported graph option:.*"type"/);
+  });
+
+  it('accepts options.type undirected', () => {
+    const graph = createGraph({
+      options: { type: 'undirected' },
+      nodes: [
+        { key: 'a', attributes: { label: 'N' } },
+        { key: 'b', attributes: { label: 'N' } },
+      ],
+      edges: [{ source: 'a', target: 'b', attributes: { type: 'KNOWS' } }],
+    });
+    expect(graph.type).toBe('undirected');
+    expect(graph.order).toBe(2);
+  });
+
+  it('accepts options.type mixed', () => {
+    const graph = createGraph({
+      options: { type: 'mixed' },
+      nodes: [
+        { key: 'a', attributes: { label: 'N' } },
+        { key: 'b', attributes: { label: 'N' } },
+      ],
+      edges: [{ source: 'a', target: 'b', attributes: { type: 'KNOWS' } }],
+    });
+    expect(graph.type).toBe('mixed');
+    expect(graph.order).toBe(2);
   });
 
   it('throws for unsupported options.allowSelfLoops', () => {

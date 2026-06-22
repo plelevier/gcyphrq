@@ -405,16 +405,17 @@ export class AdvancedCypherGraphologyEngine {
       const adjOut = indexes.edgeTypeIndex.out.get(edgeType);
       const adjIn = indexes.edgeTypeIndex.in.get(edgeType);
       return (nodeId, cb) => {
+        const seen = new Set<string>();
         const outNeighbors = adjOut?.get(nodeId);
         if (outNeighbors) {
           for (const n of outNeighbors) {
-            cb(n.target, n.edgeId);
+            if (!seen.has(n.edgeId)) { seen.add(n.edgeId); cb(n.target, n.edgeId); }
           }
         }
         const inNeighbors = adjIn?.get(nodeId);
         if (inNeighbors) {
           for (const n of inNeighbors) {
-            cb(n.source, n.edgeId);
+            if (!seen.has(n.edgeId)) { seen.add(n.edgeId); cb(n.source, n.edgeId); }
           }
         }
       };

@@ -71,9 +71,9 @@ Uses [Graphology JSON format](https://graphology.github.io/):
 - `nodes[].attributes` — required, node properties (`label` used for Cypher label filtering)
 - `edges[].source` / `edges[].target` — required, node keys
 - `edges[].attributes` — required, edge properties (`type` used for relationship filtering)
-- `options` — optional (only `type: "directed"` supported; `allowSelfLoops` and `multi` cause errors)
+- `options` — optional (`type` can be `"directed"`, `"undirected"`, or `"mixed"`; `allowSelfLoops` and `multi` cause errors)
 
-Omit `options` — gcyphrq always builds a directed graph.
+Omit `options` — defaults to a directed graph. Use `type: 'undirected'` or `type: 'mixed'` for undirected or mixed graphs respectively. In mixed graphs, set `undirected: true` on edges to make them bidirectional.
 
 ## Supported Cypher Features
 

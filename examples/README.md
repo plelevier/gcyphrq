@@ -19,10 +19,10 @@ Each file uses the [Graphology JSON format](https://graphology.github.io/):
 - **`nodes[].attributes`** — required, node properties (`label` used for Cypher label filtering)
 - **`edges[].source` / `edges[].target`** — required, node keys
 - **`edges[].attributes`** — required, edge properties (`type` used for Cypher relationship filtering)
-- **`options`** — optional, graph-level settings (only `type: "directed"` is supported;
+- **`options`** — optional, graph-level settings (`type` can be `"directed"`, `"undirected"`, or `"mixed"`;
   `allowSelfLoops: true` and `multi: true` will cause an error)
 
-The `options` field can be omitted — gcyphrq always builds a directed graph.
+The `options` field can be omitted — defaults to a directed graph.
 
 ## Available examples
 

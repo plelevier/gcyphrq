@@ -3,7 +3,7 @@
 import { parseCypher as _parseCypher } from './engine/cypher-parser';
 import { AdvancedCypherGraphologyEngine } from './engine/cypher-engine';
 import { buildGraphIndexesFromData, buildGraphIndexesFromGraph } from './indexes';
-import { Graph, type GraphInstance } from './graph';
+import { Graph, wrapExternalGraph, type GraphInstance, type GraphType } from './graph';
 import type { AdvancedCypherAST, ResultRow, GraphIndexes } from './types/cypher';
 
 // ── Graph file format types ──────────────────────────────────────────────────
@@ -56,6 +56,7 @@ export interface NormalizedEdge {
   source: string;
   target: string;
   key?: string;
+  undirected?: boolean;
   [key: string]: unknown;
 }
 
@@ -102,6 +103,7 @@ export interface GraphOptions {
 
 interface ValidationResult {
   normalized: NormalizedGraphFile;
+  graphType: GraphType;
   warnings: string[];
   errors: string[];
 }
@@ -150,14 +152,19 @@ function validateGraphData(data: unknown, opts?: GraphOptions): ValidationResult
     }
   }
 
-  // ── Unsupported options (error) ────────────────────────────────────
+  // ── Graph type extraction ──────────────────────────────────────────
 
   const options = g.options;
+  let graphType: GraphType = 'directed';
   if (options) {
-    if (options.type !== undefined && options.type !== 'directed') {
-      errors.push(
-        `Graphology option "type" is set to "${options.type}" but only "directed" is supported.`,
-      );
+    if (options.type !== undefined) {
+      if (options.type !== 'directed' && options.type !== 'undirected' && options.type !== 'mixed') {
+        errors.push(
+          `Graphology option "type" is set to "${options.type}" but must be "directed", "undirected", or "mixed".`,
+        );
+      } else {
+        graphType = options.type;
+      }
     }
     if (options.allowSelfLoops !== undefined && options.allowSelfLoops !== false) {
       errors.push(
@@ -178,16 +185,19 @@ function validateGraphData(data: unknown, opts?: GraphOptions): ValidationResult
     throw new GraphError(`Unsupported graph option: ${errors[0]}`);
   }
 
-  // ── Warnings (undirected edges) ────────────────────────────────────
+  // ── Warnings (undirected edges in non-mixed graphs) ────────────────
 
-  let undirectedCount = 0;
-  for (const edge of edges) {
-    if (edge.undirected) undirectedCount++;
-  }
-  if (undirectedCount > 0) {
-    warnings.push(
-      `${undirectedCount} edge(s) have "undirected": true but are not supported. Ignoring.`,
-    );
+  if (graphType !== 'mixed') {
+    let undirectedCount = 0;
+    for (const edge of edges) {
+      if (edge.undirected) undirectedCount++;
+    }
+    if (undirectedCount > 0) {
+      warnings.push(
+        `${undirectedCount} edge(s) have "undirected": true but the graph type is "${graphType}". ` +
+        `The "undirected" property is only effective in mixed graphs. Ignoring.`,
+      );
+    }
   }
 
   // ── Normalize ──────────────────────────────────────────────────────
@@ -197,9 +207,10 @@ function validateGraphData(data: unknown, opts?: GraphOptions): ValidationResult
     return { id: key, ...attributes };
   });
   const normalizedEdges: NormalizedEdge[] = edges.map((e) => {
-    const { source, target, key, attributes } = e;
+    const { source, target, key, attributes, undirected } = e;
     const edge: NormalizedEdge = { source, target, ...attributes };
     if (key) edge.key = key;
+    if (undirected) edge.undirected = true;
     return edge;
   });
 
@@ -238,7 +249,13 @@ function validateGraphData(data: unknown, opts?: GraphOptions): ValidationResult
     }
 
     // Duplicate edge pair (source→target)
-    const edgePair = `${e.source}->${e.target}`;
+    // For undirected graphs: all edges are undirected, so A-B and B-A are the same
+    // For mixed graphs: only edges with undirected:true are bidirectional
+    // For directed graphs: A->B and B->A are different edges
+    const isUndirectedEdge = graphType === 'undirected' || e.undirected === true;
+    const edgePair = isUndirectedEdge
+      ? [e.source, e.target].sort().join('-')
+      : `${e.source}->${e.target}`;
     if (seenEdgePairs.has(edgePair)) {
       throw new GraphError(`Invalid graph data: duplicate edge "${edgePair}" at index ${i}. Graphology does not support multi-graphs.`);
     }
@@ -250,7 +267,7 @@ function validateGraphData(data: unknown, opts?: GraphOptions): ValidationResult
     opts?.onWarning?.(`gcyphrq: ${w}`);
   }
 
-  return { normalized: { nodes: normalizedNodes, edges: normalizedEdges }, warnings, errors: [] };
+  return { normalized: { nodes: normalizedNodes, edges: normalizedEdges }, graphType, warnings, errors: [] };
 }
 
 /**
@@ -278,13 +295,13 @@ function validateGraphData(data: unknown, opts?: GraphOptions): ValidationResult
  * @see https://graphology.github.io/
  */
 export function createGraph(data: GraphInput, opts?: GraphOptions): GraphInstance {
-  const { normalized } = validateGraphData(data, opts);
-  return buildGraph(normalized);
+  const { normalized, graphType } = validateGraphData(data, opts);
+  return buildGraph(normalized, graphType);
 }
 
 /** Build a Graphology graph from already-validated data (internal helper). */
-function buildGraph(validated: NormalizedGraphFile): GraphInstance {
-  const graph = new Graph();
+function buildGraph(validated: NormalizedGraphFile, graphType: GraphType): GraphInstance {
+  const graph = new Graph({ type: graphType });
 
   for (const node of validated.nodes) {
     const { id, ...attrs } = node;
@@ -295,12 +312,14 @@ function buildGraph(validated: NormalizedGraphFile): GraphInstance {
   const usedKeys = new Set<string>();
 
   for (const edge of validated.edges) {
-    const { source, target, key, ...attrs } = edge;
+    const { source, target, key, undirected, ...attrs } = edge;
+    // For mixed graphs, pass undirected: true in edge attributes
+    const edgeAttrs = undirected ? { ...attrs, undirected: true } : attrs;
     if (key && !usedKeys.has(key)) {
       usedKeys.add(key);
-      graph.addEdgeWithKey(key, source, target, attrs);
+      graph.addEdgeWithKey(key, source, target, edgeAttrs);
     } else {
-      graph.addEdge(source, target, attrs);
+      graph.addEdge(source, target, edgeAttrs);
     }
   }
 
@@ -353,13 +372,16 @@ export function buildGraphIndexes(dataOrGraph: GraphInput | GraphInstance, graph
       return buildGraphIndexesFromGraph(dataOrGraph);
     }
     // It's data — build graph internally
-    const { normalized } = validateGraphData(dataOrGraph);
-    const builtGraph = buildGraph(normalized);
+    const { normalized, graphType } = validateGraphData(dataOrGraph);
+    const builtGraph = buildGraph(normalized, graphType);
     return buildGraphIndexesFromGraph(builtGraph);
   }
-  // Two-argument form: validate data and build from data + graph
+  // Two-argument form: validate data and build from data + graph.
+  // Wrap raw Graphology graphs (undirected/mixed) so the engine's fallback
+  // path also sees undirected edges bidirectionally.
   const { normalized } = validateGraphData(dataOrGraph as GraphInput);
-  return buildGraphIndexesFromData(normalized, graph);
+  const wrappedGraph = graph instanceof Graph ? graph : wrapExternalGraph(graph as any);
+  return buildGraphIndexesFromData(normalized, wrappedGraph);
 }
 
 // ── Query execution ──────────────────────────────────────────────────────────
@@ -415,10 +437,10 @@ export function executeQuery(graph: GraphInstance, query: string): ResultRow[];
 export function executeQuery(graphData: GraphInput, query: string): ResultRow[];
 export function executeQuery(graphOrData: GraphInstance | GraphInput, query: string): ResultRow[] {
   const graph = isGraphInstance(graphOrData)
-    ? graphOrData
+    ? (graphOrData instanceof Graph ? graphOrData : wrapExternalGraph(graphOrData as any))
     : (() => {
-        const { normalized } = validateGraphData(graphOrData as GraphInput);
-        return buildGraph(normalized);
+        const { normalized, graphType } = validateGraphData(graphOrData as GraphInput);
+        return buildGraph(normalized, graphType);
       })();
   const indexes = buildGraphIndexesFromGraph(graph);
   const engine = new AdvancedCypherGraphologyEngine(graph, indexes);
@@ -495,7 +517,7 @@ export { Graph };
  */
 
 // Re-export GraphInstance from graph.ts for type-only use
-export type { GraphInstance } from './graph';
+export type { GraphInstance, GraphType } from './graph';
 
 // Re-export GraphIndexes for consumers who build indexes manually
 export type { GraphIndexes } from './types/cypher';

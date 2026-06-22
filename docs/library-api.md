@@ -222,12 +222,20 @@ const results = engine.execute(ast);
 
 The Graphology wrapper class. Use this when you need to build a graph programmatically (node-by-node) instead of from a data object.
 
+**Constructor:**
+
+```ts
+new Graph(options?: { type?: 'directed' | 'undirected' | 'mixed' })
+```
+
+Defaults to `'directed'`. For mixed graphs, pass `{ undirected: true }` in edge attributes to create bidirectional edges.
+
 **Methods:**
 
 | Method | Parameters | Returns | Description |
 |---|---|---|---|
 | `addNode(id, attrs?)` | `id: string`, `attrs?: Record<string, unknown>` | `void` | Add a node with optional attributes |
-| `addEdge(a, b, attrs?)` | `a: string`, `b: string`, `attrs?: Record<string, unknown>` | `void` | Add a directed edge |
+| `addEdge(a, b, attrs?)` | `a: string`, `b: string`, `attrs?: Record<string, unknown>` | `void` | Add an edge (directed by default; use `{ undirected: true }` in mixed graphs) |
 | `getNodeAttributes(id)` | `id: string` | `Record<string, unknown>` | Get node attributes |
 | `getEdgeAttributes(id)` | `id: string` | `Record<string, unknown>` | Get edge attributes |
 | `filterNodes(fn)` | `fn: (id, attrs) => boolean` | `string[]` | Filter nodes by predicate |
@@ -237,6 +245,7 @@ The Graphology wrapper class. Use this when you need to build a graph programmat
 | `setNodeAttribute(id, attr, value)` | `id: string`, `attr: string`, `value: unknown` | `void` | Set a node attribute |
 | `hasNode(id)` | `id: string` | `boolean` | Check if node exists |
 | `dropNode(id)` | `id: string` | `void` | Remove a node and its edges |
+| `type` (getter) | — | `'directed' \| 'undirected' \| 'mixed'` | Graph type |
 | `order` | — | `number` | Number of nodes in the graph |
 
 ```ts
@@ -456,12 +465,12 @@ interface GraphologyEdge {
   key?: string;
   source: string;
   target: string;
-  undirected?: boolean;
+  undirected?: boolean; // only effective in mixed graphs; makes the edge bidirectional
   attributes: Record<string, unknown>;
 }
 
 interface GraphologyGraphOptions {
-  type?: 'directed' | 'undirected' | 'mixed'; // only "directed" is supported
+  type?: 'directed' | 'undirected' | 'mixed'; // all three are supported
   allowSelfLoops?: boolean;                    // true will cause an error
   multi?: boolean;                             // true will cause an error
 }

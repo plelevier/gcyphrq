@@ -35,7 +35,7 @@ Graph file format (Graphology JSON):
     ]
   }
 
-  Optional "options" field (only "directed" graphs are supported):
+  Optional "options" field (type: "directed", "undirected", or "mixed"):
     "options": { "type": "directed", "allowSelfLoops": false, "multi": false }
 
 Examples:

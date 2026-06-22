@@ -339,8 +339,8 @@ function evaluateExpression(exprCtx: TreeNode): Expression | undefined {
  * ANTLR4 returns the raw token text including quotes, e.g. `"He said \"hi\""`.
  */
 function unescapeStringLiteral(raw: string): string {
-  // Strip surrounding double quotes
-  if (raw.startsWith('"') && raw.endsWith('"')) {
+  // Strip surrounding quotes (double or single)
+  if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
     raw = raw.slice(1, -1);
   }
   // Handle escape sequences: \", \\, \n, \t, \r, \/
