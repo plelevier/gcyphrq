@@ -7,6 +7,7 @@ import type {
   OrderByItem,
   WithClause,
   WriteClause,
+  UnwindClause,
   Expression,
   BinaryExpression,
   WhereExpression,
@@ -106,6 +107,8 @@ export class AdvancedCypherGraphologyEngine {
         contexts = this.executeWith(stage.clause, contexts);
       } else if (stage.type === 'WRITE') {
         this.executeWrite(stage.clause, contexts);
+      } else if (stage.type === 'UNWIND') {
+        contexts = this.executeUnwind(stage.clause, contexts);
       }
     }
 
@@ -442,6 +445,47 @@ export class AdvancedCypherGraphologyEngine {
     };
   }
 
+  // ── 1b. UNWIND STAGE ─────────────────────────────────────────────────────
+  // Expands a list expression into one row per element. The list can be a
+  // literal list ([1, 2, 3]) or a variable reference (e.g., a property
+  // containing a list). If the list is null or missing, the row is dropped
+  // (matching Neo4j semantics).
+
+  private executeUnwind(
+    clause: UnwindClause,
+    incomingContexts: (QueryContext | ContextChain)[],
+  ): (QueryContext | ContextChain)[] {
+    const outgoingContexts: (QueryContext | ContextChain)[] = [];
+
+    for (const context of incomingContexts) {
+      const flat = isContextChain(context) ? materialiseChain(context) : context;
+      const listValue = this.evaluateExpression(clause.expression, flat);
+
+      // If the list is null/undefined, drop the row (Neo4j semantics)
+      if (listValue === null || listValue === undefined) continue;
+
+      // Must be an array
+      if (!Array.isArray(listValue)) {
+        // Wrap single values in an array for convenience
+        outgoingContexts.push({
+          [CHAIN_BASE]: context,
+          [CHAIN_OVERRIDES]: { [clause.variable]: listValue },
+        });
+        continue;
+      }
+
+      // Expand: one context per element
+      for (const element of listValue) {
+        outgoingContexts.push({
+          [CHAIN_BASE]: context,
+          [CHAIN_OVERRIDES]: { [clause.variable]: element },
+        });
+      }
+    }
+
+    return outgoingContexts;
+  }
+
   // ── 2. WITH & IMPLICIT GROUPING AGGREGATIONS STAGE ─────────────────────────
   // Optimisations applied:
   //   #4  Context chains throughout, materialised only for grouping
@@ -743,14 +787,15 @@ export class AdvancedCypherGraphologyEngine {
       return obj as CypherValue;
     }
     if (expr.type === 'Literal') return expr.value;
-    if (expr.type === 'ListLiteral') return expr.values;
+    if (expr.type === 'ListLiteral') return expr.values as CypherValue;
+    if (expr.type === 'MapLiteral') return expr.values as CypherValue;
     if (expr.type === 'Aggregation') return undefined;
     return undefined;
   }
 
   /** Extract a flat array of CypherLiteral values from a ListLiteral expression or a single literal. */
   private extractListValues(expr: Expression): CypherLiteral[] {
-    if (expr.type === 'ListLiteral') return expr.values;
+    if (expr.type === 'ListLiteral') return expr.values.filter((v): v is CypherLiteral => typeof v !== 'object' || v === null);
     if (expr.type === 'Literal') return [expr.value];
     return [];
   }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseCypher } from '../src/engine/cypher-parser';
-import type { MatchClause, WithClause, WriteClause } from '../src/types/cypher';
+import type { MatchClause, WithClause, WriteClause, UnwindClause } from '../src/types/cypher';
 
 describe('parseCypher', () => {
   describe('MATCH clause', () => {
@@ -927,6 +927,57 @@ describe('parseCypher', () => {
       const agg = proj.expression as { type: 'Aggregation'; aggregationType: string; distinct: boolean };
       expect(agg.aggregationType).toBe('AVG');
       expect(agg.distinct).toBe(true);
+    });
+  });
+
+  describe('UNWIND clause', () => {
+    it('parses UNWIND with a list literal', () => {
+      const ast = parseCypher('UNWIND [1, 2, 3] AS x RETURN x');
+      expect(ast.stages.length).toBe(1);
+      expect(ast.stages[0]?.type).toBe('UNWIND');
+      const clause = (ast.stages[0]! as { type: 'UNWIND'; clause: UnwindClause }).clause;
+      expect(clause.type).toBe('UNWIND');
+      expect(clause.variable).toBe('x');
+      expect(clause.expression.type).toBe('ListLiteral');
+      expect((clause.expression as { type: 'ListLiteral'; values: unknown[] }).values).toEqual([1, 2, 3]);
+    });
+
+    it('parses UNWIND with a string list', () => {
+      const ast = parseCypher('UNWIND ["Alice", "Bob", "Charlie"] AS name RETURN name');
+      const clause = (ast.stages[0]! as { type: 'UNWIND'; clause: UnwindClause }).clause;
+      expect(clause.variable).toBe('name');
+      expect((clause.expression as { type: 'ListLiteral'; values: unknown[] }).values).toEqual(['Alice', 'Bob', 'Charlie']);
+    });
+
+    it('parses UNWIND followed by WITH and RETURN', () => {
+      const ast = parseCypher('UNWIND [1, 2, 3] AS x WITH x * 2 AS doubled RETURN doubled');
+      expect(ast.stages.length).toBe(2);
+      expect(ast.stages[0]?.type).toBe('UNWIND');
+      expect(ast.stages[1]?.type).toBe('WITH');
+      expect(ast.return).toBeDefined();
+    });
+
+    it('parses UNWIND with a variable reference', () => {
+      const ast = parseCypher('MATCH (n:User) UNWIND n.tags AS tag RETURN n.name, tag');
+      expect(ast.stages.length).toBe(2);
+      expect(ast.stages[0]?.type).toBe('MATCH');
+      expect(ast.stages[1]?.type).toBe('UNWIND');
+      const clause = (ast.stages[1]! as { type: 'UNWIND'; clause: UnwindClause }).clause;
+      expect(clause.variable).toBe('tag');
+      expect(clause.expression.type).toBe('PropertyAccess');
+      const pa = clause.expression as { type: 'PropertyAccess'; variable: string; property: string };
+      expect(pa.variable).toBe('n');
+      expect(pa.property).toBe('tags');
+    });
+
+    it('parses UNWIND with a bare variable reference', () => {
+      const ast = parseCypher('MATCH (n:User) WITH n.tags AS myList UNWIND myList AS tag RETURN tag');
+      expect(ast.stages.length).toBe(3);
+      expect(ast.stages[2]?.type).toBe('UNWIND');
+      const clause = (ast.stages[2]! as { type: 'UNWIND'; clause: UnwindClause }).clause;
+      expect(clause.variable).toBe('tag');
+      expect(clause.expression.type).toBe('PropertyAccess');
+      expect((clause.expression as { type: 'PropertyAccess'; variable: string }).variable).toBe('myList');
     });
   });
 });

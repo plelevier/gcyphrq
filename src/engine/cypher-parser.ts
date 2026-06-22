@@ -8,9 +8,11 @@ import type {
   Direction,
   WithClause,
   WriteClause,
+  UnwindClause,
   Expression,
   BinaryExpression,
   ListLiteralExpression,
+  MapLiteralExpression,
   WhereExpression,
   IsNullExpression,
   ReturnClause,
@@ -99,6 +101,7 @@ const Ctx = {
   Where: 'WhereContext',
   WithClause: 'WithClauseContext',
   XorExpression: 'XorExpressionContext',
+  UnwindClause: 'UnwindClauseContext',
 } as const;
 
 /**
@@ -336,6 +339,10 @@ function evaluateExpression(exprCtx: TreeNode): Expression | undefined {
   const listLitExpr = extractListLiteralExpression(atom);
   if (listLitExpr) return listLitExpr;
 
+  // Map literal (e.g., {name: "Alice", age: 30})
+  const mapLitExpr = extractMapLiteralExpression(atom);
+  if (mapLitExpr) return mapLitExpr;
+
   // Literal
   const literalCtx = findChild(atom, Ctx.Literal);
   const literal = extractLiteral(literalCtx);
@@ -563,6 +570,9 @@ function computeDefaultAlias(expr: Expression): string {
   }
   if (expr.type === 'ListLiteral') {
     return 'list';
+  }
+  if (expr.type === 'MapLiteral') {
+    return 'map';
   }
   return String(expr.value);
 }
@@ -1093,14 +1103,34 @@ function extractListLiteralExpression(ctx: TreeNode): ListLiteralExpression | un
   const listLitCtx = findDescendant(ctx, Ctx.ListLiteral);
   if (!listLitCtx) return undefined;
   const listExprs = findAllChildren(listLitCtx, Ctx.Expression);
-  const values: CypherLiteral[] = [];
+  const values: (CypherLiteral | Record<string, CypherLiteral>)[] = [];
   for (const le of listExprs) {
     const val = evaluateExpression(le);
     if (val && val.type === 'Literal') {
       values.push(val.value);
+    } else if (val && val.type === 'MapLiteral') {
+      values.push(val.values);
     }
   }
   return { type: 'ListLiteral' as const, values };
+}
+
+/** Extract a map literal expression from an AtomContext (e.g., {name: "Alice", age: 30}). */
+function extractMapLiteralExpression(ctx: TreeNode): MapLiteralExpression | undefined {
+  const mapLitCtx = findDescendant(ctx, Ctx.MapLiteral);
+  if (!mapLitCtx) return undefined;
+  const entries = findAllChildren(mapLitCtx, Ctx.LiteralEntry);
+  const values: Record<string, CypherLiteral> = {};
+  for (const entry of entries) {
+    const keyCtx = findChild(entry, Ctx.PropertyKey);
+    const key = getSymbolicName(keyCtx);
+    const exprCtx = findChild(entry, Ctx.Expression);
+    const value = evaluateExpression(exprCtx);
+    if (key && value && value.type === 'Literal') {
+      values[key] = value.value;
+    }
+  }
+  return { type: 'MapLiteral' as const, values };
 }
 
 /** Extract a value expression from a PropertyOrLabelsExpression (used for CONTAINS/IN/STARTS WITH/ENDS WITH RHS). */
@@ -1237,6 +1267,23 @@ function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
   return undefined;
 }
 
+function extractUnwindClause(clauseCtx: ParseTreeNode): UnwindClause | undefined {
+  const unwindCtx = findChild(clauseCtx, Ctx.UnwindClause);
+  if (!unwindCtx) return undefined;
+
+  // Expression: the list to unwind (e.g., [1, 2, 3] or a variable reference)
+  const exprCtx = findChild(unwindCtx, Ctx.Expression);
+  const expr = evaluateExpression(exprCtx);
+  if (!expr) throw new Error('Failed to parse UNWIND: missing list expression.');
+
+  // Variable: the alias after AS (e.g., AS x)
+  const varCtx = findChild(unwindCtx, Ctx.Variable);
+  const variable = getSymbolicName(varCtx);
+  if (!variable) throw new Error('Failed to parse UNWIND: missing variable after AS.');
+
+  return { type: 'UNWIND' as const, expression: expr, variable };
+}
+
 // ── Main parser ──────────────────────────────────────────────────────────────
 
 export function parseCypher(query: string): AdvancedCypherAST {
@@ -1290,6 +1337,9 @@ export function parseCypher(query: string): AdvancedCypherAST {
     } else if (findChild(clause, Ctx.DeleteClause)) {
       const writeClause = extractWriteClause(clause);
       if (writeClause) stages.push({ type: 'WRITE', clause: writeClause });
+    } else if (findChild(clause, Ctx.UnwindClause)) {
+      const unwindClause = extractUnwindClause(clause);
+      if (unwindClause) stages.push({ type: 'UNWIND', clause: unwindClause });
     }
   }
 
