@@ -47,7 +47,9 @@ cat examples/social-graph.json | gcyphrq -g - -e 'MATCH (u:User) RETURN u'
 See the [Examples page](https://plelevier.github.io/gcyphrq/examples/) for 30 ready-to-run queries with sample output, covering:
 
 - Node and relationship matching with labels, properties, and variable-length paths
-- Aggregations (`count()`, `sum()`, `avg()`, `min()`, `max()`)
-- Filtering with `WHERE` (`AND`, `OR`, `NOT`, `CONTAINS`, `IS NULL`)
+- Aggregations (`count()`, `sum()`, `avg()`, `min()`, `max()`, `count(DISTINCT)`, `sum(DISTINCT)`)
+- Filtering with `WHERE` (`AND`, `OR`, `NOT`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `IS NULL`)
+- String comparisons (`<`, `>`)
+- `RETURN DISTINCT` and `UNWIND` for deduplication and list expansion
 - Sorting with `ORDER BY` and pagination with `SKIP` / `LIMIT`
 - Blast radius analysis, dependency chains, and infrastructure topology queries

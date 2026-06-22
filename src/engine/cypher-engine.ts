@@ -734,43 +734,61 @@ export class AdvancedCypherGraphologyEngine {
     } else {
       const materialised = contexts.map((c) => materialiseChain(c));
 
-      let workingContexts = materialised;
+      // Project rows, keeping context alongside for ORDER BY evaluation
+      const projected = materialised.map((context) => {
+        const row: ResultRow = {};
+        clause.projections.forEach((p) => {
+          row[p.alias] = this.evaluateExpression(p.expression, context);
+        });
+        return { row, context };
+      });
+
+      // Apply DISTINCT before ORDER BY (Cypher semantics: DISTINCT → ORDER BY → SKIP → LIMIT)
+      const hasDistinct = clause.projections.some((p) => p.distinct);
+      if (hasDistinct) {
+        const seen = new Set<string>();
+        const deduped: typeof projected = [];
+        for (const { row, context } of projected) {
+          const key = clause.projections
+            .map((p) => JSON.stringify(row[p.alias]))
+            .join('\0');
+          if (!seen.has(key)) {
+            seen.add(key);
+            deduped.push({ row, context });
+          }
+        }
+        projected.splice(0, projected.length, ...deduped);
+      }
+
+      // ORDER BY applied after DISTINCT
       if (clause.orderBy && clause.orderBy.length > 0) {
-        workingContexts = this.applyOrderByToContexts(workingContexts, clause.orderBy);
+        const keyed = projected.map(({ row, context }) => ({
+          row,
+          context,
+          keys: clause.orderBy!.map((item) => this.evaluateExpression(item.expression, context)),
+        }));
+        keyed.sort((a, b) => {
+          for (let i = 0; i < clause.orderBy!.length; i++) {
+            const cmp = this.compareValues(a.keys[i], b.keys[i]);
+            const item = clause.orderBy![i];
+            if (cmp !== 0 && item) return item.direction === 'DESC' ? -cmp : cmp;
+          }
+          return 0;
+        });
+        projected.splice(0, projected.length, ...keyed.map((k) => ({ row: k.row, context: k.context })));
       }
 
       // SKIP applied after ORDER BY, before LIMIT
       if (clause.skip !== undefined && clause.skip !== null) {
-        workingContexts = workingContexts.slice(clause.skip);
+        projected.splice(0, clause.skip);
       }
 
-      // LIMIT applied to contexts before projection
+      // LIMIT applied after SKIP
       if (clause.limit !== undefined && clause.limit !== null) {
-        workingContexts = workingContexts.slice(0, clause.limit);
+        projected.length = Math.min(projected.length, clause.limit);
       }
 
-      results = workingContexts.map((context) => {
-        const res: ResultRow = {};
-        clause.projections.forEach((p) => {
-          res[p.alias] = this.evaluateExpression(p.expression, context);
-        });
-        return res;
-      });
-
-      // Apply DISTINCT: deduplicate rows based on projected values.
-      // Use null-byte separator to avoid collision with values containing the separator.
-      const hasDistinct = clause.projections.some((p) => p.distinct);
-      if (hasDistinct) {
-        const seen = new Set<string>();
-        results = results.filter((row) => {
-          const key = clause.projections
-            .map((p) => JSON.stringify(row[p.alias]))
-            .join('\0');
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-      }
+      results = projected.map((p) => p.row);
     }
 
     return results;
