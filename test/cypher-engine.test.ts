@@ -50,7 +50,7 @@ function buildIndexesFromGraph(graph: GraphInstance): GraphIndexes {
     il.push({ source, edgeId });
   });
 
-  return { labelIndex, propertyIndex, edgeTypeIndex: { out: edgeOut, in: edgeIn } };
+  return { labelIndex, propertyIndex, edgeTypeIndex: { out: edgeOut, in: edgeIn }, config: { labelProperty: 'label', edgeTypeProperty: 'type' } };
 }
 
 function createTestGraph() {

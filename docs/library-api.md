@@ -62,7 +62,7 @@ No graph data reconstruction needed — the library builds indexes directly from
 
 ## API Reference
 
-### `executeQuery(graphData, query)`
+### `executeQuery(graphData, query, opts?)`
 
 Execute a Cypher query against a graph and return results as plain JSON. This is the simplest entry point — pass in graph data and a query string, get back an array of result rows.
 
@@ -72,6 +72,7 @@ Execute a Cypher query against a graph and return results as plain JSON. This is
 |---|---|---|
 | `graphData` | [`GraphInput`](#graphinput) | Graph data in Graphology JSON format |
 | `query` | `string` | A Cypher query string |
+| `opts` | [`IndexBuildOptions`](#indexbuildoptions) (optional) | Configuration for label/edge-type property names and warnings |
 
 **Returns:** `ResultRow[]` — array of result rows
 
@@ -83,7 +84,19 @@ import { executeQuery } from 'gcyphrq';
 const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 ```
 
-#### `executeQuery(graph, query)` — with a Graphology Graph
+#### Custom Label/Edge-Type Property Names
+
+By default gcyphrq reads `label` from node attributes and `type` from edge attributes. Use the `config` option to point at different property names:
+
+```ts
+import { executeQuery } from 'gcyphrq';
+
+const results = executeQuery(graphData, 'MATCH (s:Service) RETURN s.name', {
+  config: { labelProperty: 'kind', edgeTypeProperty: 'rel' },
+});
+```
+
+#### `executeQuery(graph, query, opts?)` — with a Graphology Graph
 
 Execute a Cypher query against an existing Graphology `Graph` instance. Indexes are built automatically from the graph.
 
@@ -93,6 +106,7 @@ Execute a Cypher query against an existing Graphology `Graph` instance. Indexes 
 |---|---|---|
 | `graph` | Any Graphology `Graph` | An existing graph instance (from `graphology` or the library's `Graph` wrapper) |
 | `query` | `string` | A Cypher query string |
+| `opts` | [`IndexBuildOptions`](#indexbuildoptions) (optional) | Configuration for label/edge-type property names and warnings |
 
 **Returns:** `ResultRow[]` — array of result rows
 
@@ -112,7 +126,7 @@ const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name');
 
 ---
 
-### `createGraph(graphData)`
+### `createGraph(graphData, opts?)`
 
 Build a `GraphInstance` from a graph data object. Validates the data and constructs a Graphology-backed graph that the Cypher engine can query.
 
@@ -121,6 +135,7 @@ Build a `GraphInstance` from a graph data object. Validates the data and constru
 | Parameter | Type | Description |
 |---|---|---|
 | `graphData` | [`GraphInput`](#graphinput) | Graph data in Graphology JSON format |
+| `opts` | `GraphOptions` (optional) | Optional `onWarning` callback. Note: `config` (label/edge-type property names) is **not** supported here — use it with `buildGraphIndexes` or `executeQuery` instead |
 
 **Returns:** `GraphInstance`
 
@@ -165,9 +180,11 @@ Build pre-computed indexes for fast query execution. Pass the returned indexes t
 
 | Signature | Description |
 |---|---|
-| `buildGraphIndexes(graph)` | Build indexes from an existing Graphology graph |
-| `buildGraphIndexes(data)` | Build indexes from graph data alone (builds graph internally) |
-| `buildGraphIndexes(data, graph)` | Build indexes from graph data + graph instance |
+| `buildGraphIndexes(graph, opts?)` | Build indexes from an existing Graphology graph |
+| `buildGraphIndexes(data, opts?)` | Build indexes from graph data alone (builds graph internally) |
+| `buildGraphIndexes(data, graph, opts?)` | Build indexes from graph data + graph instance |
+
+All overloads accept an optional `opts` argument of type [`IndexBuildOptions`](#indexbuildoptions).
 
 **Returns:** `GraphIndexes`
 
@@ -179,6 +196,20 @@ const graph = new Graph();
 graph.addNode('alice', { label: 'User', name: 'Alice' });
 
 const indexes = buildGraphIndexes(graph);
+const engine = new GraphEngine(graph, indexes);
+```
+
+#### Custom Label/Edge-Type Property Names
+
+By default gcyphrq reads `label` from node attributes and `type` from edge attributes. Use `opts.config` to point at different property names:
+
+```ts
+import { buildGraphIndexes, GraphEngine } from 'gcyphrq';
+
+const graph = createGraph(graphData);
+const indexes = buildGraphIndexes(graph, {
+  config: { labelProperty: 'kind', edgeTypeProperty: 'rel' },
+});
 const engine = new GraphEngine(graph, indexes);
 ```
 
@@ -404,6 +435,11 @@ import type {
   GraphInstance,
   GraphIndexes,
 
+  // Options
+  GraphOptions,
+  IndexBuildOptions,
+  GraphConfig,
+
   // AST types
   AdvancedCypherAST,
   Stage,
@@ -442,6 +478,32 @@ Graph data in Graphology JSON format:
 
 ```ts
 type GraphInput = GraphologyFile;
+```
+
+#### `IndexBuildOptions`
+
+Options for `buildGraphIndexes` and `executeQuery`. Extends `GraphOptions` with an optional `config` field.
+
+```ts
+interface IndexBuildOptions extends GraphOptions {
+  config?: {
+    /** Node attribute key used as the Cypher label (default: `"label"`). */
+    labelProperty?: string;
+    /** Edge attribute key used as the Cypher relationship type (default: `"type"`). */
+    edgeTypeProperty?: string;
+  };
+}
+```
+
+#### `GraphOptions`
+
+Options for `createGraph`. Does **not** include `config` (label/edge-type property names).
+
+```ts
+interface GraphOptions {
+  /** Callback for non-fatal warnings during graph construction. */
+  onWarning?: (message: string) => void;
+}
 ```
 
 #### `GraphologyFile`

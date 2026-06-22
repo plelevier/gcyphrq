@@ -18,6 +18,7 @@ import type {
   CypherValue,
   ResultRow,
   GraphIndexes,
+  GraphConfig,
   Projection,
 } from '../types/cypher';
 import type { GraphInstance } from '../graph';
@@ -81,10 +82,12 @@ function materialiseChain(chain: QueryContext | ContextChain): QueryContext {
 export class AdvancedCypherGraphologyEngine {
   private graph: GraphInstance;
   private indexes: GraphIndexes | undefined;
+  private config: GraphConfig;
 
   constructor(graph: GraphInstance, indexes?: GraphIndexes) {
     this.graph = graph;
     this.indexes = indexes;
+    this.config = indexes?.config ?? { labelProperty: 'label', edgeTypeProperty: 'type' };
   }
 
   /**
@@ -430,7 +433,7 @@ export class AdvancedCypherGraphologyEngine {
       };
 
       iterator(nodeId, (edgeId, edgeAttr, source, target) => {
-        if (relation.type && edgeAttr.type !== relation.type) return;
+        if (relation.type && edgeAttr[this.config.edgeTypeProperty] !== relation.type) return;
         const neighborId = nodeId === source ? target : source;
         cb(neighborId, edgeId);
       });
@@ -585,8 +588,8 @@ export class AdvancedCypherGraphologyEngine {
     // CREATE executes once per query; SET/DELETE execute per context row
     if (clause.type === 'CREATE') {
       const newId = randomUUID();
-      this.graph.addNode(newId, { label: clause.label, ...clause.properties });
-      const newNode = { id: newId, label: clause.label, ...clause.properties } as CypherNode;
+      this.graph.addNode(newId, { [this.config.labelProperty]: clause.label, ...clause.properties });
+      const newNode = { id: newId, [this.config.labelProperty]: clause.label, ...clause.properties } as CypherNode;
       for (const context of materialised) {
         context[clause.variable] = newNode;
       }
@@ -806,7 +809,7 @@ export class AdvancedCypherGraphologyEngine {
   }
 
   private matchNodeCriteria(nodeAttr: Record<string, unknown>, pattern: NodePattern): boolean {
-    if (pattern.label !== undefined && nodeAttr.label !== pattern.label) return false;
+    if (pattern.label !== undefined && nodeAttr[this.config.labelProperty] !== pattern.label) return false;
     const props = pattern.properties;
     if (props) {
       return Object.keys(props).every((k) => nodeAttr[k] === props[k]);

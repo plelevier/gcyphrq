@@ -20,12 +20,15 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 gcyphrq -g graph.json -e 'MATCH (n:Service) RETURN n'    # query file
 cat graph.json | gcyphrq -g - -e '...'                    # stdin
 gcyphrq -g g.json -e '...' --format rows                  # force rows output
+gcyphrq -g g.json -nl kind -et rel -e '...'              # custom label/edge-type properties
 ```
 
 | Flag | Description |
 |---|---|
 | `-e <query>` | Cypher expression (required) |
 | `-g <file\|->` | graph JSON file or `-` for stdin (required) |
+| `-nl, --node-label-property-name <prop>` | Node attribute key for Cypher labels (default: `"label"`) |
+| `-et, --edge-type-property-name <prop>` | Edge attribute key for Cypher types (default: `"type"`) |
 | `--format graph\|rows` | `graph` (default, chainable) or `rows` (array of objects) |
 
 Graph format output can be piped back via `-g -` to chain queries. Scalar results (property access, aggregations) auto-fall back to rows format.
@@ -34,8 +37,8 @@ Graph format output can be piped back via `-g -` to chain queries. Scalar result
 
 Graphology JSON: `{ nodes: [{ key, attributes }], edges: [{ source, target, attributes }] }`.
 
-- `attributes.label` → Cypher node label (`:Service`)
-- `attributes.type` on edges → relationship type (`[:TCP]`)
+- `attributes.label` → Cypher node label (`:Service`). Customize with `-nl` CLI flag.
+- `attributes.type` on edges → relationship type (`[:TCP]`). Customize with `-et` CLI flag.
 - All other attributes → filterable properties (`{name: "X"}`, `{region: "us-east-1"}`)
 
 ## Supported Cypher

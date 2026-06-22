@@ -16,9 +16,9 @@ Each file uses the [Graphology JSON format](https://graphology.github.io/):
 ```
 
 - **`nodes[].key`** — required, unique node identifier
-- **`nodes[].attributes`** — required, node properties (`label` used for Cypher label filtering)
+- **`nodes[].attributes`** — required, node properties (`label` used for Cypher label filtering; customizable via `--node-label-property-name` CLI flag or `config.labelProperty` library option)
 - **`edges[].source` / `edges[].target`** — required, node keys
-- **`edges[].attributes`** — required, edge properties (`type` used for Cypher relationship filtering)
+- **`edges[].attributes`** — required, edge properties (`type` used for Cypher relationship filtering; customizable via `--edge-type-property-name` CLI flag or `config.edgeTypeProperty` library option)
 - **`options`** — optional, graph-level settings (`type` can be `"directed"`, `"undirected"`, or `"mixed"`;
   `allowSelfLoops: true` and `multi: true` will cause an error)
 
