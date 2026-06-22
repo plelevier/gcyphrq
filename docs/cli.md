@@ -24,6 +24,8 @@ gcyphrq [options]
 |---|---|
 | `-e, --expr <query>` | Cypher query expression (**required** for queries) |
 | `-g, --graph <file>` | Path to a JSON graph file, or `"-"` to read from stdin (**required** for queries) |
+| `-nl, --node-label-property-name <prop>` | Node attribute key to use as Cypher label (default: `"label"`) |
+| `-et, --edge-type-property-name <prop>` | Edge attribute key to use as Cypher relationship type (default: `"type"`) |
 | `--format <graph\|rows>` | Output format: `graph` (default) or `rows`. Note: when returning only scalar values (property access, aggregations), the CLI auto-falls back to `rows` regardless of this setting |
 | `--install <mode>` | Install the gcyphrq skill for AI coding agents. Mode: `global` (symlinks) or `local` (copies into current directory) |
 | `-v, --version` | Show version number |

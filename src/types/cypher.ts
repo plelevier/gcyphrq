@@ -16,6 +16,24 @@ export interface CypherEdge {
   [key: string]: CypherLiteral | string | undefined;
 }
 
+// ── Config types ─────────────────────────────────────────────────────────────
+
+/**
+ * Configuration for the property names used to identify node labels and edge types.
+ *
+ * By default gcyphrq reads `label` from node attributes and `type` from edge
+ * attributes. Use this to point at different property names in your data.
+ */
+export interface GraphConfig {
+  /** Node attribute key used as the Cypher label (default: `"label"`). */
+  labelProperty: string;
+  /** Edge attribute key used as the Cypher relationship type (default: `"type"`). */
+  edgeTypeProperty: string;
+}
+
+/** Default config: `label` for node labels, `type` for edge types. */
+export const DEFAULT_CONFIG: GraphConfig = { labelProperty: 'label', edgeTypeProperty: 'type' };
+
 // ── Index types ──────────────────────────────────────────────────────────────
 
 /**
@@ -40,6 +58,8 @@ export interface GraphIndexes {
     out: Map<string, Map<string, Array<{ target: string; edgeId: string }>>>;
     in: Map<string, Map<string, Array<{ source: string; edgeId: string }>>>;
   };
+  /** Resolved config used when building these indexes (defaults to `label`/`type`). */
+  config?: GraphConfig;
 }
 
 export type CypherValue = CypherNode | CypherEdge[] | CypherLiteral | null | undefined;

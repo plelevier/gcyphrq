@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Graph, type GraphInstance } from '../src/graph';
 import { AdvancedCypherGraphologyEngine } from '../src/engine/cypher-engine';
 import { parseCypher } from '../src/engine/cypher-parser';
-import type { CypherNode, GraphIndexes } from '../src/types/cypher';
+import { DEFAULT_CONFIG, type CypherNode, type GraphIndexes } from '../src/types/cypher';
 
 /** Cast a result-row value to CypherNode for test assertions. */
 function node<T extends Record<string, unknown>>(row: T, key: keyof T): CypherNode {
@@ -50,7 +50,7 @@ function buildIndexesFromGraph(graph: GraphInstance): GraphIndexes {
     il.push({ source, edgeId });
   });
 
-  return { labelIndex, propertyIndex, edgeTypeIndex: { out: edgeOut, in: edgeIn } };
+  return { labelIndex, propertyIndex, edgeTypeIndex: { out: edgeOut, in: edgeIn }, config: DEFAULT_CONFIG };
 }
 
 function createTestGraph() {

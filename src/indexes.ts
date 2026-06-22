@@ -1,4 +1,4 @@
-import type { GraphIndexes } from './types/cypher';
+import type { GraphIndexes, GraphConfig } from './types/cypher';
 import type { GraphInstance } from './graph';
 import type { NormalizedGraphFile } from './lib';
 
@@ -17,17 +17,23 @@ import type { NormalizedGraphFile } from './lib';
 function buildIndexes(
   nodeIterator: Iterable<[string, Record<string, unknown>]>,
   graph: GraphInstance,
+  config: GraphConfig,
+  onWarning?: (message: string) => void,
 ): GraphIndexes {
   const labelIndex = new Map<string, Set<string>>();
   const propertyIndex = new Map<string, Map<string, Set<string>>>();
   const edgeOut = new Map<string, Map<string, Array<{ target: string; edgeId: string }>>>();
   const edgeIn = new Map<string, Map<string, Array<{ source: string; edgeId: string }>>>();
+  let hasLabelProperty = false;
+  let hasEdgeTypeProperty = false;
+  let edgeCount = 0;
 
   // Build label and property indexes
   for (const [id, attrs] of nodeIterator) {
-    const label = attrs.label;
+    const label = attrs[config.labelProperty];
 
     if (label && typeof label === 'string') {
+      hasLabelProperty = true;
       let labelSet = labelIndex.get(label);
       if (!labelSet) {
         labelSet = new Set();
@@ -37,7 +43,7 @@ function buildIndexes(
     }
 
     for (const [key, value] of Object.entries(attrs)) {
-      if (key === 'id' || key === 'label') continue;
+      if (key === 'id' || key === config.labelProperty) continue;
       if (value === null || value === undefined || typeof value === 'object') continue;
       let valMap = propertyIndex.get(key);
       if (!valMap) {
@@ -56,8 +62,12 @@ function buildIndexes(
 
   // Build edge type adjacency index
   const isUndirectedGraph = graph.type === 'undirected';
+  const edgeTypeKey = config.edgeTypeProperty;
   graph.forEachEdge((edgeId, attrs, source, target) => {
-    const edgeType = (attrs.type && typeof attrs.type === 'string') ? attrs.type : '__UNTYPED__';
+    edgeCount++;
+    const rawType = attrs[edgeTypeKey];
+    if (rawType && typeof rawType === 'string') hasEdgeTypeProperty = true;
+    const edgeType = (rawType && typeof rawType === 'string') ? rawType : '__UNTYPED__';
     const isUndirectedEdge = isUndirectedGraph || attrs.undirected === true;
 
     // Canonical direction: source → target
@@ -115,10 +125,21 @@ function buildIndexes(
     }
   });
 
+  // Warn if configured property names don't exist in the graph
+  // Always emit via onWarning or console.warn as a last resort
+  const warn = onWarning ?? ((msg: string) => console.warn(msg));
+  if (!hasLabelProperty) {
+    warn(`No nodes have a "${config.labelProperty}" property. Label-based matching (e.g. MATCH (n:Label)) will return no results.`);
+  }
+  if (edgeCount > 0 && !hasEdgeTypeProperty) {
+    warn(`No edges have a "${config.edgeTypeProperty}" property. Relationship-type matching (e.g. -[:TYPE]->) will not use the adjacency index and will scan all edges instead.`);
+  }
+
   return {
     labelIndex,
     propertyIndex,
     edgeTypeIndex: { out: edgeOut, in: edgeIn },
+    config,
   };
 }
 
@@ -138,10 +159,14 @@ function buildIndexes(
  * @param graph - Any Graphology graph instance (must satisfy `GraphInstance`)
  * @returns Indexes for use with `GraphEngine`
  */
-export function buildGraphIndexesFromGraph(graph: GraphInstance): GraphIndexes {
+export function buildGraphIndexesFromGraph(
+  graph: GraphInstance,
+  config: GraphConfig,
+  onWarning?: (message: string) => void,
+): GraphIndexes {
   const allNodes = graph.filterNodes(() => true);
   const nodeEntries: [string, Record<string, unknown>][] = allNodes.map((id) => [id, graph.getNodeAttributes(id)]);
-  return buildIndexes(nodeEntries, graph);
+  return buildIndexes(nodeEntries, graph, config, onWarning);
 }
 
 /**
@@ -160,7 +185,12 @@ export function buildGraphIndexesFromGraph(graph: GraphInstance): GraphIndexes {
  * @param graph - Constructed Graphology graph (provides real edge IDs)
  * @returns Indexes for use with `GraphEngine`
  */
-export function buildGraphIndexesFromData(data: NormalizedGraphFile, graph: GraphInstance): GraphIndexes {
+export function buildGraphIndexesFromData(
+  data: NormalizedGraphFile,
+  graph: GraphInstance,
+  config: GraphConfig,
+  onWarning?: (message: string) => void,
+): GraphIndexes {
   const nodeEntries: [string, Record<string, unknown>][] = data.nodes.map((node) => [node.id, node]);
-  return buildIndexes(nodeEntries, graph);
+  return buildIndexes(nodeEntries, graph, config, onWarning);
 }

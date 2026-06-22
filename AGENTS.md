@@ -50,10 +50,10 @@ src/
 
 ### Library API (`lib.ts`)
 
-- **`createGraph(data)`** — Validate graph data, build `GraphInstance`
-- **`buildGraphIndexes(data, graph)`** — Build pre-computed indexes
+- **`createGraph(data)`** — Validate graph data, build `GraphInstance` (does not accept `config`)
+- **`buildGraphIndexes(data, graph, opts?)`** — Build pre-computed indexes. Use `opts.config` to customize property names.
 - **`parseCypher(query)`** — Parse Cypher string → AST
-- **`executeQuery(graphData, query)`** — One-shot: graph data + query → results
+- **`executeQuery(graphData, query, opts?)`** — One-shot: graph data + query → results. Accepts `opts.config`.
 - **`GraphEngine`** — Query engine class (alias for `AdvancedCypherGraphologyEngine`)
 
 ### Graph file format
@@ -68,9 +68,9 @@ Uses [Graphology JSON format](https://graphology.github.io/):
 ```
 
 - `nodes[].key` — required, unique identifier
-- `nodes[].attributes` — required, node properties (`label` used for Cypher label filtering)
+- `nodes[].attributes` — required, node properties (`label` used for Cypher label filtering; customizable via `--node-label-property-name` CLI flag or `config.labelProperty` library option)
 - `edges[].source` / `edges[].target` — required, node keys
-- `edges[].attributes` — required, edge properties (`type` used for relationship filtering)
+- `edges[].attributes` — required, edge properties (`type` used for relationship filtering; customizable via `--edge-type-property-name` CLI flag or `config.edgeTypeProperty` library option)
 - `options` — optional (`type` can be `"directed"`, `"undirected"`, or `"mixed"`; `allowSelfLoops` and `multi` cause errors)
 
 Omit `options` — defaults to a directed graph. Use `type: 'undirected'` or `type: 'mixed'` for undirected or mixed graphs respectively. In mixed graphs, set `undirected: true` on edges to make them bidirectional.

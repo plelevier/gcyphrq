@@ -4,7 +4,8 @@ import { parseCypher as _parseCypher } from './engine/cypher-parser';
 import { AdvancedCypherGraphologyEngine } from './engine/cypher-engine';
 import { buildGraphIndexesFromData, buildGraphIndexesFromGraph } from './indexes';
 import { Graph, wrapExternalGraph, type GraphInstance, type GraphType } from './graph';
-import type { AdvancedCypherAST, ResultRow, GraphIndexes } from './types/cypher';
+import { DEFAULT_CONFIG } from './types/cypher';
+import type { AdvancedCypherAST, ResultRow, GraphIndexes, GraphConfig } from './types/cypher';
 
 // ── Graph file format types ──────────────────────────────────────────────────
 
@@ -78,10 +79,28 @@ export class GraphError extends Error {
   }
 }
 
+// ── Config resolution ────────────────────────────────────────────────────────
+
+/**
+ * Resolve a partial IndexBuildOptions.config into a fully-resolved GraphConfig.
+ * Missing fields default to `'label'` and `'type'` respectively.
+ */
+function resolveConfig(opts?: IndexBuildOptions): GraphConfig {
+  const c = opts?.config;
+  return {
+    labelProperty: c?.labelProperty ?? DEFAULT_CONFIG.labelProperty,
+    edgeTypeProperty: c?.edgeTypeProperty ?? DEFAULT_CONFIG.edgeTypeProperty,
+  };
+}
+
 // ── Graph construction ───────────────────────────────────────────────────────
 
 /**
  * Options for graph construction functions.
+ *
+ * Note: this type does **not** include `config` (label/edge-type property
+ * names). That option is only used by `buildGraphIndexes` and `executeQuery`,
+ * not by `createGraph`.
  */
 export interface GraphOptions {
   /**
@@ -99,6 +118,29 @@ export interface GraphOptions {
    * ```
    */
   onWarning?: (message: string) => void;
+}
+
+/**
+ * Options for index-building functions.
+ *
+ * Extends `GraphOptions` with an optional `config` field for customizing
+ * the property names used as node labels and edge types.
+ *
+ * @example
+ * ```ts
+ * import { createGraph, buildGraphIndexes } from 'gcyphrq';
+ *
+ * const graph = createGraph(graphData);
+ * const indexes = buildGraphIndexes(graph, { config: { labelProperty: 'kind', edgeTypeProperty: 'rel' } });
+ * ```
+ */
+export interface IndexBuildOptions extends GraphOptions {
+  /**
+   * Configuration for the property names used as node labels and edge types.
+   * By default gcyphrq reads `label` from node attributes and `type` from
+   * edge attributes. Use this to point at different property names.
+   */
+  config?: Partial<GraphConfig>;
 }
 
 interface ValidationResult {
@@ -337,6 +379,10 @@ function buildGraph(validated: NormalizedGraphFile, graphType: GraphType): Graph
  *    Builds the graph internally and indexes from it.
  * 3. `buildGraphIndexes(data, graph)` — from graph data + graph instance.
  *
+ * All overloads accept an optional second (or third) `opts` argument of type
+ * `IndexBuildOptions`. Use `opts.config` to customize the property names used
+ * for node labels and edge types, and `opts.onWarning` to capture warnings.
+ *
  * Pass the returned indexes to `GraphEngine` constructor for O(1) label
  * and property lookups instead of full-graph scans.
  *
@@ -360,25 +406,60 @@ function buildGraph(validated: NormalizedGraphFile, graphType: GraphType): Graph
  * const graph = createGraph(graphData);
  * const indexes = buildGraphIndexes(graphData, graph);
  * const engine = new GraphEngine(graph, indexes);
+ *
+ * // With custom label/edge-type property names
+ * const indexes = buildGraphIndexes(graph, {
+ *   config: { labelProperty: 'kind', edgeTypeProperty: 'rel' },
+ * });
  * ```
  */
-export function buildGraphIndexes(graph: GraphInstance): GraphIndexes;
-export function buildGraphIndexes(data: GraphInput): GraphIndexes;
-export function buildGraphIndexes(data: GraphInput, graph: GraphInstance): GraphIndexes;
-export function buildGraphIndexes(dataOrGraph: GraphInput | GraphInstance, graph?: GraphInstance): GraphIndexes {
-  // Single-argument form: is it a graph instance or data?
-  if (graph === undefined) {
+export function buildGraphIndexes(graph: GraphInstance, opts?: IndexBuildOptions): GraphIndexes;
+export function buildGraphIndexes(data: GraphInput, opts?: IndexBuildOptions): GraphIndexes;
+export function buildGraphIndexes(data: GraphInput, graph: GraphInstance, opts?: IndexBuildOptions): GraphIndexes;
+export function buildGraphIndexes(
+  dataOrGraph: GraphInput | GraphInstance,
+  graphOrOpts?: GraphInstance | IndexBuildOptions,
+  opts?: IndexBuildOptions,
+): GraphIndexes {
+  // Determine which overload was called.
+  // graphOrOpts is either undefined, a GraphInstance, or IndexBuildOptions.
+  // Distinguish GraphInstance by checking for a graph-specific method.
+  const secondArgIsGraph = graphOrOpts !== undefined
+    && typeof (graphOrOpts as GraphInstance).hasNode === 'function'
+    && typeof (graphOrOpts as GraphInstance).filterNodes === 'function'
+    && typeof (graphOrOpts as GraphInstance).forEachEdge === 'function';
+
+  if (graphOrOpts === undefined) {
+    // Single-argument form
     if (isGraphInstance(dataOrGraph)) {
-      return buildGraphIndexesFromGraph(dataOrGraph);
+      return buildGraphIndexesFromGraph(dataOrGraph, DEFAULT_CONFIG);
     }
-    // It's data — build graph internally
-    const { normalized, graphType } = validateGraphData(dataOrGraph);
+    const { normalized, graphType } = validateGraphData(dataOrGraph as GraphInput);
     const builtGraph = buildGraph(normalized, graphType);
-    return buildGraphIndexesFromGraph(builtGraph);
+    return buildGraphIndexesFromGraph(builtGraph, DEFAULT_CONFIG);
   }
-  // Two-argument form: validate data and build from data + graph.
-  const { normalized } = validateGraphData(dataOrGraph as GraphInput);
-  return buildGraphIndexesFromData(normalized, graph);
+
+  if (secondArgIsGraph) {
+    // (data, graph) or (data, graph, opts)
+    const data = dataOrGraph as GraphInput;
+    const { normalized } = validateGraphData(data, opts);
+    return buildGraphIndexesFromData(normalized, graphOrOpts as GraphInstance, resolveConfig(opts), opts?.onWarning);
+  }
+
+  // graphOrOpts is IndexBuildOptions
+  const buildOpts = graphOrOpts as IndexBuildOptions;
+  const resolvedConfig = resolveConfig(buildOpts);
+
+  if (isGraphInstance(dataOrGraph)) {
+    // Two-argument form: (graph, opts)
+    return buildGraphIndexesFromGraph(dataOrGraph, resolvedConfig, buildOpts.onWarning);
+  }
+
+  // Two-argument form: (data, opts) — build graph internally
+  const data = dataOrGraph as GraphInput;
+  const { normalized, graphType } = validateGraphData(data, buildOpts);
+  const builtGraph = buildGraph(normalized, graphType);
+  return buildGraphIndexesFromGraph(builtGraph, resolvedConfig, buildOpts.onWarning);
 }
 
 // ── Query execution ──────────────────────────────────────────────────────────
@@ -426,20 +507,22 @@ export function parseCypher(query: string): AdvancedCypherAST {
  *
  * @param graphOrData - Graph data or an existing Graphology graph instance
  * @param query - A Cypher query string
+ * @param opts - Optional configuration (label/edge-type property names)
  * @returns Array of result rows
  * @throws {GraphError} If graph data is invalid
  * @throws {Error} If the query is invalid or cannot be executed
  */
-export function executeQuery(graph: GraphInstance, query: string): ResultRow[];
-export function executeQuery(graphData: GraphInput, query: string): ResultRow[];
-export function executeQuery(graphOrData: GraphInstance | GraphInput, query: string): ResultRow[] {
+export function executeQuery(graph: GraphInstance, query: string, opts?: IndexBuildOptions): ResultRow[];
+export function executeQuery(graphData: GraphInput, query: string, opts?: IndexBuildOptions): ResultRow[];
+export function executeQuery(graphOrData: GraphInstance | GraphInput, query: string, opts?: IndexBuildOptions): ResultRow[] {
   const graph = isGraphInstance(graphOrData)
     ? (graphOrData instanceof Graph ? graphOrData : wrapExternalGraph(graphOrData as any))
     : (() => {
         const { normalized, graphType } = validateGraphData(graphOrData as GraphInput);
         return buildGraph(normalized, graphType);
       })();
-  const indexes = buildGraphIndexesFromGraph(graph);
+  const config = resolveConfig(opts);
+  const indexes = buildGraphIndexesFromGraph(graph, config, opts?.onWarning);
   const engine = new AdvancedCypherGraphologyEngine(graph, indexes);
   const ast = _parseCypher(query);
   return engine.execute(ast);
@@ -516,8 +599,9 @@ export { Graph };
 // Re-export GraphInstance from graph.ts for type-only use
 export type { GraphInstance, GraphType } from './graph';
 
-// Re-export GraphIndexes for consumers who build indexes manually
-export type { GraphIndexes } from './types/cypher';
+// Re-export GraphIndexes and GraphConfig for consumers who build indexes manually
+export type { GraphIndexes, GraphConfig } from './types/cypher';
+// IndexBuildOptions is exported as a top-level interface above (no re-export needed)
 
 // Re-export all AST, expression, and result types from types/cypher.ts
 export type {

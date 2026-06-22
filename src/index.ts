@@ -20,6 +20,8 @@ A graph query tool that executes Cypher queries against an in-memory graph.
 Options:
   -e, --expr <query>     Cypher query expression (required)
   -g, --graph <file>     Path to a JSON graph file (required, or "-" to read from stdin)
+  -nl, --node-label-property-name <prop>    Node attribute key to use as Cypher label (default: "label")
+  -et, --edge-type-property-name <prop>     Edge attribute key to use as Cypher relationship type (default: "type")
   --format <graph|rows>  Output format: "graph" (Graphology JSON, default) or "rows" (result rows)
   --install <mode>       Install the gcyphrq skill for AI coding agents. Mode: "global" (symlinks) or "local" (copies into current directory)
   -v, --version          Show version number
@@ -42,6 +44,7 @@ Examples:
   gcyphrq -g examples/social-graph.json -e 'MATCH (u:User) RETURN u'
   gcyphrq --graph examples/social-graph.json --expr 'MATCH (u:User {name: "Alice"})-[r:FRIEND*1..2]->(f:User) RETURN u, f'
   gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service {type: "RPC"}) RETURN s.name'
+  gcyphrq -g my-graph.json -nl kind -et rel -e 'MATCH (n:Service) RETURN n'
   cat my-graph.json | gcyphrq -g - -e 'MATCH (n) RETURN n'
   gcyphrq --install global      # Install skill globally (symlinks)
   gcyphrq --install local       # Install skill in current project (copies)
@@ -60,6 +63,8 @@ function printError(message: string): void {
 type ParsedArgs = {
   expr: string | undefined;
   graph: string | undefined;
+  labelProperty: string | undefined;
+  edgeTypeProperty: string | undefined;
   format: 'graph' | 'rows' | undefined;
   help: boolean;
   version: boolean;
@@ -67,9 +72,11 @@ type ParsedArgs = {
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
-  const args: ParsedArgs = { expr: undefined, graph: undefined, format: undefined, help: false, version: false, install: undefined };
+  const args: ParsedArgs = { expr: undefined, graph: undefined, labelProperty: undefined, edgeTypeProperty: undefined, format: undefined, help: false, version: false, install: undefined };
   let exprFlag: string | null = null;
   let graphFlag: string | null = null;
+  let labelFlag: string | null = null;
+  let typeFlag: string | null = null;
   let formatFlag: string | null = null;
 
   for (let i = 0; i < argv.length; i++) {
@@ -119,6 +126,30 @@ function parseArgs(argv: string[]): ParsedArgs {
       }
       graphFlag = arg;
       args.graph = argv[++i]!;
+      continue;
+    }
+
+    if (arg === '-nl' || arg === '--node-label-property-name') {
+      if (i + 1 >= argv.length) {
+        throw new GraphError(`The ${arg} option requires a value.`);
+      }
+      if (labelFlag) {
+        throw new GraphError(`The option "${arg}" was provided multiple times. Use it only once.`);
+      }
+      labelFlag = arg;
+      args.labelProperty = argv[++i]!;
+      continue;
+    }
+
+    if (arg === '-et' || arg === '--edge-type-property-name') {
+      if (i + 1 >= argv.length) {
+        throw new GraphError(`The ${arg} option requires a value.`);
+      }
+      if (typeFlag) {
+        throw new GraphError(`The option "${arg}" was provided multiple times. Use it only once.`);
+      }
+      typeFlag = arg;
+      args.edgeTypeProperty = argv[++i]!;
       continue;
     }
 
@@ -329,8 +360,12 @@ async function main(): Promise<void> {
     );
 
     // Build graph, indexes, and execute query using the library
+    const config = {
+      labelProperty: args.labelProperty ?? 'label',
+      edgeTypeProperty: args.edgeTypeProperty ?? 'type',
+    };
     const graph = createGraph(graphData, { onWarning: (msg) => console.warn(msg) });
-    const indexes = buildGraphIndexes(graphData, graph);
+    const indexes = buildGraphIndexes(graphData, graph, { config, onWarning: (msg) => console.warn(msg) });
     const engine = new GraphEngine(graph, indexes);
     const ast = parseCypher(args.expr);
     const results = engine.execute(ast);
