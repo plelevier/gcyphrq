@@ -25,11 +25,11 @@ import { executeQuery } from 'gcyphrq';
 
 const graphData = {
   nodes: [
-    { id: 'alice', label: 'User', name: 'Alice', age: 30 },
-    { id: 'bob',   label: 'User', name: 'Bob',   age: 25 },
+    { key: 'alice', attributes: { label: 'User', name: 'Alice', age: 30 } },
+    { key: 'bob',   attributes: { label: 'User', name: 'Bob',   age: 25 } },
   ],
   edges: [
-    { source: 'alice', target: 'bob', type: 'FRIEND' },
+    { source: 'alice', target: 'bob', attributes: { type: 'FRIEND' } },
   ],
 };
 
@@ -70,7 +70,7 @@ Execute a Cypher query against a graph and return results as plain JSON. This is
 
 | Parameter | Type | Description |
 |---|---|---|
-| `graphData` | [`GraphFile`](#graphfile) | Graph data in the Graphology JSON format |
+| `graphData` | [`GraphInput`](#graphinput) | Graph data in Graphology JSON format |
 | `query` | `string` | A Cypher query string |
 
 **Returns:** `ResultRow[]` — array of result rows
@@ -120,7 +120,7 @@ Build a `GraphInstance` from a graph data object. Validates the data and constru
 
 | Parameter | Type | Description |
 |---|---|---|
-| `graphData` | [`GraphFile`](#graphfile) | Graph data in the Graphology JSON format |
+| `graphData` | [`GraphInput`](#graphinput) | Graph data in Graphology JSON format |
 
 **Returns:** `GraphInstance`
 
@@ -222,12 +222,20 @@ const results = engine.execute(ast);
 
 The Graphology wrapper class. Use this when you need to build a graph programmatically (node-by-node) instead of from a data object.
 
+**Constructor:**
+
+```ts
+new Graph(options?: { type?: 'directed' | 'undirected' | 'mixed' })
+```
+
+Defaults to `'directed'`. For mixed graphs, pass `{ undirected: true }` in edge attributes to create bidirectional edges.
+
 **Methods:**
 
 | Method | Parameters | Returns | Description |
 |---|---|---|---|
 | `addNode(id, attrs?)` | `id: string`, `attrs?: Record<string, unknown>` | `void` | Add a node with optional attributes |
-| `addEdge(a, b, attrs?)` | `a: string`, `b: string`, `attrs?: Record<string, unknown>` | `void` | Add a directed edge |
+| `addEdge(a, b, attrs?)` | `a: string`, `b: string`, `attrs?: Record<string, unknown>` | `void` | Add an edge (directed by default; use `{ undirected: true }` in mixed graphs) |
 | `getNodeAttributes(id)` | `id: string` | `Record<string, unknown>` | Get node attributes |
 | `getEdgeAttributes(id)` | `id: string` | `Record<string, unknown>` | Get edge attributes |
 | `filterNodes(fn)` | `fn: (id, attrs) => boolean` | `string[]` | Filter nodes by predicate |
@@ -237,6 +245,7 @@ The Graphology wrapper class. Use this when you need to build a graph programmat
 | `setNodeAttribute(id, attr, value)` | `id: string`, `attr: string`, `value: unknown` | `void` | Set a node attribute |
 | `hasNode(id)` | `id: string` | `boolean` | Check if node exists |
 | `dropNode(id)` | `id: string` | `void` | Remove a node and its edges |
+| `type` (getter) | — | `'directed' \| 'undirected' \| 'mixed'` | Graph type |
 | `order` | — | `number` | Number of nodes in the graph |
 
 ```ts
@@ -317,7 +326,7 @@ const engine = new GraphEngine(graph);
 const results = engine.execute(parseCypher('MATCH (u:User) RETURN u'));
 ```
 
-### Pattern 3a: External Graphology graph
+### Pattern 4: External Graphology graph
 
 Use the library with any existing Graphology `Graph` instance — for example, one built from a database, a file, or another library. The library builds indexes directly from the graph without needing the original data.
 
@@ -344,7 +353,7 @@ const users = engine.execute(parseCypher('MATCH (u:User) RETURN u.name'));
 const count = engine.execute(parseCypher('MATCH (u:User) RETURN count(u)'));
 ```
 
-### Pattern 4: AST inspection
+### Pattern 5: AST inspection
 
 Use `parseCypher` to inspect or transform the query AST before execution:
 
@@ -356,7 +365,7 @@ console.log(ast.stages[0].clause.sourcePattern.properties);
 // { name: 'Alice' }
 ```
 
-### Pattern 5: Mutation followed by query
+### Pattern 6: Mutation followed by query
 
 The engine supports `CREATE`, `SET`, and `DELETE` mutations within queries. Mutations modify the underlying graph in-place:
 
@@ -384,10 +393,12 @@ All types are exported and can be imported for use in your own code:
 
 ```ts
 import type {
-  // Graph data
-  GraphFile,
-  GraphFileNode,
-  GraphFileEdge,
+  // Graph data (Graphology JSON format)
+  GraphInput,
+  GraphologyFile,
+  GraphologyNode,
+  GraphologyEdge,
+  GraphologyGraphOptions,
 
   // Graph instance
   GraphInstance,
@@ -410,10 +421,6 @@ import type {
   LiteralExpression,
   AggregationExpression,
   BinaryExpression,
-  WhereExpression,
-  LogicalExpression,
-  NotExpression,
-  IsNullExpression,
   Projection,
   OrderByItem,
 
@@ -429,25 +436,43 @@ import type {
 
 ### Key Types
 
-#### `GraphFile`
+#### `GraphInput`
+
+Graph data in Graphology JSON format:
 
 ```ts
-interface GraphFile {
-  nodes: GraphFileNode[];
-  edges: GraphFileEdge[];
+type GraphInput = GraphologyFile;
+```
+
+#### `GraphologyFile`
+
+The Graphology JSON format (primary format):
+
+```ts
+interface GraphologyFile {
+  options?: GraphologyGraphOptions;
+  attributes?: Record<string, unknown>;
+  nodes: GraphologyNode[];
+  edges: GraphologyEdge[];
 }
 
-interface GraphFileNode {
-  id: string;
-  label?: string;
-  [key: string]: unknown;
+interface GraphologyNode {
+  key: string;
+  attributes: Record<string, unknown>;
 }
 
-interface GraphFileEdge {
+interface GraphologyEdge {
+  key?: string;
   source: string;
   target: string;
-  type?: string;
-  [key: string]: unknown;
+  undirected?: boolean; // only effective in mixed graphs; makes the edge bidirectional
+  attributes: Record<string, unknown>;
+}
+
+interface GraphologyGraphOptions {
+  type?: 'directed' | 'undirected' | 'mixed'; // all three are supported
+  allowSelfLoops?: boolean;                    // true will cause an error
+  multi?: boolean;                             // true will cause an error
 }
 ```
 
@@ -538,85 +563,12 @@ main();
 
 ## Benchmark
 
-The `bench.ts` script measures query performance with and without pre-computed indexes. Each query runs 50 iterations and reports per-run average time for both indexed and non-indexed modes, plus the speedup ratio.
-
-### Running the benchmark
-
-```bash
-# Default: 5 queries against examples/cloud-infra.json
-npx tsx bench.ts
-
-# Different graph
-npx tsx bench.ts -g examples/social-graph.json
-
-# Custom queries (any number of -q args)
-npx tsx bench.ts -q 'MATCH (s:Service) RETURN s' 'MATCH (n) RETURN count(n) AS total'
-
-# Both together
-npx tsx bench.ts -g examples/cloud-infra.json -q 'MATCH (s:Service {type: "RPC"}) RETURN s.name'
-```
-
-### Options
-
-| Option | Description |
-|---|---|
-| `-g <file>` | Path to a JSON graph file (default: `examples/cloud-infra.json`) |
-| `-q <query> [query ...]` | One or more Cypher queries to benchmark. If omitted, runs a default set of 5 queries |
-
-### Output
-
-```
-Graph: 51 nodes, 142 edges
-
-Query                                                             | No index     | Indexed      | Speedup
-─────────────────────────────────────────────────────────────────────────────────────────────────────────
-MATCH (s:Service) RETURN s                                        | 0.04ms  (20 rows) | 0.01ms  (20 rows) | 2.6x
-MATCH (s:Service)-[r:DEPENDS_ON*1..2]->(d) RETURN s.name, d....   | 0.04ms  (0 rows) | 0.02ms  (0 rows) | 2.4x
-MATCH (n) RETURN count(n) AS total                                | 0.04ms  (1 rows) | 0.03ms  (1 rows) | 1.3x
-MATCH (s:Service) RETURN s ORDER BY s.name SKIP 2 LIMIT 5         | 0.03ms  (5 rows) | 0.02ms  (5 rows) | 1.6x
-MATCH (s:Service {type: "RPC"}) RETURN s.name                     | 0.02ms  (10 rows) | 0.01ms  (10 rows) | 1.8x
-```
-
-Each row shows:
-- **Query** — the Cypher query (truncated at 63 characters)
-- **No index** — average time without indexes (full-graph scan)
-- **Indexed** — average time with pre-computed label, property, and edge-type indexes
-- **Speedup** — ratio of no-index time to indexed time
-
-### Default queries
-
-When no `-q` argument is provided, the benchmark runs these 5 queries:
-
-| # | Query | What it tests |
-|---|---|---|
-| 1 | `MATCH (s:Service) RETURN s` | Label-only node lookup |
-| 2 | `MATCH (s:Service)-[r:DEPENDS_ON*1..2]->(d) RETURN s.name, d.name` | Variable-length path traversal with typed edges |
-| 3 | `MATCH (n) RETURN count(n) AS total` | Full-graph scan with aggregation |
-| 4 | `MATCH (s:Service) RETURN s ORDER BY s.name SKIP 2 LIMIT 5` | Label lookup + sorting + pagination |
-| 5 | `MATCH (s:Service {type: "RPC"}) RETURN s.name` | Combined label + property filter |
-
-### How it works
-
-1. Loads the graph from a JSON file and builds a Graphology graph
-2. Builds pre-computed indexes (label, property, edge-type adjacency) from the same data
-3. For each query, runs two sets of 50 iterations:
-   - **No index** — engine receives no indexes, falls back to full-graph scan
-   - **Indexed** — engine receives pre-computed indexes for O(1) lookups
-4. Reports per-iteration average time and speedup ratio
-
-### Interpretation
-
-Speedup ratios vary by query type:
-- **Label-only lookups** benefit most from the label index (2–3x)
-- **Property filters** benefit from the property index (1.5–2x)
-- **Path traversals** benefit from the edge-type adjacency index (2–3x)
-- **Full-graph scans** (no filter) show minimal difference since indexes provide no shortcut
-
-On larger graphs (hundreds or thousands of nodes), the speedup from indexes becomes more pronounced as full-graph scans scale linearly with graph size.
+See the [Benchmark page]({{ '/benchmark/' | relative_url }}) for detailed performance measurements comparing indexed vs. non-indexed query execution.
 
 ---
 
 ## Next Steps
 
 - **[Query Guide]({{ '/query-guide/' | relative_url }})** — Full Cypher syntax reference and query patterns
-- **[Examples]({{ '/examples/' | relative_url }})** — Ready-to-run queries against the bundled cloud infrastructure graph
+- **[Examples]({{ '/examples/' | relative_url }})** — Ready-to-run queries against the bundled example graphs
+- **[Benchmark]({{ '/benchmark/' | relative_url }})** — Query performance benchmarks

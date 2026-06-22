@@ -1,8 +1,14 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { GraphError, createGraph, parseCypher, GraphEngine, buildGraphIndexes } from './lib';
-import type { GraphFile } from './lib';
+import type { GraphInput } from './lib';
 import { runInstall } from './install';
+
+declare const __VERSION__: string;
+
+// ── Version (injected at build time via esbuild define, fallback for dev) ──
+
+const VERSION: string = typeof __VERSION__ !== 'undefined' ? __VERSION__ : 'undefined';
 
 // ── CLI Help ─────────────────────────────────────────────────────────────────
 
@@ -12,26 +18,33 @@ Usage: gcyphrq [options]
 A graph query tool that executes Cypher queries against an in-memory graph.
 
 Options:
-  -e, --expr <query>   Cypher query expression (required)
-  -g, --graph <file>   Path to a JSON graph file (required, or "-" to read from stdin)
-  --install            Install the gcyphrq skill for AI coding agents
-  --global             Install skill globally (with --install)
-  --local              Install skill per-project (with --install)
-  -h, --help           Show this help message
+  -e, --expr <query>     Cypher query expression (required)
+  -g, --graph <file>     Path to a JSON graph file (required, or "-" to read from stdin)
+  --format <graph|rows>  Output format: "graph" (Graphology JSON, default) or "rows" (result rows)
+  --install <mode>       Install the gcyphrq skill for AI coding agents. Mode: "global" (symlinks) or "local" (copies into current directory)
+  -v, --version          Show version number
+  -h, --help             Show this help message
 
-Graph file format:
+Graph file format (Graphology JSON):
   {
-    "nodes": [ { "id": "<id>", "label": "<label>", ... } ],
-    "edges": [ { "source": "<id>", "target": "<id>", "type": "<type>", ... } ]
+    "nodes": [
+      { "key": "<id>", "attributes": { "label": "<label>", ... } }
+    ],
+    "edges": [
+      { "source": "<id>", "target": "<id>", "attributes": { "type": "<type>", ... } }
+    ]
   }
+
+  Optional "options" field (type: "directed", "undirected", or "mixed"):
+    "options": { "type": "directed", "allowSelfLoops": false, "multi": false }
 
 Examples:
   gcyphrq -g examples/social-graph.json -e 'MATCH (u:User) RETURN u'
   gcyphrq --graph examples/social-graph.json --expr 'MATCH (u:User {name: "Alice"})-[r:FRIEND*1..2]->(f:User) RETURN u, f'
   gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service {type: "RPC"}) RETURN s.name'
   cat my-graph.json | gcyphrq -g - -e 'MATCH (n) RETURN n'
-  gcyphrq --install --global    # Install skill globally (symlinks)
-  gcyphrq --install --local     # Install skill in current project (copies)
+  gcyphrq --install global      # Install skill globally (symlinks)
+  gcyphrq --install local       # Install skill in current project (copies)
 `;
 
 function printHelp(): void {
@@ -47,20 +60,26 @@ function printError(message: string): void {
 type ParsedArgs = {
   expr: string | undefined;
   graph: string | undefined;
+  format: 'graph' | 'rows' | undefined;
   help: boolean;
-  install: boolean;
-  global: boolean;
-  local: boolean;
+  version: boolean;
+  install: 'global' | 'local' | undefined;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
-  const args: ParsedArgs = { expr: undefined, graph: undefined, help: false, install: false, global: false, local: false };
+  const args: ParsedArgs = { expr: undefined, graph: undefined, format: undefined, help: false, version: false, install: undefined };
   let exprFlag: string | null = null;
   let graphFlag: string | null = null;
+  let formatFlag: string | null = null;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === undefined) break;
+
+    if (arg === '-v' || arg === '--version') {
+      args.version = true;
+      continue;
+    }
 
     if (arg === '-h' || arg === '--help') {
       args.help = true;
@@ -68,17 +87,14 @@ function parseArgs(argv: string[]): ParsedArgs {
     }
 
     if (arg === '--install') {
-      args.install = true;
-      continue;
-    }
-
-    if (arg === '--global') {
-      args.global = true;
-      continue;
-    }
-
-    if (arg === '--local') {
-      args.local = true;
+      if (i + 1 >= argv.length) {
+        throw new GraphError('The --install option requires a value ("global" or "local").');
+      }
+      const mode = argv[++i]!;
+      if (mode !== 'global' && mode !== 'local') {
+        throw new GraphError(`Invalid install mode "${mode}". Must be "global" or "local".`);
+      }
+      args.install = mode;
       continue;
     }
 
@@ -106,6 +122,22 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === '--format') {
+      if (i + 1 >= argv.length) {
+        throw new GraphError(`The ${arg} option requires a value ("graph" or "rows").`);
+      }
+      if (formatFlag) {
+        throw new GraphError(`The option "${arg}" was provided multiple times. Use it only once.`);
+      }
+      formatFlag = arg;
+      const formatValue = argv[++i]!;
+      if (formatValue !== 'graph' && formatValue !== 'rows') {
+        throw new GraphError(`Invalid format "${formatValue}". Must be "graph" or "rows".`);
+      }
+      args.format = formatValue;
+      continue;
+    }
+
     if (arg.startsWith('-')) {
       throw new GraphError(`Unknown option "${arg}".\n\nUse "gcyphrq --help" for usage information.`);
     }
@@ -114,9 +146,102 @@ function parseArgs(argv: string[]): ParsedArgs {
   return args;
 }
 
+// ── Results → Graphology graph conversion ────────────────────────────────────
+
+/**
+ * Convert query result rows into a Graphology JSON graph.
+ *
+ * Collects all unique nodes and edges from result rows and outputs them
+ * in Graphology format so the output can be piped back into gcyphrq.
+ *
+ * Nodes: { id, ...props } → { key: id, attributes: { ...props } }
+ * Edges: { id, source, target, type, ...props } → { key: id, source, target, attributes: { type, ...props } }
+ *
+ * Optionally preserves root-level options/attributes.
+ *
+ * @param userEdgeKeys - Set of edge IDs that were user-provided (not auto-generated).
+ *   Used to determine which edges should carry a `key` in the output.
+ */
+function resultsToGraph(
+  rows: Record<string, unknown>[],
+  userEdgeKeys: Set<string>,
+  opts?: {
+    rootOptions?: NonNullable<GraphInput['options']>;
+    rootAttributes?: NonNullable<GraphInput['attributes']>;
+  },
+): {
+  options?: NonNullable<GraphInput['options']>;
+  attributes?: NonNullable<GraphInput['attributes']>;
+  nodes: Array<{ key: string; attributes: Record<string, unknown> }>;
+  edges: Array<{ key?: string; source: string; target: string; attributes: Record<string, unknown> }>;
+  _hasGraphData: boolean;
+} {
+  const nodeMap = new Map<string, Record<string, unknown>>();
+  const edgeMap = new Map<string, { key?: string; source: string; target: string; attributes: Record<string, unknown> }>();
+
+  for (const row of rows) {
+    for (const value of Object.values(row)) {
+      if (value === null || value === undefined) continue;
+
+      // Nodes: objects with "id" that are not arrays
+      if (typeof value === 'object' && !Array.isArray(value) && 'id' in value) {
+        const node = value as Record<string, unknown>;
+        const id = node.id as string;
+        if (typeof id === 'string' && !nodeMap.has(id)) {
+          const { id: _, ...attrs } = node;
+          nodeMap.set(id, attrs);
+        }
+        continue;
+      }
+
+      // Edges: arrays of edge objects (variable-length paths)
+      if (Array.isArray(value)) {
+        for (const edge of value) {
+          if (edge && typeof edge === 'object' && 'id' in edge && 'source' in edge && 'target' in edge) {
+            const e = edge as Record<string, unknown>;
+            const eid = e.id as string;
+            const source = e.source as string;
+            const target = e.target as string;
+            if (typeof eid === 'string' && !edgeMap.has(eid)) {
+              const { id: _eid, source: _src, target: _tgt, ...attrs } = e;
+              const entry: { key?: string; source: string; target: string; attributes: Record<string, unknown> } = {
+                source,
+                target,
+                attributes: attrs,
+              };
+              // Include key only for edges that had a user-provided key
+              if (userEdgeKeys.has(eid)) {
+                entry.key = eid;
+              }
+              edgeMap.set(eid, entry);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const nodes = [...nodeMap.entries()].map(([key, attributes]) => ({ key, attributes }));
+  const edges = [...edgeMap.values()].map((entry) => {
+    const { key, source, target, attributes } = entry;
+    return key !== undefined ? { key, source, target, attributes } : { source, target, attributes };
+  });
+
+  const result: { options?: NonNullable<GraphInput['options']>; attributes?: NonNullable<GraphInput['attributes']>; nodes: typeof nodes; edges: typeof edges; _hasGraphData: boolean } = {
+    nodes,
+    edges,
+    _hasGraphData: nodeMap.size > 0 || edgeMap.size > 0,
+  };
+
+  if (opts?.rootOptions) result.options = opts.rootOptions;
+  if (opts?.rootAttributes) result.attributes = opts.rootAttributes;
+
+  return result;
+}
+
 // ── Graph Loading ────────────────────────────────────────────────────────────
 
-async function readJsonFile(source: 'file' | 'stdin', path?: string): Promise<GraphFile> {
+async function readJsonFile(source: 'file' | 'stdin', path?: string): Promise<GraphInput> {
   let content: string;
   if (source === 'file') {
     try {
@@ -160,6 +285,11 @@ async function main(): Promise<void> {
   try {
     const args = parseArgs(process.argv.slice(2));
 
+    if (args.version) {
+      process.stdout.write(`${VERSION}\n`);
+      process.exit(0);
+    }
+
     if (args.help) {
       printHelp();
       process.exit(0);
@@ -168,19 +298,11 @@ async function main(): Promise<void> {
     // ── Install command ────────────────────────────────────────────────
 
     if (args.install) {
-      // --install is mutually exclusive with -e and -g
       if (args.expr || args.graph) {
         throw new GraphError('--install cannot be combined with -e/--expr or -g/--graph.');
       }
-      if (args.global && args.local) {
-        throw new GraphError('--global and --local are mutually exclusive. Choose one.');
-      }
-      if (!args.global && !args.local) {
-        throw new GraphError('--install requires either --global or --local.');
-      }
 
-      const mode = args.global ? 'global' : 'local';
-      await runInstall(mode, process.cwd());
+      await runInstall(args.install, process.cwd());
       process.exit(0);
     }
 
@@ -199,14 +321,41 @@ async function main(): Promise<void> {
       ? await readJsonFile('stdin')
       : await readJsonFile('file', args.graph);
 
+    // Collect user-provided edge keys for round-trip preservation
+    const userEdgeKeys = new Set(
+      Array.isArray(graphData.edges)
+        ? graphData.edges.filter((e: any) => typeof e?.key === 'string').map((e: any) => e.key as string)
+        : [],
+    );
+
     // Build graph, indexes, and execute query using the library
-    const graph = createGraph(graphData);
+    const graph = createGraph(graphData, { onWarning: (msg) => console.warn(msg) });
     const indexes = buildGraphIndexes(graphData, graph);
     const engine = new GraphEngine(graph, indexes);
     const ast = parseCypher(args.expr);
     const results = engine.execute(ast);
 
-    console.log(JSON.stringify(results, null, 2));
+    // Default to graph format for chaining (stdout → stdin)
+    // Falls back to rows when results contain only scalars (no nodes/edges)
+    const format = args.format ?? 'graph';
+    let output: unknown;
+    if (format === 'graph') {
+      const toGraphOpts: Parameters<typeof resultsToGraph>[2] = {};
+      if (graphData.options) toGraphOpts.rootOptions = graphData.options;
+      if (graphData.attributes) toGraphOpts.rootAttributes = graphData.attributes;
+      const graphResult = resultsToGraph(results, userEdgeKeys, toGraphOpts);
+      output = graphResult._hasGraphData
+        ? ({
+            ...(graphResult.options && { options: graphResult.options }),
+            ...(graphResult.attributes && { attributes: graphResult.attributes }),
+            nodes: graphResult.nodes,
+            edges: graphResult.edges,
+          })
+        : results;
+    } else {
+      output = results;
+    }
+    console.log(JSON.stringify(output, null, 2));
   } catch (err: unknown) {
     printError(err instanceof Error ? err.message : String(err));
     process.exit(1);

@@ -1,0 +1,18 @@
+{
+  "nodes": [
+    { "key": "alice", "attributes": { "label": "Person", "name": "Alice", "role": "Engineer", "department": "Backend", "age": 30, "email": "alice@co.com" } },
+    { "key": "bob", "attributes": { "label": "Person", "name": "Bob", "role": "Engineer", "department": "Frontend", "age": 25 } },
+    { "key": "charlie", "attributes": { "label": "Person", "name": "Charlie", "role": "Designer", "department": "Design", "age": 35, "email": "charlie@co.com" } },
+    { "key": "diana", "attributes": { "label": "Person", "name": "Diana", "role": "Manager", "department": "Backend", "age": 40, "email": "diana@co.com" } },
+    { "key": "eve", "attributes": { "label": "Person", "name": "Eve", "role": "Engineer", "department": "Backend", "age": 28 } },
+    { "key": "frank", "attributes": { "label": "Person", "name": "Frank", "role": "Designer", "department": "Design", "age": 32 } }
+  ],
+  "edges": [
+    { "source": "alice", "target": "bob", "attributes": { "type": "WORKS_WITH" } },
+    { "source": "alice", "target": "charlie", "attributes": { "type": "WORKS_WITH" } },
+    { "source": "alice", "target": "eve", "attributes": { "type": "WORKS_WITH" } },
+    { "source": "bob", "target": "charlie", "attributes": { "type": "WORKS_WITH" } },
+    { "source": "diana", "target": "alice", "attributes": { "type": "MANAGES" } },
+    { "source": "diana", "target": "eve", "attributes": { "type": "MANAGES" } }
+  ]
+}

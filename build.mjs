@@ -1,6 +1,9 @@
 import { build } from 'esbuild';
+import { readFileSync } from 'fs';
 import { chmod, mkdir } from 'fs/promises';
 import { spawnSync } from 'child_process';
+
+const pkg = JSON.parse(readFileSync('package.json', 'utf-8'));
 
 // ── CLI entry point (bundled) ────────────────────────────────────────────────
 
@@ -13,6 +16,9 @@ await build({
   outfile: 'dist/index.js',
   banner: {
     js: '#!/usr/bin/env node',
+  },
+  define: {
+    __VERSION__: JSON.stringify(pkg.version),
   },
 });
 

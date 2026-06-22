@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Graph, type GraphInstance } from '../src/graph';
+import { executeQuery } from '../src/lib';
 
 describe('Graph', () => {
   it('creates an empty graph with order 0', () => {
@@ -139,5 +140,42 @@ describe('Graph API surface', () => {
     for (const method of requiredMethods) {
       expect(typeof (graph as unknown as Record<string, unknown>)[method]).toBe('function');
     }
+  });
+});
+
+describe('Graphology graph queried via Cypher', () => {
+  it('can query a graph built from Graphology JSON data', () => {
+    const graphData = {
+      nodes: [
+        { key: 'alice', attributes: { label: 'User', name: 'Alice' } },
+        { key: 'bob', attributes: { label: 'User', name: 'Bob' } },
+        { key: 'charlie', attributes: { label: 'User', name: 'Charlie' } },
+      ],
+      edges: [
+        { source: 'alice', target: 'bob', attributes: { type: 'FRIEND' } },
+        { source: 'bob', target: 'charlie', attributes: { type: 'FRIEND' } },
+      ],
+    };
+
+    const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name ORDER BY u.name');
+    expect(results.map((r) => r.name)).toEqual(['Alice', 'Bob', 'Charlie']);
+  });
+
+  it('can traverse edges in a Graphology graph', () => {
+    const graphData = {
+      nodes: [
+        { key: 'alice', attributes: { label: 'User', name: 'Alice' } },
+        { key: 'bob', attributes: { label: 'User', name: 'Bob' } },
+      ],
+      edges: [
+        { source: 'alice', target: 'bob', attributes: { type: 'FRIEND' } },
+      ],
+    };
+
+    const results = executeQuery(
+      graphData,
+      'MATCH (a:User {name: "Alice"})-[:FRIEND]->(b:User) RETURN b.name',
+    );
+    expect(results).toEqual([{ name: 'Bob' }]);
   });
 });

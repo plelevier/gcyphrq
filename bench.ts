@@ -11,14 +11,14 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { createGraph, buildGraphIndexes, GraphEngine, parseCypher } from './src/lib';
-import type { GraphFile } from './src/lib';
+import type { GraphologyFile } from './src/lib';
 import type { GraphIndexes } from './src/types/cypher';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function loadGraph(path: string): { data: GraphFile; graph: ReturnType<typeof createGraph> } {
+function loadGraph(path: string): { data: GraphologyFile; graph: ReturnType<typeof createGraph> } {
   const raw = readFileSync(resolve(path), 'utf-8');
-  const data = JSON.parse(raw) as GraphFile;
+  const data = JSON.parse(raw) as GraphologyFile;
   return { data, graph: createGraph(data) };
 }
 

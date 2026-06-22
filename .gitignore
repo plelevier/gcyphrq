@@ -22,7 +22,7 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-# Local skill installs (created by gcyphrq --install --local)
+# Local skill installs (created by gcyphrq --install local)
 .pi/skills/
 .opencode/skills/
 .claude/skills/

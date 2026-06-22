@@ -53,14 +53,15 @@ const AGENT_TEMPLATES: AgentTemplate[] = [
  * The global skill/ref dirs are derived from whichever detectPath matched.
  */
 function buildAgentInfo(template: AgentTemplate, matchedConfigDir: string): AgentInfo {
-  return {
+  const info: AgentInfo = {
     name: template.name,
     globalSkillDir: join(matchedConfigDir, 'skills', SKILL_NAME),
     globalRefDir: matchedConfigDir,
     localSkillDir: template.localSkillDir,
     needsRefFile: template.needsRefFile,
-    refFileName: template.refFileName,
   };
+  if (template.refFileName) info.refFileName = template.refFileName;
+  return info;
 }
 
 // ── Skill Source Resolution ──────────────────────────────────────────────────

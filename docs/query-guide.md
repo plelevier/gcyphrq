@@ -16,7 +16,7 @@ This guide covers all supported Cypher syntax and query patterns available in th
 
 ## Supported Features
 
-See the [Home page](/) for the full feature support table.
+See the [Home page](index) for the full feature support table.
 
 <div class="callout">
   <p><strong>Single MATCH per stage:</strong> The engine processes one MATCH clause at a time. Chained MATCHes within the same stage are not supported — use multiple stages separated by <code>WITH</code> instead.</p>
@@ -30,11 +30,6 @@ See the [Home page](/) for the full feature support table.
 
 ```cypher
 MATCH (u:User) RETURN u
-```
-
-### Match with property filter
-
-```cypher
 MATCH (u:User {name: 'Alice'}) RETURN u
 ```
 
@@ -46,11 +41,11 @@ MATCH (u:User)-[:FRIEND]->(f:User) RETURN u, f
 
 ### Variable-length paths
 
+Use `*min..max` to specify path length (`*1..3` for 1–3 hops, `*2..2` for exactly 2):
+
 ```cypher
 MATCH (u:User)-[r:FRIEND*1..3]-(f:User) RETURN u, r, f
 ```
-
-The `*min..max` syntax specifies the minimum and maximum path length. Use `*1..3` for 1 to 3 hops, `*2..2` for exactly 2 hops, etc.
 
 ### Directional edges
 
@@ -71,6 +66,34 @@ MATCH (u:User {name: 'Alice'})<-[r:FRIEND]-(f:User) RETURN f
 MATCH (u:User {name: 'Alice'})-[r:FRIEND]-(f:User) RETURN f
 ```
 
+### Nodes without labels
+
+Omit the label to match every node in the graph:
+
+```cypher
+MATCH (n) RETURN n
+MATCH (n) RETURN count(n) AS totalNodes
+MATCH (n) WHERE n.name = 'Alice' RETURN n
+```
+
+### Edges without types
+
+Omit the relationship type to match every edge:
+
+```cypher
+MATCH ()-[r]->() RETURN count(r) AS totalEdges
+MATCH (s:Service)-[]->(t) RETURN s, t
+```
+
+### Variable-length unbounded paths
+
+Combine unbounded edges with `*min..max` to traverse any relationship type across multiple hops:
+
+```cypher
+MATCH (start:Service {name: 'API Gateway'})-[r*1..3]-(reachable) RETURN start, r, reachable
+MATCH (start:Service {name: 'API Gateway'})-[r*2..2]->(reachable) RETURN start, r, reachable
+```
+
 ---
 
 ## OPTIONAL MATCH
@@ -87,21 +110,11 @@ RETURN u, c
 
 ## RETURN
 
-### Return full nodes
+### Return full nodes, properties, and aliases
 
 ```cypher
 MATCH (u:User) RETURN u
-```
-
-### Return specific properties
-
-```cypher
 MATCH (u:User) RETURN u.name, u.age
-```
-
-### Return with aliases
-
-```cypher
 MATCH (u:User) RETURN u.name AS userName, u.age AS userAge
 ```
 
@@ -109,7 +122,7 @@ MATCH (u:User) RETURN u.name AS userName, u.age AS userAge
 
 ## WITH + Implicit Grouping
 
-Use `WITH` to pipe results through intermediate stages. When you include both aggregated and non-aggregated variables, implicit grouping occurs:
+Pipe results through intermediate stages. Mixing aggregated and non-aggregated variables triggers implicit grouping:
 
 ```cypher
 MATCH (u:User)-[:FRIEND]->(f)
@@ -118,15 +131,15 @@ WHERE friendCount > 1
 RETURN u.name, friendCount
 ```
 
-### Supported aggregations
+### Aggregation functions
 
 | Function | Description |
 |---|---|
 | `count(x)` | Count non-null values |
 | `sum(x.prop)` | Sum numeric values |
-| `avg(x.prop)` | Average of numeric values (null if no values) |
-| `min(x.prop)` | Minimum numeric value (null if no values) |
-| `max(x.prop)` | Maximum numeric value (null if no values) |
+| `avg(x.prop)` | Average (null if no values) |
+| `min(x.prop)` | Minimum (null if no values) |
+| `max(x.prop)` | Maximum (null if no values) |
 
 ---
 
@@ -136,20 +149,11 @@ Filter results in `MATCH` or `WITH` clauses.
 
 ### WHERE on MATCH
 
-Filter nodes directly during matching:
+Filter nodes during matching:
 
 ```cypher
-MATCH (u:User)
-WHERE u.age > 25
-RETURN u
-```
-
-Works with relationship traversals:
-
-```cypher
-MATCH (a:User)-[r:FRIEND]->(b:User)
-WHERE a.name CONTAINS "Ali"
-RETURN a, b
+MATCH (u:User) WHERE u.age > 25 RETURN u
+MATCH (a:User)-[r:FRIEND]->(b:User) WHERE a.name CONTAINS "Ali" RETURN a, b
 ```
 
 ### WHERE on WITH
@@ -163,7 +167,7 @@ WHERE outDegree > 2
 RETURN s.name, outDegree
 ```
 
-### Supported comparison operators
+### Comparison operators
 
 | Operator | Example |
 |---|---|
@@ -175,65 +179,24 @@ RETURN s.name, outDegree
 | `IS NULL` | `WHERE email IS NULL` |
 | `IS NOT NULL` | `WHERE email IS NOT NULL` |
 
-### Logical operators
-
-Combine conditions with `AND`, `OR`, and `NOT`:
+### Logical operators (`AND`, `OR`, `NOT`)
 
 ```cypher
-// AND — both conditions must be true
-MATCH (u:User)
-WHERE u.age > 25 AND u.name CONTAINS "Ali"
-RETURN u
+// AND
+MATCH (u:User) WHERE u.age > 25 AND u.name CONTAINS "Ali" RETURN u
 
-// OR — either condition can be true
-MATCH (u:User)
-WHERE u.name = "Alice" OR u.age > 30
-RETURN u
+// OR
+MATCH (u:User) WHERE u.name = "Alice" OR u.age > 30 RETURN u
 
-// NOT — negate a condition
-MATCH (u:User)
-WHERE NOT u.name = "Alice"
-RETURN u
+// NOT
+MATCH (u:User) WHERE NOT u.name = "Alice" RETURN u
 
-// Combined with parentheses
-MATCH (u:User)
-WHERE (u.age > 32 OR u.age < 26) AND u.name CONTAINS "a"
-RETURN u
+// Parentheses for precedence
+MATCH (u:User) WHERE (u.age > 32 OR u.age < 26) AND u.name CONTAINS "a" RETURN u
 
-// Multiple AND conditions
-MATCH (u:User)
-WHERE u.age > 20 AND u.age < 35 AND u.name CONTAINS "li"
-RETURN u
-
-// Multiple OR conditions
-MATCH (u:User)
-WHERE u.name = "Alice" OR u.name = "Bob" OR u.name = "Charlie"
-RETURN u
-
-// AND with higher precedence than OR
-MATCH (u:User)
-WHERE u.age > 25 AND u.name = "Alice" OR u.age < 26
-RETURN u
-
-// IS NULL — matches null and missing properties
-MATCH (u:User)
-WHERE u.email IS NULL
-RETURN u
-
-// IS NOT NULL — matches non-null properties
-MATCH (u:User)
-WHERE u.email IS NOT NULL
-RETURN u
-
-// IS NULL combined with AND
-MATCH (u:User)
-WHERE u.email IS NULL AND u.name = "Bob"
-RETURN u
-
-// IS NOT NULL combined with OR
-MATCH (u:User)
-WHERE u.email IS NOT NULL OR u.name = "Charlie"
-RETURN u
+// IS NULL / IS NOT NULL
+MATCH (u:User) WHERE u.email IS NULL RETURN u
+MATCH (u:User) WHERE u.email IS NOT NULL RETURN u
 ```
 
 > **Note:** `AND` has higher precedence than `OR`. Use parentheses to control evaluation order.
@@ -243,42 +206,22 @@ RETURN u
 
 ## ORDER BY
 
-Sort results by one or more properties. Default direction is `ASC` (ascending).
+Sort results. Default direction is `ASC`.
 
 ```cypher
-// Single column, ascending (default)
-MATCH (u:User) RETURN u.name ORDER BY u.name
-
-// Single column, descending
+MATCH (u:User) RETURN u.name ORDER BY u.name ASC
 MATCH (u:User) RETURN u.name, u.age ORDER BY u.age DESC
-
-// Multiple columns
 MATCH (u:User) RETURN u.name, u.age ORDER BY u.age ASC, u.name DESC
 ```
 
 ---
 
-## LIMIT
-
-Return only the first N results:
+## LIMIT and SKIP
 
 ```cypher
 MATCH (u:User) RETURN u.name LIMIT 5
-
-// Combined with ORDER BY for top-N
 MATCH (u:User) RETURN u.name, u.age ORDER BY u.age DESC LIMIT 3
-```
-
----
-
-## SKIP
-
-Skip the first N results:
-
-```cypher
 MATCH (u:User) RETURN u.name SKIP 5
-
-// Pagination: page 2 with 10 results per page
 MATCH (u:User) RETURN u.name ORDER BY u.name ASC SKIP 10 LIMIT 10
 ```
 
@@ -288,30 +231,20 @@ MATCH (u:User) RETURN u.name ORDER BY u.name ASC SKIP 10 LIMIT 10
 
 ### CREATE
 
-Create a new node:
-
 ```cypher
-CREATE (l:Log {timestamp: 12345})
-RETURN l
+CREATE (l:Log {timestamp: 12345}) RETURN l
 ```
 
 ### SET
 
-Update a node property:
-
 ```cypher
-MATCH (u:User {name: 'Alice'})
-SET u.age = 31
-RETURN u
+MATCH (u:User {name: 'Alice'}) SET u.age = 31 RETURN u
 ```
 
 ### DELETE
 
-Remove a node from the graph:
-
 ```cypher
-MATCH (f:User {name: 'Bob'})
-DELETE f
+MATCH (f:User {name: 'Bob'}) DELETE f
 ```
 
 ---
@@ -320,7 +253,7 @@ DELETE f
 
 ### Blast radius analysis
 
-Find all nodes affected by a failure (up to N hops):
+All nodes affected by a failure (up to N hops, any edge type):
 
 ```cypher
 MATCH (kafka:Infrastructure {name: "Kafka Cluster"})-[r*1..2]-(affected)
@@ -329,39 +262,16 @@ RETURN kafka, r, affected
 
 ### Dependency chain
 
-Trace the full request path from entry point to databases:
+Trace the request path from entry point to databases:
 
 ```cypher
 MATCH (api:Service {name: "API Gateway"})-[r*2..4]->(db:Database)
 RETURN api, r, db
 ```
 
-### Collaborative filtering
-
-Find items recommended based on what "friends of friends" bought, excluding items already owned:
-
-```cypher
-MATCH (u:User {id: 'usr_abc'})-[:FRIEND*2..2]-(peer:User)-[:BOUGHT]->(item:Product)
-OPTIONAL MATCH (u)-[already_owns:BOUGHT]->(item)
-WHERE already_owns IS NULL
-RETURN item
-```
-
-### What-if impact simulation
-
-Inject speculative properties mid-pipeline:
-
-```cypher
-MATCH (s:Server {id: 'srv_A'})-[:DEPENDS_ON*1..3]->(downstream:Application)
-SET s.capacity = 90
-WITH downstream, s
-WHERE downstream.min_required_capacity > s.capacity
-RETURN downstream.name AS at_risk_application, s.capacity AS simulated_capacity
-```
-
 ### Top-N by degree
 
-Find the N nodes with the most connections:
+Find the N nodes with the most outbound connections:
 
 ```cypher
 MATCH (s:Service)-[]->(target)
@@ -381,11 +291,11 @@ The following Cypher features are **not** supported by the engine:
 - **APOC procedures** — `CALL apoc.*`
 - **Multiple MATCH in same stage** — use `WITH` to chain stages
 - **MERGE** — use `CREATE` or `MATCH` + `CREATE` instead
-- **FOREACH** — not implemented
-- **UNION** — not implemented
+- **FOREACH** — not implemented; use multiple `SET` clauses with `MATCH` instead
+- **UNION** — not implemented; run separate queries and merge results externally (e.g. with `jq` or in your application code)
 
 
 ## Next Steps
 
 - **[Library API]({{ '/library-api/' | relative_url }})** — Use gcyphrq programmatically in your code
-- **[Examples]({{ '/examples/' | relative_url }})** — 27 ready-to-run queries against the bundled cloud infrastructure graph
+- **[Examples]({{ '/examples/' | relative_url }})** — 30 ready-to-run queries with sample output

@@ -31,10 +31,10 @@ The easiest way is to use the built-in install command. It detects your installe
 
 ```bash
 # Install globally (symlinks in agent config directories)
-gcyphrq --install --global
+gcyphrq --install global
 
-# Install locally (copies into project subdirectories)
-gcyphrq --install --local
+# Install locally (copies into current directory)
+gcyphrq --install local
 ```
 
 The `--install` command:
@@ -69,7 +69,7 @@ curl -sL https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq
   -o ~/.opencode/skills/gcyphrq/SKILL.md
 ```
 
-You can also download the `references/queries.md` file into a `references/` subdirectory alongside `SKILL.md` for additional query patterns.
+You can also download the `references/` directory (containing `queries.md` and `example-graph.json`) into a `references/` subdirectory alongside `SKILL.md` for additional query patterns and a self-contained test graph.
 
 ### Other Agents
 
@@ -77,13 +77,13 @@ For any AI coding agent that supports custom instructions or system prompts:
 
 1. **Install the CLI**: `npm install -g gcyphrq`
 2. **Copy the SKILL.md** from `https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/SKILL.md` into your agent's custom instructions
-3. **Copy the reference file** from `https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/references/queries.md` into a `references/` subdirectory alongside SKILL.md
+3. **Copy the reference files** from `https://raw.githubusercontent.com/plelevier/gcyphrq/main/skills/gcyphrq/references/` (containing `queries.md` and `example-graph.json`) into a `references/` subdirectory alongside SKILL.md
 4. **Point to your graph files** — replace `<graph.json>` in skill examples with paths to your actual graph files
 
 ## Prerequisites
 
 - **gcyphrq CLI** installed and on PATH — see [Getting Started](getting-started) for install instructions
-- **A JSON graph file** to query (use the bundled `examples/cloud-infra.json` to get started)
+- **A JSON graph file** to query (use the bundled `references/example-graph.json` to get started)
 
 ## Example Prompts
 
@@ -193,11 +193,11 @@ Uses SET to update a node property.
 
 The skill file (`SKILL.md`) includes:
 
-- **CLI usage** — command syntax, options, stdin piping
+- **CLI usage** — command syntax, options, stdin piping, chaining queries
 - **Graph file format** — node and edge structure
 - **Supported Cypher features** — full feature matrix with status
-- **Query patterns** — pre-built queries for the cloud-infra example graph
-- **Output format** — raw JSON output specification
+- **Query patterns** — pre-built queries using the bundled `references/example-graph.json`
+- **Output format** — graph format (default) and rows format with chaining examples
 - **Limitations** — known constraints (single MATCH per stage, no subqueries, etc.)
 
 ## Troubleshooting
@@ -213,5 +213,5 @@ The skill file (`SKILL.md`) includes:
 
 - **[Getting Started]({{ '/getting-started/' | relative_url }})** — Install gcyphrq and run your first query
 - **[Query Guide]({{ '/query-guide/' | relative_url }})** — Full Cypher syntax reference
-- **[Examples]({{ '/examples/' | relative_url }})** — 27 ready-to-run queries against the cloud infrastructure graph
+- **[Examples]({{ '/examples/' | relative_url }})** — 30 ready-to-run queries with sample output
 - **[Library API]({{ '/library-api/' | relative_url }})** — Use gcyphrq programmatically in Node.js / TypeScript

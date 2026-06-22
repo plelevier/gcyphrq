@@ -151,7 +151,7 @@ describe('parseCypher', () => {
       );
       const withStage = ast.stages[1]! as { type: 'WITH'; clause: WithClause };
       expect(withStage.clause.where).toBeDefined();
-      expect(withStage.clause.where!.operator).toBe('>');
+      expect((withStage.clause.where! as { operator: string }).operator).toBe('>');
     });
 
     it('parses WITH with ORDER BY', () => {
@@ -669,7 +669,7 @@ describe('parseCypher', () => {
       expect(not1.expression.type).toBe('NotExpression');
       const not2 = not1.expression as { type: 'NotExpression'; expression: { type: string } };
       expect(not2.expression.type).toBe('NotExpression');
-      const not3 = not2.expression as { type: 'NotExpression'; expression: { operator?: string } };
+      const not3 = not2.expression as { type: 'NotExpression'; expression: { type: string; operator?: string } };
       expect(not3.expression.type).toBe('BinaryExpression');
       expect((not3.expression as { operator: string }).operator).toBe('=');
     });

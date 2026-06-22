@@ -1,6 +1,6 @@
-import type { GraphFile } from './lib';
 import type { GraphIndexes } from './types/cypher';
 import type { GraphInstance } from './graph';
+import type { NormalizedGraphFile } from './lib';
 
 // ── Index construction ───────────────────────────────────────────────────────
 
@@ -55,9 +55,12 @@ function buildIndexes(
   }
 
   // Build edge type adjacency index
+  const isUndirectedGraph = graph.type === 'undirected';
   graph.forEachEdge((edgeId, attrs, source, target) => {
     const edgeType = (attrs.type && typeof attrs.type === 'string') ? attrs.type : '__UNTYPED__';
+    const isUndirectedEdge = isUndirectedGraph || attrs.undirected === true;
 
+    // Canonical direction: source → target
     let outMap = edgeOut.get(edgeType);
     if (!outMap) {
       outMap = new Map();
@@ -81,6 +84,35 @@ function buildIndexes(
       inMap.set(target, inList);
     }
     inList.push({ source, edgeId });
+
+    // For undirected edges (undirected graphs or undirected edges in mixed graphs),
+    // also add the reverse direction so traversal works from both sides.
+    // Skip self-loops (source === target) as they're already in both directions.
+    if (isUndirectedEdge && source !== target) {
+      let revOutMap = edgeOut.get(edgeType);
+      if (!revOutMap) {
+        revOutMap = new Map();
+        edgeOut.set(edgeType, revOutMap);
+      }
+      let revOutList = revOutMap.get(target);
+      if (!revOutList) {
+        revOutList = [];
+        revOutMap.set(target, revOutList);
+      }
+      revOutList.push({ target: source, edgeId });
+
+      let revInMap = edgeIn.get(edgeType);
+      if (!revInMap) {
+        revInMap = new Map();
+        edgeIn.set(edgeType, revInMap);
+      }
+      let revInList = revInMap.get(source);
+      if (!revInList) {
+        revInList = [];
+        revInMap.set(source, revInList);
+      }
+      revInList.push({ source: target, edgeId });
+    }
   });
 
   return {
@@ -94,7 +126,7 @@ function buildIndexes(
  * Build pre-computed indexes directly from a Graphology graph instance.
  *
  * Iterates nodes and edges on the graph to build label, property, and
- * edge-type adjacency indexes. No original `GraphFile` data is required.
+ * edge-type adjacency indexes. No original graph data is required.
  *
  * This is the preferred path when you already have a Graphology `Graph`
  * (e.g. built externally or programmatically) and want to use it with
@@ -128,7 +160,7 @@ export function buildGraphIndexesFromGraph(graph: GraphInstance): GraphIndexes {
  * @param graph - Constructed Graphology graph (provides real edge IDs)
  * @returns Indexes for use with `GraphEngine`
  */
-export function buildGraphIndexesFromData(data: GraphFile, graph: GraphInstance): GraphIndexes {
+export function buildGraphIndexesFromData(data: NormalizedGraphFile, graph: GraphInstance): GraphIndexes {
   const nodeEntries: [string, Record<string, unknown>][] = data.nodes.map((node) => [node.id, node]);
   return buildIndexes(nodeEntries, graph);
 }

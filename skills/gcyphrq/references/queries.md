@@ -1,314 +1,142 @@
-# Query Examples for cloud-infra.json
+# Use-Case Queries
 
-Detailed query examples organized by use case. All queries target `examples/cloud-infra.json`.
+Adapt these patterns for real graph files. Run as: `gcyphrq -g <graph> -e '<cypher>'`.
 
-## Service Discovery
+All examples use `references/example-graph.json` (replace with your graph path).
 
-### List all services by type
+## "What does X depend on?"
 
-```bash
-# All RPC services
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service {type: "RPC"}) RETURN s'
+Treat outgoing edges from X as its dependencies.
 
-# All workers
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service {type: "Worker"}) RETURN s'
+```cypher
+# Direct dependencies of Auth Service
+MATCH (s {name: "Auth Service"})-[r]->(dep) RETURN s, r, dep
 
-# All batch jobs
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service {type: "Batch"}) RETURN s'
+# All dependencies within 2 hops
+MATCH (s {name: "Auth Service"})-[r*1..2]->(dep) RETURN s, r, dep
 ```
 
-### List all infrastructure components
+## "What depends on X?" (reverse / upstream)
 
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (i:Infrastructure) RETURN i'
+Follow incoming edges to X.
+
+```cypher
+# Who connects to PostgreSQL Primary
+MATCH (caller)-[:TCP]->(db {name: "PostgreSQL Primary"}) RETURN caller
+
+# Upstream callers of Kafka (2 hops back)
+MATCH (caller)-[r*1..2]->(k {name: "Kafka Cluster"}) RETURN caller, r, k
 ```
 
-### List all databases
+## "If X goes down, what breaks?" (blast radius)
 
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (d:Database) RETURN d'
+Use undirected edges to find everything reachable from X.
+
+```cyphr
+# 1-hop blast radius of Auth Service
+MATCH (root {name: "Auth Service"})-[r]-(affected) RETURN root, r, affected
+
+# 2-hop blast radius (includes transitive impact)
+MATCH (root {name: "Auth Service"})-[r*1..2]-(affected) RETURN root, r, affected
+
+# Downstream only (outbound direction)
+MATCH (root {name: "Auth Service"})-[r*1..2]->(downstream) RETURN root, r, downstream
 ```
 
-### List all external dependencies
+## "Show me the path from A to B"
 
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (e:External) RETURN e'
+Use variable-length paths with a bounded range.
+
+```cypher
+# Path from API Gateway to any database
+MATCH (gw {name: "API Gateway"})-[r*1..4]->(db:Database) RETURN gw, r, db
+
+# Path from API Gateway to the worker (always use *min..max bounds)
+MATCH (gw {name: "API Gateway"})-[r*1..4]->(w {name: "Notification Worker"}) RETURN gw, r, w
 ```
 
-## Dependency Analysis
+## "Which services talk to the message queue?"
 
-### Services connected to a specific database
+```cypher
+# Producers (write to queue)
+MATCH (s:Service)-[:TCP]->(mq {type: "MessageQueue"}) RETURN s, mq
 
-```bash
-# Direct TCP connections to PostgreSQL primary
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[:TCP]->(db:Database {name: "PostgreSQL Primary"}) RETURN s'
+# Consumers (read from queue)
+MATCH (mq {type: "MessageQueue"})-[:TCP]->(s:Service) RETURN mq, s
 
-# Services connected to Redis
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[:TCP]->(db:Database {name: "Redis Primary"}) RETURN s'
+# Consumer count per queue (use --format rows for aggregation scalars)
+MATCH (mq {type: "MessageQueue"})-[:TCP]->(w:Service)
+WITH mq, count(w) AS consumers RETURN mq, consumers
+# → use --format rows to see the consumer count value alongside the node
 ```
 
-### Full request path from edge to storage
+## "What is the monitoring setup?"
 
-```bash
-# CDN → databases (2-4 hops, shows intermediate edges)
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (cdn:Service {name: "CloudFront CDN"})-[r*2..4]->(db:Database) RETURN cdn, r, db'
+```cypher
+# All services sending metrics to Prometheus
+MATCH (s:Service)-[:Metrics]->(p {name: "Prometheus"}) RETURN s
 
-# CDN → storage (up to 6 hops)
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (cdn:Service {name: "CloudFront CDN"})-[r*1..6]->(leaf:Storage) RETURN cdn, r, leaf'
+# Services NOT monitored (no Metrics edge)
+MATCH (s:Service)
+OPTIONAL MATCH (s)-[:Metrics]->(m)
+WHERE m IS NULL
+RETURN s
 ```
 
-### Services that talk to Vault for secrets
+## "Which service has the most connections?"
 
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[:HTTPS]->(v:Security {name: "Vault"}) RETURN s'
+```cypher
+# Top N by out-degree (use --format rows to see degree values)
+MATCH (s:Service)-[]->(t)
+WITH s, count(t) AS deg
+RETURN s, deg ORDER BY deg DESC LIMIT 3
+
+# Top N by in-degree
+MATCH (src)-[]->(s:Service)
+WITH s, count(src) AS deg
+RETURN s, deg ORDER BY deg DESC LIMIT 3
+
+> When RETURN mixes nodes + aggregation scalars, graph format preserves nodes but loses scalar values. Add `--format rows` to see both.
 ```
 
-## Blast Radius / Impact Analysis
+## "Show me only X-type services in region Y"
 
-### Direct impact of a service failure
+```cypher
+# RPC services in us-east-1
+MATCH (s:Service) WHERE s.type = "RPC" AND s.region = "us-east-1" RETURN s
 
-```bash
-# Everything connected to Kafka (1 hop, undirected)
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (kafka:Infrastructure {name: "Kafka Cluster"})-[r*1..1]-(affected) RETURN kafka, r, affected'
+# Non-worker services
+MATCH (s:Service) WHERE NOT s.type = "Worker" RETURN s
 
-# Everything connected to Kafka (2 hops)
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (kafka:Infrastructure {name: "Kafka Cluster"})-[r*1..2]-(affected) RETURN kafka, r, affected'
-
-# Everything connected to PostgreSQL primary (2 hops)
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (pg:Database {name: "PostgreSQL Primary"})-[r*1..2]-(affected) RETURN pg, r, affected'
+# Services whose name contains a substring
+MATCH (s:Service) WHERE s.name CONTAINS "Gateway" RETURN s
 ```
 
-### Downstream impact (outbound only)
+## "Summarize the graph"
 
-```bash
-# What does Kafka feed into (outbound, 2 hops)
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (kafka:Infrastructure {name: "Kafka Cluster"})-[r*1..2]->(downstream) RETURN kafka, r, downstream'
+```cypher
+# Total node count
+MATCH (n) RETURN count(n) AS nodes
+
+# Total edge count
+MATCH ()-[r]->() RETURN count(r) AS edges
+
+# Count by property (e.g., service type)
+MATCH (n:Service) WITH n.type AS t, count(n) AS c RETURN t, c
+
+# Count by label (using the label property directly)
+MATCH (n) WITH n.label AS l, count(n) AS c RETURN l, c
 ```
 
-## Message Queue Analysis
+## Chaining queries
 
-### Consumers per message queue
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (mq:Infrastructure {type: "MessageQueue"})-[:TCP]->(w:Service) WITH mq, count(w) AS consumerCount RETURN mq, consumerCount'
-```
-
-### Producers per message queue (services that write to queues)
+Pipe graph output back into gcyphrq for multi-step analysis:
 
 ```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[:TCP]->(mq:Infrastructure {type: "MessageQueue"}) WITH mq, count(s) AS producerCount RETURN mq, producerCount'
+# Step 1: extract services → Step 2: filter RPC → Step 3: return names
+gcyphrq -g graph.json -e 'MATCH (s:Service) RETURN s' \
+  | gcyphrq -g - -e 'MATCH (s {type:"RPC"}) RETURN s' \
+  | gcyphrq -g - -e 'MATCH (s) RETURN s.name'
 ```
 
-## External Dependencies
-
-### Which RPC services reach external APIs (up to 3 hops)
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service {type: "RPC"})-[r*1..3]->(ext:External) RETURN s, ext'
-```
-
-### Services that call Stripe
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[r*1..3]->(stripe:External {name: "Stripe API"}) RETURN s, stripe'
-```
-
-## Replication and Failover
-
-### Replication topology
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (primary:Database)-[r:Replication]->(replica:Database) RETURN primary, r, replica'
-```
-
-### Backup destinations
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (source)-[r:Backup]->(target) RETURN source, r, target'
-```
-
-## Monitoring Coverage
-
-### Services emitting metrics to Prometheus
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[:Metrics]->(p:Monitoring {name: "Prometheus"}) RETURN s'
-```
-
-### Services emitting traces to Jaeger
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[:Trace]->(j:Monitoring {name: "Jaeger"}) RETURN s'
-```
-
-### Services streaming logs to Loki
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[:LogStream]->(l:Monitoring {name: "Loki"}) RETURN s'
-```
-
-## Hosting / Orchestration
-
-### Services hosted on primary EKS cluster
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (eks:Infrastructure {name: "EKS Cluster"})-[:Hosts]->(s:Service) RETURN s'
-```
-
-### Services hosted on west region cluster
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (eks:Infrastructure {name: "EKS Cluster (West)"})-[:Hosts]->(s) RETURN s'
-```
-
-### CI/CD pipeline
-
-```bash
-# GitHub → Runner → Registry → Clusters
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (gh:External {name: "GitHub Repo"})-[r*1..3]->(k8s:Infrastructure {type: "Orchestrator"}) RETURN gh, r, k8s'
-```
-
-## Degree Analysis
-
-### Outgoing connections per service (with threshold)
-
-```bash
-# Services with more than 2 outgoing connections
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[]->(target) WITH s, count(target) AS outDegree WHERE outDegree > 2 RETURN s, outDegree'
-```
-
-### Incoming connections per service
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (source)-[]->(s:Service) WITH s, count(source) AS inDegree WHERE inDegree > 2 RETURN s, inDegree'
-```
-
-### Most connected infrastructure components
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (i:Infrastructure)-[]->(target) WITH i, count(target) AS connections WHERE connections > 3 RETURN i, connections'
-```
-
-## Service Mesh
-
-### Services using Envoy sidecars
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[:Sidecar]->(envoy:Infrastructure {name: "Envoy Sidecar"}) RETURN s'
-```
-
-### Service discovery connections
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (envoy:Infrastructure {name: "Envoy Sidecar"})-[:HTTP]->(consul:Infrastructure {name: "Consul"}) RETURN envoy, consul'
-```
-
-## Storage Analysis
-
-### All S3 buckets
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Storage {type: "ObjectStorage"}) RETURN s'
-```
-
-### Services writing to S3 data bucket
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service)-[:HTTPS]->(bucket:Storage {name: "S3 Data Bucket"}) RETURN s'
-```
-
-### Terraform-managed resources
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (tf:Storage {name: "Terraform State"})-[:Manages]->(resource) RETURN tf, resource'
-```
-
-## WHERE with Logical Operators
-
-### AND — both conditions must be true
-
-```bash
-# RPC services with "Service" in the name
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.type = "RPC" AND s.name CONTAINS "Service" RETURN s'
-
-# Services with name containing "Service" in us-east-1
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.name CONTAINS "Service" AND s.region = "us-east-1" RETURN s'
-```
-
-### OR — either condition can be true
-
-```bash
-# RPC or Worker services
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.type = "RPC" OR s.type = "Worker" RETURN s'
-
-# RPC or CDN services
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.type = "RPC" OR s.type = "CDN" RETURN s'
-```
-
-### NOT — negate a condition
-
-```bash
-# Non-batch services
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE NOT s.type = "Batch" RETURN s'
-
-# Services not in us-east-1
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE NOT s.region = "us-east-1" RETURN s'
-```
-
-### <> — not-equals
-
-```bash
-# Services not in us-east-1
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.region <> "us-east-1" RETURN s'
-```
-
-### CONTAINS — substring match
-
-```bash
-# Services with "Service" in the name
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE s.name CONTAINS "Service" RETURN s'
-```
-
-### Combined AND + OR with parentheses
-
-```bash
-# (RPC or CDN) AND not named "CloudFront CDN"
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) WHERE (s.type = "RPC" OR s.type = "CDN") AND s.name <> "CloudFront CDN" RETURN s'
-```
-
-## Mutations (in-memory only)
-
-### Add a new service
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'CREATE (s:Service {name: "New Service", type: "RPC", region: "us-east-1"}) RETURN s'
-```
-
-### Update a service property
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service {name: "Auth Service"}) SET s.region = "us-west-2" RETURN s'
-```
-
-### Remove a service
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service {name: "Auth Service"}) DELETE s'
-```
-
-> **Note:** Mutations are in-memory only. They do not modify the source JSON file.
-
-## Composing Queries with jq
-
-Pipe output to `jq` for further processing:
-
-```bash
-# Get just service names
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service {type: "RPC"}) RETURN s' | jq '[.[].s.name]'
-
-# Count results
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s' | jq 'length'
-
-# Filter by region
-gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s' | jq '[.[].s | select(.region == "us-east-1")]'
-```
+> Graph format preserves nodes/edges but loses variable bindings and row pairing. Use `--format rows` when you need exact row-level data.
