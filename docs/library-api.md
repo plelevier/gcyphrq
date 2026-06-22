@@ -126,7 +126,7 @@ const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name');
 
 ---
 
-### `createGraph(graphData, opts?)`
+### `createGraph(graphData, opts?: GraphOptions)`
 
 Build a `GraphInstance` from a graph data object. Validates the data and constructs a Graphology-backed graph that the Cypher engine can query.
 
@@ -135,7 +135,7 @@ Build a `GraphInstance` from a graph data object. Validates the data and constru
 | Parameter | Type | Description |
 |---|---|---|
 | `graphData` | [`GraphInput`](#graphinput) | Graph data in Graphology JSON format |
-| `opts` | `GraphOptions` (optional) | Optional `onWarning` callback. Note: `config` (label/edge-type property names) is **not** supported here — use it with `buildGraphIndexes` or `executeQuery` instead |
+| `opts` | [`GraphOptions`](#graphoptions) (optional) | Only supports `onWarning` callback. Does **not** accept `config` (label/edge-type property names) — use it with `buildGraphIndexes` or `executeQuery` instead |
 
 **Returns:** `GraphInstance`
 
