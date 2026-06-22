@@ -731,7 +731,6 @@ export class AdvancedCypherGraphologyEngine {
           sourcePattern,
           relationPattern,
           targetPattern,
-          onCreate,
           context,
         );
         created = result.created;
@@ -784,7 +783,6 @@ export class AdvancedCypherGraphologyEngine {
     sourcePattern: NodePattern,
     relationPattern: RelationPattern,
     targetPattern: NodePattern,
-    onCreate: MergeAction | undefined,
     context: QueryContext | ContextChain,
   ): {
     sourceNode: CypherNode;

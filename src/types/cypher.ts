@@ -140,7 +140,7 @@ export interface MergeClause {
   onMatch: MergeAction | undefined;
 }
 
-export type WriteClause = CreateClause | DeleteClause | SetClause | MergeClause;
+export type WriteClause = CreateClause | DeleteClause | SetClause;
 
 export interface PropertyAccessExpression {
   type: 'PropertyAccess';
