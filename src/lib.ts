@@ -125,22 +125,16 @@ export interface GraphOptions {
  *
  * Extends `GraphOptions` with an optional `config` field for customizing
  * the property names used as node labels and edge types.
+ *
+ * @example
+ * ```ts
+ * import { createGraph, buildGraphIndexes } from 'gcyphrq';
+ *
+ * const graph = createGraph(graphData);
+ * const indexes = buildGraphIndexes(graph, { config: { labelProperty: 'kind', edgeTypeProperty: 'rel' } });
+ * ```
  */
 export interface IndexBuildOptions extends GraphOptions {
-  /**
-   * Configuration for the property names used as node labels and edge types.
-   *
-   * By default gcyphrq reads `label` from node attributes and `type` from
-   * edge attributes. Use this to point at different property names in your data.
-   *
-   * @example
-   * ```ts
-   * import { createGraph, buildGraphIndexes } from 'gcyphrq';
-   *
-   * const graph = createGraph(graphData);
-   * const indexes = buildGraphIndexes(graph, { config: { labelProperty: 'kind', edgeTypeProperty: 'rel' } });
-   * ```
-   */
   /**
    * Configuration for the property names used as node labels and edge types.
    * By default gcyphrq reads `label` from node attributes and `type` from
@@ -449,8 +443,7 @@ export function buildGraphIndexes(
     // (data, graph) or (data, graph, opts)
     const data = dataOrGraph as GraphInput;
     const { normalized } = validateGraphData(data, opts);
-    const cfg = opts ? resolveConfig(opts) : DEFAULT_CONFIG;
-    return buildGraphIndexesFromData(normalized, graphOrOpts as GraphInstance, cfg, opts?.onWarning);
+    return buildGraphIndexesFromData(normalized, graphOrOpts as GraphInstance, resolveConfig(opts), opts?.onWarning);
   }
 
   // graphOrOpts is IndexBuildOptions
@@ -464,7 +457,7 @@ export function buildGraphIndexes(
 
   // Two-argument form: (data, opts) — build graph internally
   const data = dataOrGraph as GraphInput;
-  const { normalized, graphType } = validateGraphData(data);
+  const { normalized, graphType } = validateGraphData(data, buildOpts);
   const builtGraph = buildGraph(normalized, graphType);
   return buildGraphIndexesFromGraph(builtGraph, resolvedConfig, buildOpts.onWarning);
 }
