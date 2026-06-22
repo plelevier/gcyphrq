@@ -377,11 +377,8 @@ export function buildGraphIndexes(dataOrGraph: GraphInput | GraphInstance, graph
     return buildGraphIndexesFromGraph(builtGraph);
   }
   // Two-argument form: validate data and build from data + graph.
-  // Wrap raw Graphology graphs (undirected/mixed) so the engine's fallback
-  // path also sees undirected edges bidirectionally.
   const { normalized } = validateGraphData(dataOrGraph as GraphInput);
-  const wrappedGraph = graph instanceof Graph ? graph : wrapExternalGraph(graph as any);
-  return buildGraphIndexesFromData(normalized, wrappedGraph);
+  return buildGraphIndexesFromData(normalized, graph);
 }
 
 // ── Query execution ──────────────────────────────────────────────────────────

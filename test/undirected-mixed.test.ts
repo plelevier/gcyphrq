@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createGraph, executeQuery, Graph, buildGraphIndexes, GraphEngine } from '../src/lib';
+import { createGraph, executeQuery, Graph, buildGraphIndexes, GraphEngine, parseCypher } from '../src/lib';
 
 // ── Undirected graph tests ──────────────────────────────────────────────────
 
@@ -159,9 +159,9 @@ describe('GraphEngine with undirected/mixed graphs', () => {
     });
     const indexes = buildGraphIndexes(graph);
     const engine = new GraphEngine(graph, indexes);
-    const ast = engine.constructor.prototype; // Can't easily parse, use executeQuery instead
+    const ast = parseCypher('MATCH (a)-[:E]->(b) RETURN a.id, b.id');
 
-    const results = executeQuery(graph, 'MATCH (a)-[:E]->(b) RETURN a.id, b.id');
+    const results = engine.execute(ast);
     expect(results.length).toBe(2);
   });
 
@@ -181,10 +181,12 @@ describe('GraphEngine with undirected/mixed graphs', () => {
     const indexes = buildGraphIndexes(graph);
     const engine = new GraphEngine(graph, indexes);
 
-    const dirResults = executeQuery(graph, 'MATCH (a)-[:D]->(b) RETURN a.id, b.id');
+    const dirAst = parseCypher('MATCH (a)-[:D]->(b) RETURN a.id, b.id');
+    const dirResults = engine.execute(dirAst);
     expect(dirResults.length).toBe(1);
 
-    const undirResults = executeQuery(graph, 'MATCH (a)-[:U]->(b) RETURN a.id, b.id');
+    const undirAst = parseCypher('MATCH (a)-[:U]->(b) RETURN a.id, b.id');
+    const undirResults = engine.execute(undirAst);
     expect(undirResults.length).toBe(2);
   });
 });
@@ -234,22 +236,35 @@ describe('Undirected/mixed edge cases', () => {
     ).toThrow(/duplicate edge/);
   });
 
-  it('allows same pair with different types in undirected graphs', () => {
-    // This should work because the types are different (Graphology uses type as edge key)
-    // Actually Graphology doesn't use type as edge key, so this would be a duplicate
-    // Let me test with keys instead
-    const graph = createGraph({
-      options: { type: 'undirected' },
+  it('buildGraphIndexes two-arg form preserves edge IDs for raw graphs', () => {
+    // Verify that indexes built from a raw Graphology graph use the graph's
+    // actual edge IDs (not from a wrapped copy), so GraphEngine can look them up.
+    const graphology = require('graphology');
+    const rawGraph = new graphology.Graph({ type: 'mixed' });
+    rawGraph.addNode('a', { label: 'N' });
+    rawGraph.addNode('b', { label: 'N' });
+    rawGraph.addEdge('a', 'b', { type: 'E', undirected: true });
+
+    const graphData = {
+      options: { type: 'mixed' } as const,
       nodes: [
         { key: 'a', attributes: { label: 'N' } },
         { key: 'b', attributes: { label: 'N' } },
       ],
-      edges: [
-        { key: 'e1', source: 'a', target: 'b', attributes: { type: 'KNOWS' } },
-        // This would be a duplicate without a key, but with different keys it depends on Graphology
-      ],
-    });
-    expect(graph.order).toBe(2);
+      edges: [{ source: 'a', target: 'b', attributes: { type: 'E' }, undirected: true }],
+    };
+
+    const indexes = buildGraphIndexes(graphData, rawGraph as any);
+    // Index edge IDs should match the raw graph's edge IDs
+    const indexedEdgeIds = new Set<string>();
+    for (const [, map] of indexes.edgeTypeIndex.out) {
+      for (const neighbors of map.values()) {
+        for (const n of neighbors) indexedEdgeIds.add(n.edgeId);
+      }
+    }
+    const rawEdgeIds = new Set<string>();
+    rawGraph.forEachEdge((id: string) => rawEdgeIds.add(id));
+    expect(indexedEdgeIds).toEqual(rawEdgeIds);
   });
 
   it('defaults to directed graph type', () => {
