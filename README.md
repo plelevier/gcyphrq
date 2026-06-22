@@ -86,8 +86,6 @@ npx tsx bench.ts -g examples/social-graph.json
 npx tsx bench.ts -q 'MATCH (s:Service) RETURN s' 'MATCH (n) RETURN count(n) AS total'
 ```
 
-See the [Benchmark documentation](docs/benchmark.md) for details on output format and interpretation.
-
 ## AI Agent Skill
 
 This project includes a [skill](skills/gcyphrq/SKILL.md) that teaches AI agents how to use `gcyphrq` — supported Cypher features, query patterns, limitations, and ready-made examples against the bundled `cloud-infra.json` graph.

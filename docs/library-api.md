@@ -561,14 +561,7 @@ main();
 - The engine processes queries in-memory with no caching. Large graphs (>10,000 nodes) may have noticeable query times.
 - Variable-length paths use DFS traversal. Setting `maxDepth` is recommended to avoid excessive exploration.
 
-## Benchmark
-
-See the [Benchmark page]({{ '/benchmark/' | relative_url }}) for detailed performance measurements comparing indexed vs. non-indexed query execution.
-
----
-
 ## Next Steps
 
 - **[Query Guide]({{ '/query-guide/' | relative_url }})** — Full Cypher syntax reference and query patterns
 - **[Examples]({{ '/examples/' | relative_url }})** — Ready-to-run queries against the bundled example graphs
-- **[Benchmark]({{ '/benchmark/' | relative_url }})** — Query performance benchmarks
