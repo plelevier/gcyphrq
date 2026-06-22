@@ -1100,10 +1100,7 @@ function extractListLiteralExpression(ctx: TreeNode): ListLiteralExpression | un
       values.push(val.value);
     }
   }
-  if (values.length > 0) {
-    return { type: 'ListLiteral' as const, values };
-  }
-  return undefined;
+  return { type: 'ListLiteral' as const, values };
 }
 
 /** Extract a value expression from a PropertyOrLabelsExpression (used for CONTAINS/IN/STARTS WITH/ENDS WITH RHS). */
