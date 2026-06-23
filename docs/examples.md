@@ -616,6 +616,38 @@ gcyphrq -g examples/team.json -e 'MATCH (p:Person {name: "Frank"}) DELETE p' --f
 
 > **Note:** `DELETE` without a `RETURN` clause produces an empty array (`[]`). The graph is modified in-memory for subsequent queries in the same session.
 
+### 31. REMOVE
+
+Remove a label or property from a node. The node and its relationships remain in the graph:
+
+```bash
+gcyphrq -g examples/team.json -e 'MATCH (p:Person {name: "Alice"}) REMOVE p:Person RETURN p.name AS name, p.label AS label' --format rows
+```
+
+**Output:**
+
+```json
+[
+  {
+    "name": "Alice"
+  }
+]
+```
+
+(The `label` key is omitted entirely since `undefined` is not serializable to JSON.)
+
+Property removal works the same way:
+
+```bash
+gcyphrq -g examples/team.json -e 'MATCH (p:Person {name: "Alice"}) REMOVE p.age RETURN p' --format rows
+```
+
+Multiple items can be combined:
+
+```bash
+gcyphrq -g examples/team.json -e 'MATCH (p:Person {name: "Alice"}) REMOVE p.age, p:Person RETURN p' --format rows
+```
+
 ---
 
 ## Next Steps

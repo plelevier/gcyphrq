@@ -189,6 +189,10 @@ Uses CREATE to add a new node to the graph.
 
 Uses SET to update a node property.
 
+> **Prompt:** "Remove the 'Person' label from Alice."
+
+Uses REMOVE to strip a label or remove a property from a node while keeping the node and its relationships intact.
+
 ## Skill Reference
 
 The skill file (`SKILL.md`) includes:

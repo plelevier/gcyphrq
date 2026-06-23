@@ -211,6 +211,42 @@ describe('parseCypher', () => {
       if (writeStage.clause.type !== 'DELETE') return;
       expect(writeStage.clause.variable).toBe('n');
     });
+
+    it('parses REMOVE clause with label', () => {
+      const ast = parseCypher('MATCH (n:User) REMOVE n:User RETURN n');
+      const writeStage = ast.stages[1]! as { type: 'WRITE'; clause: WriteClause };
+      expect(writeStage.clause.type).toBe('REMOVE');
+      if (writeStage.clause.type !== 'REMOVE') return;
+      expect(writeStage.clause.items).toHaveLength(1);
+      expect(writeStage.clause.items[0]!.variable).toBe('n');
+      expect(writeStage.clause.items[0]!.label).toBe('User');
+      expect(writeStage.clause.items[0]!.property).toBeUndefined();
+    });
+
+    it('parses REMOVE clause with property', () => {
+      const ast = parseCypher('MATCH (n:User) REMOVE n.age RETURN n');
+      const writeStage = ast.stages[1]! as { type: 'WRITE'; clause: WriteClause };
+      expect(writeStage.clause.type).toBe('REMOVE');
+      if (writeStage.clause.type !== 'REMOVE') return;
+      expect(writeStage.clause.items).toHaveLength(1);
+      expect(writeStage.clause.items[0]!.variable).toBe('n');
+      expect(writeStage.clause.items[0]!.property).toBe('age');
+      expect(writeStage.clause.items[0]!.label).toBeUndefined();
+    });
+
+    it('parses REMOVE clause with multiple items (property + label)', () => {
+      const ast = parseCypher('MATCH (n:User) REMOVE n.age, n:User RETURN n');
+      const writeStage = ast.stages[1]! as { type: 'WRITE'; clause: WriteClause };
+      expect(writeStage.clause.type).toBe('REMOVE');
+      if (writeStage.clause.type !== 'REMOVE') return;
+      expect(writeStage.clause.items).toHaveLength(2);
+      expect(writeStage.clause.items[0]!.variable).toBe('n');
+      expect(writeStage.clause.items[0]!.property).toBe('age');
+      expect(writeStage.clause.items[0]!.label).toBeUndefined();
+      expect(writeStage.clause.items[1]!.variable).toBe('n');
+      expect(writeStage.clause.items[1]!.label).toBe('User');
+      expect(writeStage.clause.items[1]!.property).toBeUndefined();
+    });
   });
 
   describe('Expression parsing', () => {

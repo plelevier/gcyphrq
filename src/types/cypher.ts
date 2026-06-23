@@ -110,6 +110,17 @@ export interface SetClause {
   value: CypherLiteral;
 }
 
+export interface RemoveItem {
+  variable: string;
+  label: string | undefined;
+  property: string | undefined;
+}
+
+export interface RemoveClause {
+  type: 'REMOVE';
+  items: RemoveItem[];
+}
+
 // ── MERGE clause types ───────────────────────────────────────────────────────
 
 /** A single SET action within a MERGE ON CREATE / ON MATCH block. */
@@ -140,7 +151,7 @@ export interface MergeClause {
   onMatch: MergeAction | undefined;
 }
 
-export type WriteClause = CreateClause | DeleteClause | SetClause;
+export type WriteClause = CreateClause | DeleteClause | SetClause | RemoveClause;
 
 export interface PropertyAccessExpression {
   type: 'PropertyAccess';

@@ -21,6 +21,8 @@ import type {
   ReturnClause,
   CypherLiteral,
   Projection,
+  RemoveClause,
+  RemoveItem,
 } from '../types/cypher';
 import type { ParseTreeNode, RecognitionException, BaseErrorListener } from 'antlr4';
 
@@ -83,6 +85,8 @@ const Ctx = {
   RelationshipPatternStart: 'RelationshipPatternStartContext',
   RelationshipType: 'RelationshipTypeContext',
   RelationshipTypes: 'RelationshipTypesContext',
+  RemoveClause: 'RemoveClauseContext',
+  RemoveItem: 'RemoveItemContext',
   RegularQuery: 'RegularQueryContext',
   Query: 'QueryContext',
   RightArrowHead: 'RightArrowHeadContext',
@@ -1196,6 +1200,51 @@ function extractValueExpression(ctx: TreeNode): Expression | undefined {
   return extractLiteral(literalCtx);
 }
 
+function extractRemoveClause(clauseCtx: ParseTreeNode): RemoveClause {
+  const removeCtx = findChild(clauseCtx, Ctx.RemoveClause);
+  if (!removeCtx) throw new Error('Failed to parse REMOVE: missing RemoveClause node.');
+
+  const removeItems = findAllChildren(removeCtx, Ctx.RemoveItem);
+  if (!removeItems.length) throw new Error('Failed to parse REMOVE: missing RemoveItem nodes.');
+
+  const items: RemoveItem[] = [];
+  for (const removeItem of removeItems) {
+    // Check for property removal: PropertyExpression > Atom > Variable + PropertyLookup
+    const propExpr = findChild(removeItem, Ctx.PropertyExpression);
+    if (propExpr) {
+      const atom = findChild(propExpr, Ctx.Atom);
+      if (!atom) throw new Error('Failed to parse REMOVE property: missing Atom node.');
+      const varCtx = findChild(atom, Ctx.Variable);
+      const variable = getSymbolicName(varCtx);
+      if (!variable) throw new Error('Failed to parse REMOVE property: missing variable name.');
+
+      const propLookup = findChild(propExpr, Ctx.PropertyLookup);
+      if (!propLookup) throw new Error('Failed to parse REMOVE property: missing PropertyLookup node.');
+      const propKeyCtx = findChild(propLookup, Ctx.PropertyKey);
+      const property = getSymbolicName(propKeyCtx);
+      if (!property) throw new Error('Failed to parse REMOVE property: missing property name.');
+
+      items.push({ variable, label: undefined, property });
+      continue;
+    }
+
+    // Label removal: Variable + NodeLabels
+    const varCtx = findChild(removeItem, Ctx.Variable);
+    const variable = getSymbolicName(varCtx);
+    if (!variable) throw new Error('Failed to parse REMOVE label: missing variable name.');
+
+    const labelsCtx = findChild(removeItem, Ctx.NodeLabels);
+    const labelCtx = findChild(labelsCtx, Ctx.NodeLabel);
+    const labelNameCtx = findChild(labelCtx, Ctx.LabelName);
+    const label = getSymbolicName(labelNameCtx);
+
+    items.push({ variable, label, property: undefined });
+  }
+
+  if (!items.length) throw new Error('Failed to parse REMOVE: no valid remove items found.');
+  return { type: 'REMOVE' as const, items };
+}
+
 function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
   // SET clause
   const setCtx = findChild(clauseCtx, Ctx.SetClause);
@@ -1267,6 +1316,12 @@ function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
     if (!variable) throw new Error('Failed to parse DELETE: missing variable name.');
 
     return { type: 'DELETE' as const, variable };
+  }
+
+  // REMOVE clause
+  const removeCtx = findChild(clauseCtx, Ctx.RemoveClause);
+  if (removeCtx) {
+    return extractRemoveClause(clauseCtx);
   }
 
   return undefined;
@@ -1446,6 +1501,9 @@ export function parseCypher(query: string): AdvancedCypherAST {
       const writeClause = extractWriteClause(clause);
       if (writeClause) stages.push({ type: 'WRITE', clause: writeClause });
     } else if (findChild(clause, Ctx.DeleteClause)) {
+      const writeClause = extractWriteClause(clause);
+      if (writeClause) stages.push({ type: 'WRITE', clause: writeClause });
+    } else if (findChild(clause, Ctx.RemoveClause)) {
       const writeClause = extractWriteClause(clause);
       if (writeClause) stages.push({ type: 'WRITE', clause: writeClause });
     } else if (findChild(clause, Ctx.MergeClause)) {

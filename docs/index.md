@@ -32,7 +32,7 @@ description: A Cypher graph query engine for in-memory graphs built on Grapholog
   </div>
   <div class="feature-card">
     <h3>✏️ Mutations</h3>
-    <p>Create, update, and delete nodes and edges with <code>CREATE</code>, <code>SET</code>, and <code>DELETE</code> clauses.</p>
+    <p>Create, update, delete, and remove labels or properties with <code>CREATE</code>, <code>SET</code>, <code>DELETE</code>, and <code>REMOVE</code> clauses.</p>
   </div>
   <div class="feature-card">
     <h3>🔧 TypeScript</h3>
@@ -77,7 +77,7 @@ const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 | `WHERE` operators: `>`, `<`, `=`, `<>`, `CONTAINS` | <span class="badge badge-success">✅</span> |
 | `WHERE` logical operators: `AND`, `OR`, `NOT` | <span class="badge badge-success">✅</span> |
 | `WHERE` IS NULL / IS NOT NULL | <span class="badge badge-success">✅</span> |
-| `CREATE`, `SET`, `DELETE` mutations | <span class="badge badge-success">✅</span> |
+| `CREATE`, `SET`, `DELETE`, `REMOVE` mutations | <span class="badge badge-success">✅</span> |
 | `ORDER BY` (single/multi-column) | <span class="badge badge-success">✅</span> |
 | `SKIP` / `LIMIT` | <span class="badge badge-success">✅</span> |
 | Subqueries, `CALL`, APOC | <span class="badge badge-danger">❌</span> |
