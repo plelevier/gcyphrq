@@ -115,52 +115,27 @@ MATCH (s:Service) WHERE s.name CONTAINS "Gateway" RETURN s
 ## "Classify nodes with CASE"
 
 ```cypher
-# General CASE: classify services by type
+# General CASE: WHEN cond THEN result
 MATCH (s:Service) RETURN s.name,
-  CASE
-    WHEN s.type = "RPC" THEN "service"
-    WHEN s.type = "Database" THEN "data"
-    WHEN s.type = "MessageQueue" THEN "queue"
-    ELSE "other"
-  END AS category
+  CASE WHEN s.type = "RPC" THEN "svc" WHEN s.type = "Database" THEN "db" ELSE "other" END AS category
 
-# Simple CASE: map label to short code
-MATCH (n) RETURN n.name,
-  CASE n.label
-    WHEN "Service" THEN "svc"
-    WHEN "Database" THEN "db"
-    WHEN "Infrastructure" THEN "infra"
-    ELSE "other"
-  END AS kind
+# Simple CASE: CASE expr WHEN val THEN result
+MATCH (n) RETURN n.name, CASE n.label WHEN "Service" THEN "svc" ELSE "other" END AS kind
 
 # CASE with IS NULL
-MATCH (s:Service) RETURN s.name,
-  CASE
-    WHEN s.region IS NULL THEN "global"
-    ELSE s.region
-  END AS region
+MATCH (s:Service) RETURN s.name, CASE WHEN s.region IS NULL THEN "global" ELSE s.region END AS region
 
-# CASE in ORDER BY (custom sort priority)
-MATCH (s:Service) RETURN s.name, s.type
-  ORDER BY CASE s.type WHEN "RPC" THEN 0 WHEN "Worker" THEN 1 ELSE 2 END
+# CASE in ORDER BY
+MATCH (s:Service) RETURN s.name ORDER BY CASE s.type WHEN "RPC" THEN 0 ELSE 1 END
 
-# CASE in SET (assign computed property)
-MATCH (s:Service)
-SET s.category = CASE
-  WHEN s.type = "RPC" THEN "service"
-  WHEN s.type = "Database" THEN "data"
-  ELSE "other"
-END
-RETURN s.name, s.category
+# CASE in SET
+MATCH (s:Service) SET s.cat = CASE WHEN s.type = "RPC" THEN "svc" ELSE "other" END RETURN s.name, s.cat
 
 # Nested CASE
-MATCH (s:Service) RETURN s.name,
-  CASE
-    WHEN s.type = "RPC"
-      THEN CASE WHEN s.region = "us-east-1" THEN "us-rpc" ELSE "other-rpc" END
-    ELSE "not-rpc"
-  END AS tier
+MATCH (s:Service) RETURN s.name, CASE WHEN s.type = "RPC" THEN CASE WHEN s.region = "us-east-1" THEN "us-rpc" ELSE "other" END ELSE "no" END AS tier
 ```
+
+> CASE supports all WHERE operators (`=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `IS NULL`, `AND`/`OR`/`NOT`). Works in RETURN, WHERE, WITH, ORDER BY, SET. Nested CASE supported.
 
 ## "Summarize the graph"
 
