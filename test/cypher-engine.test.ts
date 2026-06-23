@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Graph, type GraphInstance } from '../src/graph';
 import { AdvancedCypherGraphologyEngine } from '../src/engine/cypher-engine';
-import { parseCypher } from '../src/engine/cypher-parser';
+import { parseCypher as _parseCypher } from '../src/engine/cypher-parser';
+import type { AdvancedCypherAST } from '../src/types/cypher';
 import { DEFAULT_CONFIG, type CypherNode, type CypherEdge, type GraphIndexes } from '../src/types/cypher';
+
+const parseCypher = _parseCypher as (query: string) => AdvancedCypherAST;
 
 /** Cast a result-row value to CypherNode for test assertions. */
 function node<T extends Record<string, unknown>>(row: T, key: keyof T): CypherNode {
@@ -18,11 +21,18 @@ function buildIndexesFromGraph(graph: GraphInstance): GraphIndexes {
 
   graph.filterNodes(() => true).forEach((id) => {
     const attrs = graph.getNodeAttributes(id);
-    const label = attrs.label as string | undefined;
-    if (label) {
-      let s = labelIndex.get(label);
-      if (!s) { s = new Set(); labelIndex.set(label, s); }
+    const rawLabel = attrs.label;
+    if (typeof rawLabel === 'string') {
+      let s = labelIndex.get(rawLabel);
+      if (!s) { s = new Set(); labelIndex.set(rawLabel, s); }
       s.add(id);
+    } else if (Array.isArray(rawLabel)) {
+      for (const label of rawLabel) {
+        if (typeof label !== 'string') continue;
+        let s = labelIndex.get(label);
+        if (!s) { s = new Set(); labelIndex.set(label, s); }
+        s.add(id);
+      }
     }
     for (const [key, value] of Object.entries(attrs)) {
       if (key === 'label' || value === null || value === undefined || typeof value === 'object') continue;
@@ -2378,6 +2388,29 @@ describe('AdvancedCypherGraphologyEngine', () => {
       expect(node(results[0]!, 'u').status).toBe('new');
     });
 
+    it('MERGE with ON CREATE SET uses static arithmetic expression', () => {
+      const g = new Graph();
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (i:Item {name: "Widget"}) ON CREATE SET i.defaultTotal = 10 * 5 RETURN i');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'i').name).toBe('Widget');
+      expect(node(results[0]!, 'i').defaultTotal).toBe(50);
+    });
+
+    it('MERGE with ON CREATE SET uses dynamic property expression', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', name: 'Widget', price: 10, qty: 5 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (i:Item {name: "Widget"}) ON MATCH SET i.total = i.price * i.qty RETURN i');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'i').name).toBe('Widget');
+      expect(node(results[0]!, 'i').total).toBe(50);
+    });
+
     it('MERGE with ON MATCH SET applies properties on match', () => {
       const g = new Graph();
       g.addNode('alice', { label: 'User', name: 'Alice' });
@@ -2517,6 +2550,732 @@ describe('AdvancedCypherGraphologyEngine', () => {
       const edges = results[0]!.r as CypherEdge[];
       expect(edges).toHaveLength(1);
       expect(edges[0]?.updated).toBe(true);
+    });
+  });
+
+  describe('multiple labels', () => {
+    it('MATCH with multiple labels (AND semantics)', () => {
+      const g = new Graph();
+      g.addNode('a', { label: ['Service', 'Infrastructure'], name: 'API' });
+      g.addNode('b', { label: 'Service', name: 'Auth' });
+      g.addNode('c', { label: 'Infrastructure', name: 'Kafka' });
+      g.addNode('d', { label: ['Service', 'Infrastructure', 'Critical'], name: 'DB' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      // Must have both Service AND Infrastructure
+      const ast = parseCypher('MATCH (n:Service:Infrastructure) RETURN n.name AS name ORDER BY n.name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['API', 'DB']);
+    });
+
+    it('MATCH with single label still works', () => {
+      const g = new Graph();
+      g.addNode('a', { label: ['Service', 'Infrastructure'], name: 'API' });
+      g.addNode('b', { label: 'Service', name: 'Auth' });
+      g.addNode('c', { label: 'Infrastructure', name: 'Kafka' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n:Service) RETURN n.name AS name ORDER BY n.name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['API', 'Auth']);
+    });
+
+    it('CREATE with multiple labels', () => {
+      const g = new Graph();
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('CREATE (n:A:B {name: "X"}) RETURN n');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      const n = results[0]!.n as CypherNode;
+      expect(n.name).toBe('X');
+      expect(n.label).toEqual(['A', 'B']);
+    });
+
+    it('CREATE with single label stores as string', () => {
+      const g = new Graph();
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('CREATE (n:User {name: "Y"}) RETURN n');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      const n = results[0]!.n as CypherNode;
+      expect(n.name).toBe('Y');
+      expect(n.label).toBe('User');
+    });
+
+    it('REMOVE single label from multi-label node', () => {
+      const g = new Graph();
+      g.addNode('a', { label: ['Service', 'Infrastructure'], name: 'API' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n {name: "API"}) REMOVE n:Service RETURN n');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      const n = results[0]!.n as CypherNode;
+      expect(n.label).toBe('Infrastructure');
+    });
+
+    it('MATCH with multiple labels and property filter', () => {
+      const g = new Graph();
+      g.addNode('a', { label: ['Service', 'Infrastructure'], name: 'API' });
+      g.addNode('b', { label: ['Service', 'Infrastructure'], name: 'DB' });
+      g.addNode('c', { label: 'Service', name: 'Auth' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n:Service:Infrastructure {name: "API"}) RETURN n.name AS name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['API']);
+    });
+
+    it('MERGE with multiple labels creates node with all labels', () => {
+      const g = new Graph();
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (n:Service:Infrastructure {name: "API"}) RETURN n');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      const n = results[0]!.n as CypherNode;
+      expect(n.name).toBe('API');
+      expect(n.label).toEqual(['Service', 'Infrastructure']);
+
+      // Running again should find existing node (not create duplicate)
+      const ast2 = parseCypher('MATCH (n:Service:Infrastructure {name: "API"}) RETURN n.name AS name');
+      e.invalidateIndexes(); // Invalidate indexes after mutation
+      const results2 = e.execute(ast2);
+      expect(results2.length).toBe(1);
+    });
+  });
+
+  describe('label expressions', () => {
+    it('MATCH with label union (|) returns nodes matching any label', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Movie', name: 'Inception' });
+      g.addNode('b', { label: 'Person', name: 'Nolan' });
+      g.addNode('c', { label: 'Studio', name: 'Warner' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n:Movie|Person) RETURN n.name AS name ORDER BY n.name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Inception', 'Nolan']);
+    });
+
+    it('MATCH with multiple label unions', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Movie', name: 'Inception' });
+      g.addNode('b', { label: 'Person', name: 'Nolan' });
+      g.addNode('c', { label: 'Actor', name: 'Crowe' });
+      g.addNode('d', { label: 'Studio', name: 'Warner' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n:Movie|Person|Actor) RETURN n.name AS name ORDER BY n.name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Crowe', 'Inception', 'Nolan']);
+    });
+
+    it('MATCH with label negation (!) excludes nodes with that label', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Movie', name: 'Inception' });
+      g.addNode('b', { label: 'Person', name: 'Nolan' });
+      g.addNode('c', { label: 'Studio', name: 'Warner' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n:!Movie) RETURN n.name AS name ORDER BY n.name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Nolan', 'Warner']);
+    });
+
+    it('MATCH with label union and negation', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Movie', name: 'Inception' });
+      g.addNode('b', { label: 'Person', name: 'Nolan' });
+      g.addNode('c', { label: 'Actor', name: 'Crowe' });
+      g.addNode('d', { label: 'Studio', name: 'Warner' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      // Movie OR (NOT Person) — matches Movie nodes and non-Person nodes
+      const ast = parseCypher('MATCH (n:Movie|!Person) RETURN n.name AS name ORDER BY n.name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Crowe', 'Inception', 'Warner']);
+    });
+
+    it('MATCH with multiple label negations', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Movie', name: 'Inception' });
+      g.addNode('b', { label: 'Person', name: 'Nolan' });
+      g.addNode('c', { label: 'Actor', name: 'Crowe' });
+      g.addNode('d', { label: 'Studio', name: 'Warner' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n:!Movie:!Person) RETURN n.name AS name ORDER BY n.name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Crowe', 'Warner']);
+    });
+
+    it('MATCH with AND labels combined with OR labels', () => {
+      const g = new Graph();
+      g.addNode('a', { label: ['Service', 'Infrastructure'], name: 'API' });
+      g.addNode('b', { label: 'Service', name: 'Auth' });
+      g.addNode('c', { label: 'Infrastructure', name: 'Kafka' });
+      g.addNode('d', { label: 'Database', name: 'Postgres' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      // (Service AND Infrastructure) OR Database
+      const ast = parseCypher('MATCH (n:Service:Infrastructure|Database) RETURN n.name AS name ORDER BY n.name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['API', 'Postgres']);
+    });
+
+    it('MATCH with negation and property filter', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Service', name: 'API', critical: true });
+      g.addNode('b', { label: 'Service', name: 'Auth', critical: false });
+      g.addNode('c', { label: 'Database', name: 'Postgres', critical: true });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n:!Database {critical: true}) RETURN n.name AS name ORDER BY n.name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['API']);
+    });
+
+    it('MERGE with label union uses AND labels for creation', () => {
+      const g = new Graph();
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      // Note: properties after label expressions aren't supported by the ANTLR4 grammar
+      const ast = parseCypher('MERGE (n:Movie|Person) RETURN n');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      const n = results[0]!.n as CypherNode;
+      expect(n.label).toBe('Movie');
+    });
+  });
+
+  describe('Map literals', () => {
+    it('returns static map literal in RETURN', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN {name: "Alice", age: 30} AS m');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ m: { name: 'Alice', age: 30 } }]);
+    });
+
+    it('returns map literal with dynamic property access in RETURN', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN {name: n.name, upper: toUpper(n.name)} AS profile');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ profile: { name: 'Alice', upper: 'ALICE' } }]);
+    });
+
+    it('returns map literal with function call in RETURN', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN {displayName: toUpper(n.name), lower: toLower(n.name)} AS m');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ m: { displayName: 'ALICE', lower: 'alice' } }]);
+    });
+
+    it('returns map literal in WITH clause', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WITH {name: n.name, upper: toUpper(n.name)} AS p RETURN p');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ p: { name: 'Alice', upper: 'ALICE' } }]);
+    });
+
+    it('WHERE = with map literal matches node by subset of properties', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      g.addNode('b', { label: 'User', name: 'Bob' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice"} RETURN n.name AS name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Alice']);
+    });
+
+    it('WHERE = with map literal matches multiple properties', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', age: 30 });
+      g.addNode('b', { label: 'User', name: 'Alice', age: 25 });
+      g.addNode('c', { label: 'User', name: 'Bob', age: 30 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", age: 30} RETURN n.age AS age');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.age)).toEqual([30]);
+    });
+
+    it('WHERE <> with map literal excludes matching node', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      g.addNode('b', { label: 'User', name: 'Bob' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n <> {name: "Alice"} RETURN n.name AS name ORDER BY n.name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Bob']);
+    });
+
+    it('SET with map literal value', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) SET n.meta = {key: "val", num: 42} RETURN n.meta AS meta');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ meta: { key: 'val', num: 42 } }]);
+    });
+
+    it('SET with map literal containing dynamic expression', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) SET n.profile = {displayName: toUpper(n.name)} RETURN n.profile AS profile');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ profile: { displayName: 'ALICE' } }]);
+    });
+
+    it('UNWIND with list of map literals', () => {
+      const g = new Graph();
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('UNWIND [{name: "Alice"}, {name: "Bob"}] AS x RETURN x AS x');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ x: { name: 'Alice' } }, { x: { name: 'Bob' } }]);
+    });
+  });
+
+  describe('List literals with dynamic values', () => {
+    it('returns list with property access in RETURN', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN [n.name, "static"] AS info');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ info: ['Alice', 'static'] }]);
+    });
+
+    it('returns list with function call in RETURN', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN [n.name, toUpper(n.name)] AS info');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ info: ['Alice', 'ALICE'] }]);
+    });
+
+    it('returns list with node reference in RETURN', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN [n.name, n] AS info');
+      const results = e.execute(ast);
+      expect(results[0]!.info).toBeInstanceOf(Array);
+      expect((results[0]!.info as unknown[])[0]).toBe('Alice');
+      expect((results[0]!.info as unknown[])[1]).toHaveProperty('id', 'a');
+    });
+
+    it('WHERE IN with dynamic list literal', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      g.addNode('b', { label: 'User', name: 'Bob' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.name IN [n.name] RETURN n.name AS name ORDER BY n.name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Alice', 'Bob']);
+    });
+
+    it('list literal with map literals inside', () => {
+      const g = new Graph();
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('RETURN [{a: 1}, {a: 2}] AS list');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ list: [{ a: 1 }, { a: 2 }] }]);
+    });
+
+    it('WHERE IN with PropertyAccess on property list', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', tags: ['admin', 'user'] });
+      g.addNode('b', { label: 'User', name: 'Bob', tags: ['user'] });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.name IN [n.name] RETURN n.name AS name ORDER BY n.name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Alice', 'Bob']);
+    });
+
+    it('WHERE IN with FunctionCall RHS (split)', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      g.addNode('b', { label: 'User', name: 'Bob' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.name IN split("Alice,Bob,Charlie", ",") RETURN n.name AS name ORDER BY n.name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Alice', 'Bob']);
+    });
+
+    it('WHERE IN with list of maps', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', role: 'admin' });
+      g.addNode('b', { label: 'User', name: 'Bob', role: 'user' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n IN [{name: "Alice"}, {name: "Charlie"}] RETURN n.name AS name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Alice']);
+    });
+
+    it('deep equality for nested maps in WHERE', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', meta: { role: 'admin', active: true } });
+      g.addNode('b', { label: 'User', name: 'Bob', meta: { role: 'user', active: true } });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.meta = {role: "admin"} RETURN n.name AS name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Alice']);
+    });
+
+    it('deep equality for nested lists in WHERE', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', tags: ['admin', 'user'] });
+      g.addNode('b', { label: 'User', name: 'Bob', tags: ['user'] });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.tags = ["admin", "user"] RETURN n.name AS name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Alice']);
+    });
+  });
+
+  describe('Map literals with non-literal values', () => {
+    it('map literal with list value from function call', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN {name: n.name, tags: split(n.name, "")} AS m');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ m: { name: 'Alice', tags: ['A', 'l', 'i', 'c', 'e'] } }]);
+    });
+
+    it('map literal with node reference', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN {name: n.name, node: n} AS m');
+      const results = e.execute(ast);
+      expect(results[0]!.m).toHaveProperty('name', 'Alice');
+      expect(results[0]!.m).toHaveProperty('node');
+      expect((results[0]!.m as Record<string, unknown>).node).toHaveProperty('id', 'a');
+    });
+
+    it('map literal with mixed literal and non-literal values', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN {static: "val", dynamic: n.name, upper: toUpper(n.name)} AS m');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ m: { static: 'val', dynamic: 'Alice', upper: 'ALICE' } }]);
+    });
+
+    it('UNWIND with map containing list value', () => {
+      const g = new Graph();
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('UNWIND [{name: "Alice", tags: ["a", "b"]}, {name: "Bob"}] AS x RETURN x');
+      const results = e.execute(ast);
+      expect(results).toEqual([
+        { x: { name: 'Alice', tags: ['a', 'b'] } },
+        { x: { name: 'Bob' } },
+      ]);
+    });
+
+    it('RETURN map with list value from function call', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN {name: n.name, tags: split(n.name, "")} AS m');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ m: { name: 'Alice', tags: ['A', 'l', 'i', 'c', 'e'] } }]);
+    });
+
+    it('RETURN map with list value as static literal', () => {
+      const g = new Graph();
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('RETURN {name: "Alice", tags: ["a", "b"]} AS m');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ m: { name: 'Alice', tags: ['a', 'b'] } }]);
+    });
+  });
+
+  describe('Arithmetic expressions', () => {
+    it('evaluates multiplication', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', price: 10, qty: 5 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN n.price * n.qty AS total');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ total: 50 }]);
+    });
+
+    it('evaluates addition', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', a: 10, b: 3 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN n.a + n.b AS sum');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ sum: 13 }]);
+    });
+
+    it('evaluates subtraction', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', a: 10, b: 3 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN n.a - n.b AS diff');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ diff: 7 }]);
+    });
+
+    it('evaluates division', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', a: 10, b: 3 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN n.a / n.b AS ratio');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ ratio: 10 / 3 }]);
+    });
+
+    it('evaluates modulo', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', a: 10, b: 3 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN n.a % n.b AS remainder');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ remainder: 1 }]);
+    });
+
+    it('evaluates power', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', a: 3, b: 2 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN n.a ^ n.b AS powered');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ powered: 9 }]);
+    });
+
+    it('evaluates unary minus', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', price: 10 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN -n.price AS negated');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ negated: -10 }]);
+    });
+
+    it('evaluates unary plus', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', price: 10 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN +n.price AS positive');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ positive: 10 }]);
+    });
+
+    it('evaluates chained addition (left-associative)', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', a: 1, b: 2, c: 3 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN n.a + n.b + n.c AS total');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ total: 6 }]);
+    });
+
+    it('evaluates mixed precedence (* before +)', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', price: 10, shipping: 5 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN n.price * 2 + n.shipping AS cost');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ cost: 25 }]);
+    });
+
+    it('evaluates parenthesized expression', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', a: 3, b: 2 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN (n.a + n.b) * 2 AS result');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ result: 10 }]);
+    });
+
+    it('evaluates arithmetic in WHERE', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', name: 'Widget', price: 10, qty: 5 });
+      g.addNode('b', { label: 'Item', name: 'Gadget', price: 25, qty: 3 });
+      g.addNode('c', { label: 'Item', name: 'Doohickey', price: 7, qty: 2 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WHERE n.price * n.qty > 40 RETURN n.name');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Widget', 'Gadget']);
+    });
+
+    it('evaluates arithmetic in SET', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', name: 'Widget', price: 10, qty: 5 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) SET n.total = n.price * n.qty RETURN n.name, n.total');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ name: 'Widget', total: 50 }]);
+    });
+
+    it('evaluates arithmetic in WITH', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', price: 10, qty: 5 });
+      g.addNode('b', { label: 'Item', price: 25, qty: 3 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) WITH n.price + n.qty AS sum RETURN sum ORDER BY sum DESC');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ sum: 28 }, { sum: 15 }]);
+    });
+
+    it('evaluates double negation', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', price: 10 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN -(-n.price) AS positive');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ positive: 10 }]);
+    });
+
+    it('returns null for division by zero', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', a: 10 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN n.a / 0 AS divZero');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ divZero: null }]);
+    });
+
+    it('returns null for modulo by zero', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', a: 10 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN n.a % 0 AS modZero');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ modZero: null }]);
+    });
+
+    it('returns null for null operand (missing property)', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', price: 10 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN n.price + n.missing AS result');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ result: null }]);
+    });
+
+    it('evaluates arithmetic with literal and property', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', price: 10 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN n.price + 5 AS inc');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ inc: 15 }]);
+    });
+
+    it('evaluates complex nested parenthesized expression', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', price: 10, qty: 5 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN ((n.price + 1) * (n.qty - 1)) / 2 AS complex');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ complex: 22 }]);
+    });
+
+    it('returns null for non-numeric operand (NaN)', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', name: 'Widget', val: 'hello' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN n.val + 5 AS result');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ result: null }]);
+    });
+
+    it('returns null for unary minus on non-numeric operand', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', val: 'hello' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN -n.val AS result');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ result: null }]);
+    });
+
+    it('returns null for unary plus on non-numeric operand', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', val: 'hello' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN +n.val AS result');
+      const results = e.execute(ast);
+      expect(results).toEqual([{ result: null }]);
+    });
+
+    it('supports arithmetic in multi-key ORDER BY', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', name: 'Widget', a: 1, b: 3, c: 10 });
+      g.addNode('b', { label: 'Item', name: 'Gadget', a: 2, b: 2, c: 5 });
+      g.addNode('c', { label: 'Item', name: 'Doohickey', a: 1, b: 1, c: 20 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (n) RETURN n.name ORDER BY n.a + n.b DESC, n.c * 2 ASC');
+      const results = e.execute(ast);
+      // Widget: a+b=4, c*2=20; Gadget: a+b=4, c*2=10; Doohickey: a+b=2, c*2=40
+      // DESC on sum, then ASC on c*2 → Gadget(4,10), Widget(4,20), Doohickey(2,40)
+      expect(results.map((r) => r.name)).toEqual(['Gadget', 'Widget', 'Doohickey']);
     });
   });
 });

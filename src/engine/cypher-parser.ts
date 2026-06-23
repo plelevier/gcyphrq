@@ -1,6 +1,13 @@
 import { createRequire } from 'module';
+import { evaluateArithmeticCore } from '../arithmetic';
 import type {
   AdvancedCypherAST,
+  UnionQueryAST,
+  UnionType,
+  CypherAST,
+  FunctionCallExpression,
+  LabelExpression,
+  ListSliceExpression,
   MatchClause,
   MergeClause,
   MergeAction,
@@ -12,6 +19,7 @@ import type {
   WithClause,
   WriteClause,
   UnwindClause,
+  ForeachClause,
   Expression,
   BinaryExpression,
   ListLiteralExpression,
@@ -20,6 +28,7 @@ import type {
   IsNullExpression,
   ReturnClause,
   CypherLiteral,
+  CypherValue,
   Projection,
   RemoveClause,
   RemoveItem,
@@ -37,6 +46,8 @@ const Ctx = {
   Atom: 'AtomContext',
   AddOrSubtractExpression: 'AddOrSubtractExpressionContext',
   AndExpression: 'AndExpressionContext',
+  MultiplyDivideModuloExpression: 'MultiplyDivideModuloExpressionContext',
+  PowerOfExpression: 'PowerOfExpressionContext',
   BooleanLiteral: 'BooleanLiteralContext',
   AnonymousPatternPart: 'AnonymousPatternPartContext',
   Clause: 'ClauseContext',
@@ -103,6 +114,7 @@ const Ctx = {
   SingleQuery: 'SingleQueryContext',
   Statement: 'StatementContext',
   StringListNullOperatorExpression: 'StringListNullOperatorExpressionContext',
+  Union: 'UnionContext',
   StringLiteral: 'StringLiteralContext',
   SymbolicName: 'SymbolicNameContext',
   TerminalNode: 'TerminalNodeImpl',
@@ -111,6 +123,8 @@ const Ctx = {
   WithClause: 'WithClauseContext',
   XorExpression: 'XorExpressionContext',
   UnwindClause: 'UnwindClauseContext',
+  UnaryAddOrSubtractExpression: 'UnaryAddOrSubtractExpressionContext',
+  ForeachClause: 'ForeachClauseContext',
 } as const;
 
 /**
@@ -209,6 +223,9 @@ class ErrorCollector implements BaseErrorListener {
   reportContextSensitivity(): void {}
 }
 
+// Set of aggregation function names (case-insensitive check at call site).
+const AGGREGATION_FUNCTIONS = new Set(['count', 'sum', 'avg', 'min', 'max']);
+
 // ── Tree helpers ─────────────────────────────────────────────────────────────
 
 type TreeNode = ParseTreeNode | null | undefined;
@@ -265,27 +282,368 @@ function getSymbolicName(ctx: TreeNode): string | undefined {
   return sym.getText();
 }
 
+// ── Arithmetic expression extraction ─────────────────────────────────────────
+// The ANTLR4 Cypher grammar defines an arithmetic hierarchy:
+//   AddOrSubtractExpression (+, -)
+//     MultiplyDivideModuloExpression (*, /, %)
+//       PowerOfExpression (^)
+//         UnaryAddOrSubtractExpression (unary +, -)
+//           StringListNullOperatorExpression
+//             PropertyOrLabelsExpression
+//               Atom
+//
+// We walk down this hierarchy, extracting binary/unary arithmetic at each level.
+// Comparison boundaries (PartialComparisonExpression, StringListNullOperatorExpression)
+// are respected so arithmetic in WHERE operands is extracted correctly.
+
+type ArithOperator = '+' | '-' | '*' | '/' | '%' | '^';
+
+/** Find operator terminals at a given context level. Returns { operator, index } pairs. */
+function findArithmeticOperators(ctx: TreeNode): { operator: ArithOperator; index: number }[] {
+  if (!ctx?.children) return [];
+  const operators: ArithOperator[] = ['+', '-', '*', '/', '%', '^'];
+  const results: { operator: ArithOperator; index: number }[] = [];
+  for (let i = 0; i < ctx.children.length; i++) {
+    const c = ctx.children[i];
+    if (c?.constructor.name === Ctx.TerminalNode && operators.includes(c.symbol?.text as ArithOperator)) {
+      results.push({ operator: c.symbol!.text as ArithOperator, index: i });
+    }
+  }
+  return results;
+}
+
+/** Split children into segments separated by operator indices. Filters whitespace-only terminals. */
+function splitChildrenByOperators(children: ParseTreeNode[], operatorIndices: number[]): ParseTreeNode[][] {
+  const segments: ParseTreeNode[][] = [];
+  let start = 0;
+  for (const idx of operatorIndices) {
+    segments.push(
+      children.slice(start, idx).filter((c: ParseTreeNode) => {
+        if (c.constructor.name === Ctx.TerminalNode) return c.symbol?.text && c.symbol.text.trim() !== '';
+        return true;
+      }),
+    );
+    start = idx + 1;
+  }
+  segments.push(
+    children.slice(start).filter((c: ParseTreeNode) => {
+      if (c.constructor.name === Ctx.TerminalNode) return c.symbol?.text && c.symbol.text.trim() !== '';
+      return true;
+    }),
+  );
+  return segments;
+}
+
+/**
+ * Extract an arithmetic expression by walking the ANTLR4 arithmetic hierarchy.
+ * Returns undefined if no arithmetic operator is found (falls through to atom/literal).
+ */
+function extractArithmeticExpression(exprCtx: TreeNode): Expression | undefined {
+  if (!exprCtx) return undefined;
+
+  // Walk down through logical/comparison wrappers to reach arithmetic level
+  let ctx: TreeNode = exprCtx;
+  for (const wrapper of [Ctx.OrExpression, Ctx.XorExpression, Ctx.AndExpression, Ctx.NotExpression, Ctx.ComparisonExpression]) {
+    const child = findChild(ctx, wrapper);
+    if (child) ctx = child;
+  }
+
+  // ── Addition / Subtraction ──────────────────────────────────────────────
+  // Use ctx directly if already at AddOrSubtractExpression level, otherwise find child
+  let addSubCtx = (ctx.constructor.name === Ctx.AddOrSubtractExpression) ? ctx : findChild(ctx, Ctx.AddOrSubtractExpression);
+  if (addSubCtx && addSubCtx.children) {
+    const addOps = findArithmeticOperators(addSubCtx).filter((o) => o.operator === '+' || o.operator === '-');
+    if (addOps.length > 0) {
+      const segments = splitChildrenByOperators(addSubCtx.children, addOps.map((o) => o.index));
+      const operands = segments.map((seg) => extractArithmeticOperand(seg));
+      if (operands.includes(undefined)) return undefined;
+      const expressions = operands as Expression[];
+      if (expressions.length >= 2) {
+        let result: Expression = expressions[0]!;
+        for (let i = 0; i < addOps.length && i < expressions.length - 1; i++) {
+          result = { type: 'Arithmetic' as const, operator: addOps[i]!.operator, left: result, right: expressions[i + 1]! };
+        }
+        return result;
+      }
+    }
+    // No + or - at this level — descend deeper (only if we found it as a child, not ctx itself)
+    if (addSubCtx !== ctx) {
+      const inner = extractArithmeticExpression(addSubCtx);
+      if (inner) return inner;
+    }
+  }
+
+  // ── Multiplication / Division / Modulo ──────────────────────────────────
+  let mulDivCtx = (ctx.constructor.name === Ctx.MultiplyDivideModuloExpression) ? ctx : findChild(ctx, Ctx.MultiplyDivideModuloExpression);
+  if (mulDivCtx && mulDivCtx.children) {
+    const mulOps = findArithmeticOperators(mulDivCtx).filter((o) => o.operator === '*' || o.operator === '/' || o.operator === '%');
+    if (mulOps.length > 0) {
+      const segments = splitChildrenByOperators(mulDivCtx.children, mulOps.map((o) => o.index));
+      const operands = segments.map((seg) => extractArithmeticOperand(seg));
+      if (operands.includes(undefined)) return undefined;
+      const expressions = operands as Expression[];
+      if (expressions.length >= 2) {
+        let result: Expression = expressions[0]!;
+        for (let i = 0; i < mulOps.length && i < expressions.length - 1; i++) {
+          result = { type: 'Arithmetic' as const, operator: mulOps[i]!.operator, left: result, right: expressions[i + 1]! };
+        }
+        return result;
+      }
+    }
+    if (mulDivCtx !== ctx) {
+      const inner = extractArithmeticExpression(mulDivCtx);
+      if (inner) return inner;
+    }
+  }
+
+  // ── Power Of ────────────────────────────────────────────────────────────
+  let powCtx = (ctx.constructor.name === Ctx.PowerOfExpression) ? ctx : findChild(ctx, Ctx.PowerOfExpression);
+  if (powCtx && powCtx.children) {
+    const powOps = findArithmeticOperators(powCtx).filter((o) => o.operator === '^');
+    if (powOps.length > 0) {
+      const segments = splitChildrenByOperators(powCtx.children, powOps.map((o) => o.index));
+      const operands = segments.map((seg) => extractArithmeticOperand(seg));
+      if (operands.includes(undefined)) return undefined;
+      const expressions = operands as Expression[];
+      if (expressions.length >= 2) {
+        let result: Expression = expressions[0]!;
+        for (let i = 0; i < powOps.length && i < expressions.length - 1; i++) {
+          result = { type: 'Arithmetic' as const, operator: powOps[i]!.operator, left: result, right: expressions[i + 1]! };
+        }
+        return result;
+      }
+    }
+    if (powCtx !== ctx) {
+      const inner = extractArithmeticExpression(powCtx);
+      if (inner) return inner;
+    }
+  }
+
+  // ── Unary + / - ─────────────────────────────────────────────────────────
+  const unaryCtx = findChild(ctx, Ctx.UnaryAddOrSubtractExpression);
+  if (unaryCtx && unaryCtx.children && unaryCtx.children.length >= 2) {
+    const firstChild = unaryCtx.children[0];
+    if (firstChild && firstChild.constructor.name === Ctx.TerminalNode) {
+      const op = firstChild.symbol?.text;
+      if (op === '-' || op === '+') {
+        const innerSeg = unaryCtx.children.slice(1).filter((c: ParseTreeNode) => {
+          if (c.constructor.name === Ctx.TerminalNode) return c.symbol?.text && c.symbol.text.trim() !== '';
+          return true;
+        });
+        if (innerSeg.length > 0) {
+          const inner = extractArithmeticOperand(innerSeg);
+          if (inner) {
+            return { type: 'Arithmetic' as const, operator: op === '-' ? 'UNARY_MINUS' : 'UNARY_PLUS', left: undefined, right: inner };
+          }
+        }
+      }
+    }
+  }
+
+  // No arithmetic found — return undefined so caller falls through to atom/literal
+  return undefined;
+}
+
+/** Extract an arithmetic operand from a segment (children between operators).
+ * Tries arithmetic first, then falls back to base expression (atom/literal/variable).
+ * Returns undefined if no valid expression can be extracted (no silent fallback to 0). */
+function extractArithmeticOperand(segment: ParseTreeNode[]): Expression | undefined {
+  if (segment.length === 0) return undefined;
+  const arith = extractArithmeticExpression(segment[0]);
+  if (arith) return arith;
+  // Fall back to base expression via atom extraction
+  const atom = getAtom(segment[0]);
+  if (atom) {
+    const base = evaluateExpressionFromAtom(atom, segment[0]);
+    if (base) return base;
+  }
+  return undefined;
+}
+
 // ── Expression navigation ────────────────────────────────────────────────────
 
 function getAtom(exprCtx: TreeNode): ParseTreeNode | null {
   if (!exprCtx) return null;
-  const walk = (ctx: ParseTreeNode): ParseTreeNode | null => {
-    if (ctx.constructor.name === Ctx.Atom) return ctx;
-    if (!ctx.children) return null;
-    for (const child of ctx.children) {
-      const found = walk(child);
-      if (found) return found;
+  // BFS to find the shallowest (outermost) Atom, avoiding inner atoms inside nested literals
+  let currentLevel = [(exprCtx as ParseTreeNode)];
+  while (currentLevel.length > 0) {
+    const nextLevel: ParseTreeNode[] = [];
+    for (const node of currentLevel) {
+      if (node.constructor.name === Ctx.Atom) return node;
+      if (node.children) {
+        for (const child of node.children) {
+          nextLevel.push(child as ParseTreeNode);
+        }
+      }
     }
-    return null;
-  };
-  return walk(exprCtx as ParseTreeNode);
+    currentLevel = nextLevel;
+  }
+  return null;
 }
 
-function evaluateExpression(exprCtx: TreeNode): Expression | undefined {
+/**
+ * Find the first PropertyOrLabelsExpression and its parent context.
+ * Used for list slice detection where brackets are siblings of PropertyOrLabelsExpression.
+ */
+function findPropOrLabelsWithParent(ctx: TreeNode): { propOrLabels: ParseTreeNode; parent: ParseTreeNode } | undefined {
+  if (!ctx) return undefined;
+  const walk = (node: ParseTreeNode, parent: ParseTreeNode | null): { propOrLabels: ParseTreeNode; parent: ParseTreeNode } | undefined => {
+    if (node.constructor.name === Ctx.PropertyOrLabelsExpression && parent) {
+      return { propOrLabels: node, parent };
+    }
+    if (node.children) {
+      for (const child of node.children) {
+        const found = walk(child, node);
+        if (found) return found;
+      }
+    }
+    return undefined;
+  };
+  return walk(ctx as ParseTreeNode, null);
+}
+
+/**
+ * Extract a list slice expression by checking the parent of a PropertyOrLabelsExpression.
+ *
+ * ANTLR4 tree structure for `[1,2,3][0..2]`:
+ *   StringListNullOperatorExpressionContext
+ *     PropertyOrLabelsExpressionContext
+ *       AtomContext
+ *         LiteralContext
+ *           ListLiteralContext [1,2,3]
+ *     TerminalNodeImpl [[]
+ *     ExpressionContext (0)
+ *     TerminalNodeImpl [..]
+ *     ExpressionContext (2)
+ *     TerminalNodeImpl []]
+ *
+ * For single index `n.tags[0]`:
+ *   StringListNullOperatorExpressionContext
+ *     PropertyOrLabelsExpressionContext
+ *       AtomContext (n.tags)
+ *     TerminalNodeImpl [[]
+ *     ExpressionContext (0)
+ *     TerminalNodeImpl []]
+ */
+
+/**
+ * Evaluate a slice index expression, handling unary minus for negative indices.
+ *
+ * ANTLR4 parses `-2` as:
+ *   ExpressionContext
+ *     OrExpression -> ... -> UnaryAddOrSubtractExpressionContext
+ *       TerminalNodeImpl [-]
+ *       StringListNullOperatorExpressionContext
+ *         PropertyOrLabelsExpressionContext
+ *           AtomContext
+ *             LiteralContext
+ *               NumberLiteralContext
+ *                 IntegerLiteralContext
+ *                   TerminalNodeImpl [2]
+ *
+ * Regular `evaluateExpression` would find the Atom (containing `2`) and lose the `-`.
+ * This helper detects the unary minus at the top level and produces a negative literal.
+ */
+function evaluateSliceIndex(exprCtx: TreeNode): Expression | undefined {
   if (!exprCtx) return undefined;
 
-  const atom = getAtom(exprCtx);
+  // Walk down to the UnaryAddOrSubtractExpression
+  const unaryCtx = findDescendant(exprCtx, Ctx.UnaryAddOrSubtractExpression);
+  if (unaryCtx && unaryCtx.children) {
+    const children = unaryCtx.children;
+    // Check for unary minus: first child is `-` terminal
+    if (children[0]?.constructor.name === 'TerminalNodeImpl' && children[0]?.symbol?.text === '-') {
+      // Get the inner expression (everything after `-`)
+      const innerExprCtx = children[1];
+      const innerExpr = evaluateExpression(innerExprCtx);
+      if (innerExpr && innerExpr.type === 'Literal' && typeof innerExpr.value === 'number') {
+        return { type: 'Literal' as const, value: -innerExpr.value };
+      }
+    }
+  }
+
+  // No unary minus — use normal evaluation
+  return evaluateExpression(exprCtx);
+}
+
+function extractListSlice(parentCtx: ParseTreeNode): ListSliceExpression | undefined {
+  if (!parentCtx.children) return undefined;
+  const children = parentCtx.children;
+
+  // Find PropertyOrLabelsExpression and check for [ after it
+  let propIdx = -1;
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    if (child && child.constructor.name === Ctx.PropertyOrLabelsExpression) {
+      propIdx = i;
+      break;
+    }
+  }
+  if (propIdx < 0) return undefined;
+
+  // Check for [ terminal after the PropertyOrLabelsExpression
+  const bracketOpen = children[propIdx + 1];
+  if (!bracketOpen || bracketOpen.constructor.name !== 'TerminalNodeImpl' || bracketOpen.symbol?.text !== '[') {
+    return undefined;
+  }
+
+  // Extract base expression from the PropertyOrLabelsExpression
+  const propOrLabelsCtx = children[propIdx];
+  const baseExpr = extractValueExpressionFromPropertyOrLabels(propOrLabelsCtx);
+  if (!baseExpr) return undefined;
+
+  // Check for range slice: [start..end], [..end], [start..], or single index: [index]
+  const afterBracket = children[propIdx + 2];
+  if (!afterBracket) return undefined;
+
+  // Check if this is [..end] (start omitted)
+  if (afterBracket.constructor.name === 'TerminalNodeImpl' && afterBracket.symbol?.text === '..') {
+    const endExprCtx = children[propIdx + 3];
+    const endExpr = endExprCtx ? evaluateSliceIndex(endExprCtx) : undefined;
+    return {
+      type: 'ListSlice' as const,
+      list: baseExpr,
+      start: { type: 'Literal' as const, value: null as CypherLiteral },
+      end: endExpr ?? { type: 'Literal' as const, value: null as CypherLiteral },
+    };
+  }
+
+  // Otherwise it's [start..end] or [index]
+  const startExpr = evaluateSliceIndex(afterBracket);
+  if (!startExpr) return undefined;
+
+  // Check for .. (range slice)
+  const dotDot = children[propIdx + 3];
+  if (dotDot && dotDot.constructor.name === 'TerminalNodeImpl' && dotDot.symbol?.text === '..') {
+    const endExprCtx = children[propIdx + 4];
+    const endExpr = endExprCtx ? evaluateSliceIndex(endExprCtx) : undefined;
+    return {
+      type: 'ListSlice' as const,
+      list: baseExpr,
+      start: startExpr,
+      end: endExpr ?? { type: 'Literal' as const, value: null as CypherLiteral },
+    };
+  }
+
+  // Single index: treat as slice [index..index+1]
+  return {
+    type: 'ListSlice' as const,
+    list: baseExpr,
+    start: startExpr,
+    end: startExpr, // Will be handled by engine to return single element
+  };
+}
+
+/** Evaluate an expression from an Atom context (without slice detection). fullCtx is used for property lookup. */
+function evaluateExpressionFromAtom(atom: TreeNode, fullCtx?: TreeNode): Expression | undefined {
   if (!atom) return undefined;
+
+  // Parenthesized expression: unwrap and evaluate the inner expression
+  const parenCtx = findChild(atom, Ctx.ParenthesizedExpression);
+  if (parenCtx) {
+    const innerExpr = findChild(parenCtx, Ctx.Expression);
+    if (innerExpr) return evaluateExpression(innerExpr);
+  }
 
   // Function invocation (e.g., count(f))
   const funcCtx = findChild(atom, Ctx.FunctionInvocation);
@@ -317,7 +675,8 @@ function evaluateExpression(exprCtx: TreeNode): Expression | undefined {
     // Check for DISTINCT keyword inside the function invocation
     const hasDistinct = hasTerminal(funcCtx, 'DISTINCT');
 
-    if (funcName && argName) {
+    // Only treat known aggregation functions as aggregations
+    if (funcName && argName && AGGREGATION_FUNCTIONS.has(funcName.toLowerCase())) {
       return {
         type: 'Aggregation' as const,
         aggregationType: funcName.toUpperCase() as 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX',
@@ -326,6 +685,12 @@ function evaluateExpression(exprCtx: TreeNode): Expression | undefined {
         distinct: !!hasDistinct,
       };
     }
+
+    // Non-aggregation function call (e.g., toLower(n.name), substring(n.name, 0, 5))
+    if (funcName) {
+      const funcCall = extractFunctionCall(funcCtx, funcName);
+      if (funcCall) return funcCall;
+    }
   }
 
   // Variable reference (with optional property access, e.g., u.name)
@@ -333,7 +698,7 @@ function evaluateExpression(exprCtx: TreeNode): Expression | undefined {
   if (varCtx) {
     const name = getSymbolicName(varCtx);
     if (name) {
-      const propLookup = findPropertyLookup(exprCtx);
+      const propLookup = findPropertyLookup(fullCtx ?? atom);
       if (propLookup) {
         const propName = getSymbolicName(findChild(propLookup, Ctx.PropertyKey));
         if (propName) {
@@ -344,20 +709,54 @@ function evaluateExpression(exprCtx: TreeNode): Expression | undefined {
     }
   }
 
-  // List literal (e.g., ["Alice", "Bob"])
-  const listLitExpr = extractListLiteralExpression(atom);
-  if (listLitExpr) return listLitExpr;
-
-  // Map literal (e.g., {name: "Alice", age: 30})
-  const mapLitExpr = extractMapLiteralExpression(atom);
-  if (mapLitExpr) return mapLitExpr;
-
-  // Literal
+  // Literal: find the LiteralContext that is a direct child of this Atom,
+  // then check if it contains a MapLiteral, ListLiteral, or regular literal.
+  // This avoids matching nested literals inside other literals.
   const literalCtx = findChild(atom, Ctx.Literal);
-  const literal = extractLiteral(literalCtx);
-  if (literal) return literal;
+  if (literalCtx) {
+    const mapLitCtx = findChild(literalCtx, Ctx.MapLiteral);
+    if (mapLitCtx) {
+      const mapExpr = extractMapLiteralExpressionFromCtx(mapLitCtx);
+      if (mapExpr) return mapExpr;
+    }
+    const listLitCtx = findChild(literalCtx, Ctx.ListLiteral);
+    if (listLitCtx) {
+      const listExpr = extractListLiteralExpressionFromCtx(listLitCtx);
+      if (listExpr) return listExpr;
+    }
+    // Fall through to regular literal (string, number, boolean, null)
+    const literal = extractLiteral(literalCtx);
+    if (literal) return literal;
+  }
 
   return undefined;
+}
+
+/**
+ * Evaluate an expression from an ExpressionContext.
+ * Checks for list slice syntax first, then falls back to atom-based evaluation.
+ */
+function evaluateExpression(exprCtx: TreeNode): Expression | undefined {
+  if (!exprCtx) return undefined;
+
+  // Check for list slice syntax (e.g., n.tags[0..2], [1,2,3][0..2])
+  // The slice brackets are siblings of PropertyOrLabelsExpression in the parent
+  const withParent = findPropOrLabelsWithParent(exprCtx);
+  if (withParent) {
+    const slice = extractListSlice(withParent.parent);
+    if (slice) return slice;
+  }
+
+  // Arithmetic expressions: walk the ANTLR4 arithmetic hierarchy
+  // (AddOrSubtract > MultiplyDivideModulo > PowerOf > UnaryAddOrSubtract > Atom)
+  const arith = extractArithmeticExpression(exprCtx);
+  if (arith) return arith;
+
+  // Fall back to atom-based evaluation
+  const atom = getAtom(exprCtx);
+  if (!atom) return undefined;
+
+  return evaluateExpressionFromAtom(atom, exprCtx);
 }
 
 /**
@@ -429,40 +828,243 @@ function extractLiteral(literalCtx: TreeNode): Expression | undefined {
   return undefined;
 }
 
+// ── Function call extraction ─────────────────────────────────────────────────
+
+/**
+ * Extract a function call expression from a FunctionInvocation context.
+ * Handles functions with 1–N arguments: toLower(n.name), substring(n.name, 0, 5), etc.
+ *
+ * ANTLR4 tree structure:
+ *   FunctionInvocationContext
+ *     FunctionInvocationBodyContext (contains FunctionName)
+ *     TerminalNodeImpl [(]
+ *     ExpressionContext  <-- arg 1
+ *     TerminalNodeImpl [,]
+ *     ExpressionContext  <-- arg 2
+ *     ...
+ *     TerminalNodeImpl [)]
+ *
+ * Expression children are direct children of FunctionInvocationContext.
+ */
+function extractFunctionCall(funcCtx: TreeNode, funcName: string): FunctionCallExpression | undefined {
+  if (!funcCtx) return undefined;
+
+  const argExpressions: Expression[] = [];
+  const children = funcCtx.children;
+  if (!children) return undefined;
+
+  for (const child of children) {
+    if (child.constructor.name === Ctx.Expression) {
+      const expr = evaluateExpression(child);
+      if (expr && expr.type !== 'Aggregation') {
+        argExpressions.push(expr);
+      }
+    }
+  }
+
+  if (argExpressions.length === 0) return undefined;
+
+  return {
+    type: 'FunctionCall' as const,
+    functionName: funcName.toLowerCase(),
+    arguments: argExpressions,
+  };
+}
+
 // ── Node pattern extraction ──────────────────────────────────────────────────
 
 function extractNodePattern(nodePatternCtx: TreeNode): NodePattern {
-  if (!nodePatternCtx) return { variable: '', label: undefined, properties: undefined };
+  if (!nodePatternCtx) return { variable: '', labels: undefined, properties: undefined };
 
   const variable = getSymbolicName(findChild(nodePatternCtx, Ctx.Variable)) ?? '';
 
-  const labelsCtx = findChild(nodePatternCtx, Ctx.NodeLabels);
-  const labelCtx = findChild(labelsCtx, Ctx.NodeLabel);
-  const labelNameCtx = findChild(labelCtx, Ctx.LabelName);
-  const label = getSymbolicName(labelNameCtx);
+  const labelExpr = extractLabelExpression(nodePatternCtx);
 
   const propsCtx = findChild(nodePatternCtx, Ctx.Properties);
   const mapLitCtx = findChild(propsCtx, Ctx.MapLiteral);
   const properties = extractProperties(mapLitCtx);
 
-  return { variable, label, properties };
+  return { variable, labels: labelExpr, properties };
 }
 
-function extractProperties(mapLiteralCtx: TreeNode): Record<string, CypherLiteral> | undefined {
+/**
+ * Extract a LabelExpression from a NodePattern context.
+ *
+ * The ANTLR4 grammar doesn't support label expressions (|, !), so they appear
+ * as ErrorNodeImpl children of NodePattern. We parse them alongside the
+ * standard NodeLabels/NodeLabel children.
+ *
+ * Labels from NodeLabels (first expression) use AND semantics.
+ * Labels from error nodes after `|` use OR semantics.
+ * Negated labels (!) use NOT semantics.
+ *
+ * Supported forms:
+ *   :Movie              → { labels: ['Movie'], orLabels: [], notLabels: [], orNotLabels: [] }
+ *   :Movie:Action       → { labels: ['Movie','Action'], orLabels: [], notLabels: [], orNotLabels: [] } (AND)
+ *   :Movie|Person       → { labels: ['Movie'], orLabels: ['Person'], notLabels: [], orNotLabels: [] } (OR)
+ *   :!Movie             → { labels: [], orLabels: [], notLabels: ['Movie'], orNotLabels: [] }
+ *   :Movie|!Person      → { labels: ['Movie'], orLabels: [], notLabels: [], orNotLabels: ['Person'] }
+ */
+function extractLabelExpression(nodePatternCtx: TreeNode): LabelExpression | undefined {
+  if (!nodePatternCtx || !nodePatternCtx.children) return undefined;
+
+  const labels: string[] = [];        // positive labels from NodeLabels (AND semantics)
+  const orLabels: string[] = [];      // positive labels from | (OR semantics)
+  const notLabels: string[] = [];     // negated labels from first expression (AND NOT)
+  const orNotLabels: string[] = [];   // negated labels from | alternatives (OR NOT)
+
+  // 1. Collect labels from the standard NodeLabels/NodeLabel children.
+  //    Each NodeLabel may contain an ErrorNodeImpl [!] inside its LabelName
+  //    (e.g. :!Movie), so we check for that.
+  //    Negated labels from the first expression are AND NOT.
+  const labelsCtx = findChild(nodePatternCtx, Ctx.NodeLabels);
+  const labelCtxs = findAllChildren(labelsCtx, Ctx.NodeLabel);
+  for (const lc of labelCtxs) {
+    const labelNameCtx = findChild(lc, Ctx.LabelName);
+    if (!labelNameCtx) continue;
+
+    // Check if the LabelName contains an ErrorNodeImpl [!] (negated label)
+    // The ! may be nested inside SymbolicNameContext, so search recursively
+    const errorNode = findDescendant(labelNameCtx, 'ErrorNodeImpl');
+    const hasNegation = errorNode?.symbol?.text === '!';
+
+    const name = getSymbolicName(labelNameCtx);
+    if (name) {
+      // getSymbolicName may include the '!' prefix — strip it
+      const cleanName = name.startsWith('!') ? name.slice(1) : name;
+      if (hasNegation) {
+        notLabels.push(cleanName);  // AND NOT (from first expression)
+      } else {
+        labels.push(cleanName);
+      }
+    }
+  }
+
+  // 2. Collect additional labels from ErrorNodeImpl children of NodePattern.
+  //    After the first label, the grammar produces error nodes for |, !, :
+  //    and bare identifiers (e.g. | Person | Actor or :!Person).
+  const errorNodes = nodePatternCtx.children.filter(
+    (c: ParseTreeNode) => c.constructor.name === 'ErrorNodeImpl',
+  ) as ParseTreeNode[];
+
+  // Walk error nodes left-to-right, tracking state
+  let sawPipe = false;
+  let negated = false;
+  for (const err of errorNodes) {
+    const text = err.symbol?.text;
+    if (text === '|') {
+      sawPipe = true;
+      negated = false;
+    } else if (text === '!') {
+      negated = true;
+    } else if (text === ':') {
+      // Standalone ':' before a negated label (e.g. :!Person)
+      // If we've seen a pipe, this is part of the OR expression
+      // If not, this is part of the AND expression
+      negated = false;
+    } else if (text && !text.includes(')')) {
+      // This is a label name
+      if (negated) {
+        if (sawPipe) {
+          orNotLabels.push(text);  // OR NOT (from | alternative)
+        } else {
+          notLabels.push(text);    // AND NOT (from first expression)
+        }
+      } else if (sawPipe) {
+        orLabels.push(text);
+      } else {
+        // No pipe seen — this label is part of the AND expression
+        labels.push(text);
+      }
+      negated = false;
+    }
+  }
+
+  if (labels.length === 0 && orLabels.length === 0 && notLabels.length === 0 && orNotLabels.length === 0) return undefined;
+  return { labels, orLabels, notLabels, orNotLabels };
+}
+
+/** Evaluate a static arithmetic expression (all operands must be literals). Throws for non-static expressions. */
+function evaluateStaticArithmetic(expr: Expression): CypherValue {
+  if (expr.type === 'Literal') return expr.value;
+  if (expr.type !== 'Arithmetic') {
+    throw new Error(`Non-static expression in CREATE properties is not supported: ${expr.type}`);
+  }
+  const result = evaluateArithmeticCore(expr, (e) => evaluateStaticArithmetic(e as Expression));
+  if (result === null) throw new Error('Static arithmetic evaluation failed (non-numeric operands)');
+  return result;
+}
+
+function extractProperties(mapLiteralCtx: TreeNode): Record<string, CypherValue> | undefined {
   if (!mapLiteralCtx) return undefined;
 
   const entries = findAllChildren(mapLiteralCtx, Ctx.LiteralEntry);
   if (entries.length === 0) return undefined;
 
-  const props: Record<string, CypherLiteral> = {};
+  const props: Record<string, CypherValue> = {};
   for (const entry of entries) {
     const keyCtx = findChild(entry, Ctx.PropertyKey);
     const key = getSymbolicName(keyCtx);
     const exprCtx = findChild(entry, Ctx.Expression);
     const value = evaluateExpression(exprCtx);
 
-    if (key && value && value.type === 'Literal') {
+    if (!key || !value) continue;
+
+    if (value.type === 'Literal') {
       props[key] = value.value;
+    } else if (value.type === 'Arithmetic') {
+      // Try to evaluate static arithmetic at parse time.
+      // For non-static expressions (e.g., property access in FOREACH CREATE),
+      // skip silently — they'll be handled via propertiesExpr at runtime.
+      try {
+        props[key] = evaluateStaticArithmetic(value);
+      } catch {
+        // Non-static — skip (propertiesExpr will handle it)
+      }
+    } else if (value.type === 'ListLiteral') {
+      // Evaluate list entries at parse time for CREATE (static values)
+      const listValues: CypherValue[] = [];
+      for (const le of value.values) {
+        if (le.type === 'Literal') listValues.push(le.value);
+        else if (le.type === 'MapLiteral') {
+          const mapVals: Record<string, CypherValue> = {};
+          for (const me of le.entries) {
+            if (me.value.type === 'Literal') mapVals[me.key] = me.value.value;
+          }
+          listValues.push(mapVals);
+        }
+      }
+      props[key] = listValues as CypherValue;
+    } else if (value.type === 'MapLiteral') {
+      // Evaluate map entries at parse time for CREATE (static values)
+      const mapVals: Record<string, CypherValue> = {};
+      for (const me of value.entries) {
+        if (me.value.type === 'Literal') mapVals[me.key] = me.value.value;
+      }
+      props[key] = mapVals;
+    }
+    // Non-static expressions (PropertyAccess, FunctionCall, etc.) are skipped here
+    // and handled via propertiesExpr at runtime (e.g., in FOREACH CREATE)
+  }
+  return Object.keys(props).length > 0 ? props : undefined;
+}
+
+/** Extract unevaluated property expressions from a MapLiteral (for dynamic CREATE inside FOREACH). */
+function extractDynamicProperties(mapLiteralCtx: TreeNode): Record<string, Expression> | undefined {
+  if (!mapLiteralCtx) return undefined;
+
+  const entries = findAllChildren(mapLiteralCtx, Ctx.LiteralEntry);
+  if (entries.length === 0) return undefined;
+
+  const props: Record<string, Expression> = {};
+  for (const entry of entries) {
+    const keyCtx = findChild(entry, Ctx.PropertyKey);
+    const key = getSymbolicName(keyCtx);
+    const exprCtx = findChild(entry, Ctx.Expression);
+    const value = evaluateExpression(exprCtx);
+
+    if (key && value) {
+      props[key] = value;
     }
   }
   return Object.keys(props).length > 0 ? props : undefined;
@@ -538,10 +1140,10 @@ function extractMatchClause(clauseCtx: ParseTreeNode): MatchClause {
   const nodePatterns = findAllChildren(element, Ctx.NodePattern);
   const chains = findAllChildren(element, Ctx.PatternElementChain);
 
-  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', label: undefined, properties: undefined };
+  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined };
 
   let relationPattern: RelationPattern = { variable: undefined, type: undefined, minDepth: undefined, maxDepth: undefined, direction: 'UNDIRECTED' };
-  let targetPattern: NodePattern = { variable: '', label: undefined, properties: undefined };
+  let targetPattern: NodePattern = { variable: '', labels: undefined, properties: undefined };
 
   const hasChains = chains.length > 0;
 
@@ -577,11 +1179,26 @@ function computeDefaultAlias(expr: Expression): string {
   if (expr.type === 'Aggregation') {
     return `${expr.aggregationType}(${expr.variable})`;
   }
+  if (expr.type === 'FunctionCall') {
+    const argAliases = expr.arguments.map((a) => computeDefaultAlias(a));
+    return `${expr.functionName}(${argAliases.join(', ')})`;
+  }
+  if (expr.type === 'ListSlice') {
+    return `${computeDefaultAlias(expr.list)}[]`;
+  }
   if (expr.type === 'ListLiteral') {
     return 'list';
   }
   if (expr.type === 'MapLiteral') {
     return 'map';
+  }
+  if (expr.type === 'Arithmetic') {
+    if (expr.operator === 'UNARY_MINUS' || expr.operator === 'UNARY_PLUS') {
+      return `${expr.operator === 'UNARY_MINUS' ? '-' : '+'}${computeDefaultAlias(expr.right)}`;
+    }
+    const leftAlias = computeDefaultAlias(expr.left!);
+    const rightAlias = computeDefaultAlias(expr.right);
+    return `${leftAlias} ${expr.operator} ${rightAlias}`;
   }
   return String(expr.value);
 }
@@ -770,17 +1387,17 @@ function extractWhereExpression(exprCtx: TreeNode): WhereExpression | undefined 
   // grammar production (the grammar uses "OR" at the top level and
   // "XOR" as the recursive rule name). We map XorExpression → OR because
   // the actual operator text in the tree is always "OR".
-  const orCtx = findDescendantOutsideList(exprCtx, Ctx.OrExpression);
+  const orCtx = findDescendantOutsideCompound(exprCtx, Ctx.OrExpression);
   if (orCtx) return extractLogicalExpression(orCtx, Ctx.XorExpression, 'OR');
 
-  const xorCtx = findDescendantOutsideList(exprCtx, Ctx.XorExpression);
+  const xorCtx = findDescendantOutsideCompound(exprCtx, Ctx.XorExpression);
   if (xorCtx) return extractLogicalExpression(xorCtx, Ctx.AndExpression, 'XOR');
 
-  const andCtx = findDescendantOutsideList(exprCtx, Ctx.AndExpression);
+  const andCtx = findDescendantOutsideCompound(exprCtx, Ctx.AndExpression);
   if (andCtx) return extractLogicalExpression(andCtx, Ctx.NotExpression, 'AND');
 
   // Check for top-level NOT (e.g., from a segment in extractLogicalExpression)
-  const notCtx = findDescendantOutsideList(exprCtx, Ctx.NotExpression);
+  const notCtx = findDescendantOutsideCompound(exprCtx, Ctx.NotExpression);
   if (notCtx && hasNotTerminal(notCtx)) {
     const notCount = countNotTerminals(notCtx);
     // Find the actual inner expression (skip NOT terminals and whitespace)
@@ -791,13 +1408,13 @@ function extractWhereExpression(exprCtx: TreeNode): WhereExpression | undefined 
     }
   }
 
-  const compCtx = findDescendantOutsideList(exprCtx, Ctx.ComparisonExpression);
+  const compCtx = findDescendantOutsideCompound(exprCtx, Ctx.ComparisonExpression);
   if (compCtx) return extractComparison(compCtx);
 
   return undefined;
 }
 
-/** Find the first descendant with the given constructor name. */
+/** Find the first descendant with the given constructor name (depth-first). */
 function findDescendant(ctx: TreeNode, name: string): ParseTreeNode | undefined {
   if (!ctx) return undefined;
   if (ctx.constructor.name === name) return ctx as ParseTreeNode;
@@ -810,16 +1427,19 @@ function findDescendant(ctx: TreeNode, name: string): ParseTreeNode | undefined 
   return undefined;
 }
 
-/** Find the first descendant with the given constructor name, stopping at ListLiteral boundaries.
- * This prevents finding OrExpression/XorExpression/AndExpression inside list literals like [Alice, Bob]. */
-function findDescendantOutsideList(ctx: TreeNode, name: string): ParseTreeNode | undefined {
+/** Find the first descendant with the given constructor name, stopping at ListLiteral and FunctionInvocation boundaries.
+ * This prevents finding OrExpression/XorExpression/AndExpression inside list literals like [Alice, Bob]
+ * or inside function call arguments like length(p.name). */
+function findDescendantOutsideCompound(ctx: TreeNode, name: string): ParseTreeNode | undefined {
   if (!ctx) return undefined;
   if (ctx.constructor.name === name) return ctx as ParseTreeNode;
   if (ctx.children) {
     for (const child of ctx.children) {
       // Stop at ListLiteral boundaries to avoid finding expressions inside lists
       if (child.constructor.name === Ctx.ListLiteral) continue;
-      const found = findDescendantOutsideList(child, name);
+      // Stop at FunctionInvocation boundaries to avoid finding expressions inside function args
+      if (child.constructor.name === Ctx.FunctionInvocation) continue;
+      const found = findDescendantOutsideCompound(child, name);
       if (found) return found;
     }
   }
@@ -964,11 +1584,11 @@ function extractWhereExpressionFromChild(ctx: TreeNode): WhereExpression | undef
   // If ctx itself is a ComparisonExpression, first check for nested logical expressions
   // (e.g., NOT (a OR b) where the parentheses create a ComparisonExpression wrapping an OrExpression)
   if (ctx.constructor.name === Ctx.ComparisonExpression) {
-    const nestedOr = findDescendantOutsideList(ctx, Ctx.OrExpression);
+    const nestedOr = findDescendantOutsideCompound(ctx, Ctx.OrExpression);
     if (nestedOr) return extractLogicalExpression(nestedOr, Ctx.XorExpression, 'OR');
-    const nestedXor = findDescendantOutsideList(ctx, Ctx.XorExpression);
+    const nestedXor = findDescendantOutsideCompound(ctx, Ctx.XorExpression);
     if (nestedXor) return extractLogicalExpression(nestedXor, Ctx.AndExpression, 'XOR');
-    const nestedAnd = findDescendantOutsideList(ctx, Ctx.AndExpression);
+    const nestedAnd = findDescendantOutsideCompound(ctx, Ctx.AndExpression);
     if (nestedAnd) return extractLogicalExpression(nestedAnd, Ctx.NotExpression, 'AND');
     return extractComparison(ctx);
   }
@@ -985,13 +1605,13 @@ function extractWhereExpressionFromChild(ctx: TreeNode): WhereExpression | undef
   }
 
   // If it's an AndExpression or OrExpression, handle recursively
-  const andCtx = findDescendantOutsideList(ctx, Ctx.AndExpression);
+  const andCtx = findDescendantOutsideCompound(ctx, Ctx.AndExpression);
   if (andCtx) return extractLogicalExpression(andCtx, Ctx.NotExpression, 'AND');
 
-  const orCtx = findDescendantOutsideList(ctx, Ctx.OrExpression);
+  const orCtx = findDescendantOutsideCompound(ctx, Ctx.OrExpression);
   if (orCtx) return extractLogicalExpression(orCtx, Ctx.XorExpression, 'OR');
 
-  const compCtx = findDescendantOutsideList(ctx, Ctx.ComparisonExpression);
+  const compCtx = findDescendantOutsideCompound(ctx, Ctx.ComparisonExpression);
   if (compCtx) return extractComparison(compCtx);
 
   return undefined;
@@ -1107,39 +1727,31 @@ function extractComparison(compCtx: TreeNode): BinaryExpression | IsNullExpressi
   return undefined;
 }
 
-/** Extract a list literal expression from an AtomContext. */
-function extractListLiteralExpression(ctx: TreeNode): ListLiteralExpression | undefined {
-  const listLitCtx = findDescendant(ctx, Ctx.ListLiteral);
-  if (!listLitCtx) return undefined;
+/** Extract a list literal expression from a ListLiteralContext. */
+function extractListLiteralExpressionFromCtx(listLitCtx: ParseTreeNode): ListLiteralExpression | undefined {
   const listExprs = findAllChildren(listLitCtx, Ctx.Expression);
-  const values: (CypherLiteral | Record<string, CypherLiteral>)[] = [];
+  const values: Expression[] = [];
   for (const le of listExprs) {
     const val = evaluateExpression(le);
-    if (val && val.type === 'Literal') {
-      values.push(val.value);
-    } else if (val && val.type === 'MapLiteral') {
-      values.push(val.values);
-    }
+    if (val) values.push(val);
   }
   return { type: 'ListLiteral' as const, values };
 }
 
-/** Extract a map literal expression from an AtomContext (e.g., {name: "Alice", age: 30}). */
-function extractMapLiteralExpression(ctx: TreeNode): MapLiteralExpression | undefined {
-  const mapLitCtx = findDescendant(ctx, Ctx.MapLiteral);
-  if (!mapLitCtx) return undefined;
+/** Extract a map literal expression from a MapLiteralContext. */
+function extractMapLiteralExpressionFromCtx(mapLitCtx: ParseTreeNode): MapLiteralExpression | undefined {
   const entries = findAllChildren(mapLitCtx, Ctx.LiteralEntry);
-  const values: Record<string, CypherLiteral> = {};
+  const result: { key: string; value: Expression }[] = [];
   for (const entry of entries) {
     const keyCtx = findChild(entry, Ctx.PropertyKey);
     const key = getSymbolicName(keyCtx);
     const exprCtx = findChild(entry, Ctx.Expression);
-    const value = evaluateExpression(exprCtx);
-    if (key && value && value.type === 'Literal') {
-      values[key] = value.value;
+    const valueExpr = evaluateExpression(exprCtx);
+    if (key && valueExpr) {
+      result.push({ key, value: valueExpr });
     }
   }
-  return { type: 'MapLiteral' as const, values };
+  return { type: 'MapLiteral' as const, entries: result };
 }
 
 /** Extract a value expression from a PropertyOrLabelsExpression (used for CONTAINS/IN/STARTS WITH/ENDS WITH RHS). */
@@ -1165,17 +1777,49 @@ function extractValueExpressionFromPropertyOrLabels(ctx: TreeNode): Expression |
     }
   }
 
-  // List literal (e.g., ["Alice", "Bob"] for IN operator)
-  const listLitExpr = extractListLiteralExpression(atom);
-  if (listLitExpr) return listLitExpr;
+  // Function invocation
+  const funcCtx = findChild(atom, Ctx.FunctionInvocation);
+  if (funcCtx) {
+    const bodyCtx = findChild(funcCtx, Ctx.FunctionInvocationBody);
+    const funcNameCtx = findChild(bodyCtx, Ctx.FunctionName);
+    const funcName = getTerminalText(funcNameCtx);
+    if (funcName) {
+      const funcCall = extractFunctionCall(funcCtx, funcName);
+      if (funcCall) return funcCall;
+    }
+  }
 
-  // Literal (e.g., string literal for CONTAINS)
+  // Literal: find LiteralContext child of Atom, check for map/list/regular literal
   const literalCtx = findChild(atom, Ctx.Literal);
-  return extractLiteral(literalCtx);
+  if (literalCtx) {
+    const mapLitCtx = findChild(literalCtx, Ctx.MapLiteral);
+    if (mapLitCtx) {
+      const mapExpr = extractMapLiteralExpressionFromCtx(mapLitCtx);
+      if (mapExpr) return mapExpr;
+    }
+    const listLitCtx = findChild(literalCtx, Ctx.ListLiteral);
+    if (listLitCtx) {
+      const listExpr = extractListLiteralExpressionFromCtx(listLitCtx);
+      if (listExpr) return listExpr;
+    }
+    return extractLiteral(literalCtx);
+  }
+  return undefined;
 }
 
 function extractValueExpression(ctx: TreeNode): Expression | undefined {
   if (!ctx) return undefined;
+
+  // Check for list slice syntax (e.g., n.tags[0..2])
+  const withParent = findPropOrLabelsWithParent(ctx);
+  if (withParent) {
+    const slice = extractListSlice(withParent.parent);
+    if (slice) return slice;
+  }
+
+  // Arithmetic expressions (e.g., n.score * 2 in WHERE comparisons)
+  const arith = extractArithmeticExpression(ctx);
+  if (arith) return arith;
 
   const atom = getAtom(ctx);
   if (!atom) return undefined;
@@ -1196,8 +1840,34 @@ function extractValueExpression(ctx: TreeNode): Expression | undefined {
     }
   }
 
+  // Function invocation
+  const funcCtx = findChild(atom, Ctx.FunctionInvocation);
+  if (funcCtx) {
+    const bodyCtx = findChild(funcCtx, Ctx.FunctionInvocationBody);
+    const funcNameCtx = findChild(bodyCtx, Ctx.FunctionName);
+    const funcName = getTerminalText(funcNameCtx);
+    if (funcName) {
+      const funcCall = extractFunctionCall(funcCtx, funcName);
+      if (funcCall) return funcCall;
+    }
+  }
+
+  // Literal: find LiteralContext child of Atom, check for map/list/regular literal
   const literalCtx = findChild(atom, Ctx.Literal);
-  return extractLiteral(literalCtx);
+  if (literalCtx) {
+    const mapLitCtx = findChild(literalCtx, Ctx.MapLiteral);
+    if (mapLitCtx) {
+      const mapExpr = extractMapLiteralExpressionFromCtx(mapLitCtx);
+      if (mapExpr) return mapExpr;
+    }
+    const listLitCtx = findChild(literalCtx, Ctx.ListLiteral);
+    if (listLitCtx) {
+      const listExpr = extractListLiteralExpressionFromCtx(listLitCtx);
+      if (listExpr) return listExpr;
+    }
+    return extractLiteral(literalCtx);
+  }
+  return undefined;
 }
 
 function extractRemoveClause(clauseCtx: ParseTreeNode): RemoveClause {
@@ -1224,7 +1894,7 @@ function extractRemoveClause(clauseCtx: ParseTreeNode): RemoveClause {
       const property = getSymbolicName(propKeyCtx);
       if (!property) throw new Error('Failed to parse REMOVE property: missing property name.');
 
-      items.push({ variable, label: undefined, property });
+      items.push({ variable, labels: undefined, property });
       continue;
     }
 
@@ -1234,11 +1904,12 @@ function extractRemoveClause(clauseCtx: ParseTreeNode): RemoveClause {
     if (!variable) throw new Error('Failed to parse REMOVE label: missing variable name.');
 
     const labelsCtx = findChild(removeItem, Ctx.NodeLabels);
-    const labelCtx = findChild(labelsCtx, Ctx.NodeLabel);
-    const labelNameCtx = findChild(labelCtx, Ctx.LabelName);
-    const label = getSymbolicName(labelNameCtx);
+    const labelCtxs = labelsCtx ? findAllChildren(labelsCtx, Ctx.NodeLabel) : [];
+    const labels = labelCtxs.length > 0
+      ? labelCtxs.map((lc) => getSymbolicName(findChild(lc, Ctx.LabelName))).filter((l): l is string => !!l)
+      : undefined;
 
-    items.push({ variable, label, property: undefined });
+    items.push({ variable, labels, property: undefined });
   }
 
   if (!items.length) throw new Error('Failed to parse REMOVE: no valid remove items found.');
@@ -1251,30 +1922,46 @@ function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
   if (setCtx) {
     const setItem = findChild(setCtx, Ctx.SetItem);
     if (!setItem) throw new Error('Failed to parse SET: missing SetItem node in AST.');
+
+    // Check for SET with labels: SET n:Label (no PropertyExpression, just Variable + NodeLabels)
+    const labelsCtx = findChild(setItem, Ctx.NodeLabels);
+    const labelCtxs = labelsCtx ? findAllChildren(labelsCtx, Ctx.NodeLabel) : [];
+    const labels = labelCtxs.length > 0
+      ? labelCtxs.map((lc) => getSymbolicName(findChild(lc, Ctx.LabelName))).filter((l): l is string => !!l)
+      : undefined;
+
     const propExpr = findChild(setItem, Ctx.PropertyExpression);
-    if (!propExpr) throw new Error('Failed to parse SET: missing PropertyExpression node in AST.');
-    const atom = findChild(propExpr, Ctx.Atom);
-    if (!atom) throw new Error('Failed to parse SET: missing Atom node in AST.');
-    const varCtx = findChild(atom, Ctx.Variable);
-    const variable = getSymbolicName(varCtx);
-    if (!variable) throw new Error('Failed to parse SET: missing variable name.');
+    if (propExpr) {
+      // SET n.prop = val (property assignment)
+      const atom = findChild(propExpr, Ctx.Atom);
+      if (!atom) throw new Error('Failed to parse SET: missing Atom node in AST.');
+      const varCtx = findChild(atom, Ctx.Variable);
+      const variable = getSymbolicName(varCtx);
+      if (!variable) throw new Error('Failed to parse SET: missing variable name.');
 
-    const propLookup = findChild(propExpr, Ctx.PropertyLookup);
-    if (!propLookup) throw new Error('Failed to parse SET: missing PropertyLookup node in AST.');
-    const propKeyCtx = findChild(propLookup, Ctx.PropertyKey);
-    const property = getSymbolicName(propKeyCtx);
-    if (!property) throw new Error('Failed to parse SET: missing property name.');
+      const propLookup = findChild(propExpr, Ctx.PropertyLookup);
+      if (!propLookup) throw new Error('Failed to parse SET: missing PropertyLookup node in AST.');
+      const propKeyCtx = findChild(propLookup, Ctx.PropertyKey);
+      const property = getSymbolicName(propKeyCtx);
+      if (!property) throw new Error('Failed to parse SET: missing property name.');
 
-    const exprCtx = findChild(setItem, Ctx.Expression);
-    const valueExpr = evaluateExpression(exprCtx);
-    if (!valueExpr) {
-      throw new Error(`Failed to parse SET: could not extract value for "${variable}.${property}".`);
+      const exprCtx = findChild(setItem, Ctx.Expression);
+      const valueExpr = evaluateExpression(exprCtx);
+      if (!valueExpr) {
+        throw new Error(`Failed to parse SET: could not extract value for "${variable}.${property}".`);
+      }
+      return { type: 'SET' as const, variable, property, value: valueExpr, labels };
     }
-    if (valueExpr.type !== 'Literal') {
-      throw new Error(`Failed to parse SET: only literal values are supported on the right-hand side, got ${valueExpr.type}.`);
+
+    if (labels && labels.length > 0) {
+      // SET n:Label (label addition only, no property)
+      const varCtx = findChild(setItem, Ctx.Variable);
+      const variable = getSymbolicName(varCtx);
+      if (!variable) throw new Error('Failed to parse SET: missing variable name.');
+      return { type: 'SET' as const, variable, property: '', value: { type: 'Literal' as const, value: null as CypherLiteral }, labels };
     }
 
-    return { type: 'SET' as const, variable, property, value: valueExpr.value };
+    throw new Error('Failed to parse SET: unsupported SET form.');
   }
 
   // CREATE clause
@@ -1292,16 +1979,18 @@ function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
     if (!nodePatternCtx) throw new Error('Failed to parse CREATE: missing NodePattern node in AST.');
 
     const variable = getSymbolicName(findChild(nodePatternCtx, Ctx.Variable)) ?? '';
-    const labelsCtx = findChild(nodePatternCtx, Ctx.NodeLabels);
-    const labelCtx = findChild(labelsCtx, Ctx.NodeLabel);
-    const labelNameCtx = findChild(labelCtx, Ctx.LabelName);
-    const label = getSymbolicName(labelNameCtx);
+    const labelExpr = extractLabelExpression(nodePatternCtx);
+    // CREATE only uses positive labels from the first expression (negation/union doesn't apply)
+    const labels = labelExpr && labelExpr.labels.length > 0 ? labelExpr.labels : undefined;
 
     const propsCtx = findChild(nodePatternCtx, Ctx.Properties);
     const mapLitCtx = findChild(propsCtx, Ctx.MapLiteral);
     const properties = extractProperties(mapLitCtx);
 
-    return { type: 'CREATE' as const, variable, label, properties };
+    // Also extract dynamic property expressions (for FOREACH where values reference loop variables)
+    const propertiesExpr = extractDynamicProperties(mapLitCtx);
+
+    return { type: 'CREATE' as const, variable, labels, properties, propertiesExpr };
   }
 
   // DELETE clause
@@ -1344,6 +2033,38 @@ function extractUnwindClause(clauseCtx: ParseTreeNode): UnwindClause | undefined
   return { type: 'UNWIND' as const, expression: expr, variable };
 }
 
+// ── FOREACH clause extraction ────────────────────────────────────────────────
+
+function extractForeachClause(clauseCtx: ParseTreeNode): ForeachClause | undefined {
+  const foreachCtx = findChild(clauseCtx, Ctx.ForeachClause);
+  if (!foreachCtx) return undefined;
+
+  // Variable: loop variable (e.g., "x" in FOREACH (x IN ...))
+  const varCtx = findChild(foreachCtx, Ctx.Variable);
+  const variable = getSymbolicName(varCtx);
+  if (!variable) throw new Error('Failed to parse FOREACH: missing loop variable.');
+
+  // Expression: the list to iterate (e.g., n.tags)
+  const exprCtx = findChild(foreachCtx, Ctx.Expression);
+  const expr = evaluateExpression(exprCtx);
+  if (!expr) throw new Error('Failed to parse FOREACH: missing list expression.');
+
+  // Inner clause: the update clause after | (SET, CREATE, DELETE, REMOVE)
+  // The inner Clause is a direct child of ForeachClauseContext
+  const innerClauseCtxs = findAllChildren(foreachCtx, Ctx.Clause);
+  if (innerClauseCtxs.length === 0) {
+    throw new Error('Failed to parse FOREACH: missing inner update clause.');
+  }
+  const innerClauseCtx = innerClauseCtxs[innerClauseCtxs.length - 1]; // last Clause child
+
+  const innerClause = extractWriteClause(innerClauseCtx);
+  if (!innerClause) {
+    throw new Error('Failed to parse FOREACH: unsupported inner clause. Only SET, CREATE, DELETE, and REMOVE are supported.');
+  }
+
+  return { type: 'FOREACH' as const, variable, expression: expr, innerClause };
+}
+
 // ── MERGE clause extraction ──────────────────────────────────────────────────
 
 function extractMergeSetActions(setCtx: TreeNode): MergeSetAction[] {
@@ -1367,9 +2088,9 @@ function extractMergeSetActions(setCtx: TreeNode): MergeSetAction[] {
 
     const exprCtx = findChild(item, Ctx.Expression);
     const valueExpr = evaluateExpression(exprCtx);
-    if (!valueExpr || valueExpr.type !== 'Literal') continue;
+    if (!valueExpr) continue;
 
-    actions.push({ variable, property, value: valueExpr.value });
+    actions.push({ variable, property, value: valueExpr });
   }
   return actions;
 }
@@ -1406,10 +2127,10 @@ function extractMergeClause(clauseCtx: ParseTreeNode): MergeClause {
   const nodePatterns = findAllChildren(element, Ctx.NodePattern);
   const chains = findAllChildren(element, Ctx.PatternElementChain);
 
-  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', label: undefined, properties: undefined };
+  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined };
 
   let relationPattern: RelationPattern = { variable: undefined, type: undefined, minDepth: undefined, maxDepth: undefined, direction: 'UNDIRECTED' };
-  let targetPattern: NodePattern = { variable: '', label: undefined, properties: undefined };
+  let targetPattern: NodePattern = { variable: '', labels: undefined, properties: undefined };
 
   const hasChains = chains.length > 0;
 
@@ -1452,37 +2173,13 @@ function extractMergeClause(clauseCtx: ParseTreeNode): MergeClause {
 
 // ── Main parser ──────────────────────────────────────────────────────────────
 
-export function parseCypher(query: string): AdvancedCypherAST {
-  ensureContextNamesValid();
-
-  const chars = antlr4.CharStreams.fromString(query);
-  const lexer = new CypherLexer(chars);
-  const tokens = new antlr4.CommonTokenStream(lexer);
-  const parser = new CypherParser(tokens);
-
-  const collector = new ErrorCollector();
-  parser.removeErrorListeners();
-  parser.addErrorListener(collector);
-
-  const tree = parser.cypher();
-
-  if (collector.errors.length > 0) {
-    throw new Error(`Failed to parse Cypher query: ${collector.errors.join('; ')}`);
-  }
-
+/**
+ * Extract stages + return clause from a SingleQuery node.
+ * Shared by both single-query and UNION branch parsing.
+ */
+function extractSingleQuery(singleQuery: ParseTreeNode): AdvancedCypherAST {
   const stages: AdvancedCypherAST['stages'] = [];
   let returnClause: ReturnClause | undefined;
-
-  const cypherPart = tree.children?.[0];
-  const cypherQuery = findChild(cypherPart, Ctx.CypherQuery);
-  const statement = findChild(cypherQuery, Ctx.Statement);
-  const queryCtx = findChild(statement, Ctx.Query);
-  const regularQuery = findChild(queryCtx, Ctx.RegularQuery);
-  const singleQuery = findChild(regularQuery, Ctx.SingleQuery);
-
-  if (!singleQuery) {
-    return { type: 'Query', stages, return: returnClause };
-  }
 
   const clauses = findAllChildren(singleQuery, Ctx.Clause);
 
@@ -1512,8 +2209,122 @@ export function parseCypher(query: string): AdvancedCypherAST {
     } else if (findChild(clause, Ctx.UnwindClause)) {
       const unwindClause = extractUnwindClause(clause);
       if (unwindClause) stages.push({ type: 'UNWIND', clause: unwindClause });
+    } else if (findChild(clause, Ctx.ForeachClause)) {
+      const foreachClause = extractForeachClause(clause);
+      if (foreachClause) stages.push({ type: 'FOREACH', clause: foreachClause });
     }
   }
 
   return { type: 'Query', stages, return: returnClause };
+}
+
+export function parseCypher(query: string): CypherAST {
+  ensureContextNamesValid();
+
+  const chars = antlr4.CharStreams.fromString(query);
+  const lexer = new CypherLexer(chars);
+  const tokens = new antlr4.CommonTokenStream(lexer);
+  const parser = new CypherParser(tokens);
+
+  const collector = new ErrorCollector();
+  parser.removeErrorListeners();
+  parser.addErrorListener(collector);
+
+  const tree = parser.cypher();
+
+  // Filter out "expected" errors from label expressions (|, !) which the ANTLR4
+  // grammar doesn't support but we handle via ErrorNodeImpl parsing.
+  // Only suppress errors that look like they originate from a node pattern.
+  const unexpectedErrors = collector.errors.filter((err) => {
+    // Label union pipe: expects '{' or ')' after a label
+    const isLabelUnionPipe = err.includes("mismatched input '|'") &&
+      (err.includes("expecting {'{") || err.includes("expecting {')"));
+    // Label negation: the expected tokens start with CYPHER (statement-level).
+    // WHERE !x errors also say "extraneous input '!'," but include expression
+    // tokens ('-', '+') before CYPHER in the expected list.
+    const isLabelNegation = err.includes("extraneous input '!'") &&
+      err.includes("expecting {CYPHER");
+    // Label colon: expects '{' or ')' after a label
+    const isLabelColon = (err.includes("mismatched input ':'") || err.includes("extraneous input ':'")) &&
+      (err.includes("expecting {'{") || err.includes("expecting {')"));
+    if (isLabelUnionPipe || isLabelNegation || isLabelColon) return false;
+    return true;
+  });
+
+  if (unexpectedErrors.length > 0) {
+    throw new Error(`Failed to parse Cypher query: ${unexpectedErrors.join('; ')}`);
+  }
+
+  const cypherPart = tree.children?.[0];
+  const cypherQuery = findChild(cypherPart, Ctx.CypherQuery);
+  const statement = findChild(cypherQuery, Ctx.Statement);
+  const queryCtx = findChild(statement, Ctx.Query);
+  const regularQuery = findChild(queryCtx, Ctx.RegularQuery);
+
+  // Check for UNION branches at the RegularQuery level.
+  // The ANTLR4 grammar structures UNION as:
+  //   RegularQuery → SingleQuery (TerminalNode[SP] Union)*
+  // where Union → UNION [ALL] SingleQuery
+  // The first SingleQuery is a direct child of RegularQuery.
+  // Subsequent SingleQueries are inside each Union context.
+  const rqChildren = regularQuery?.children;
+  if (rqChildren) {
+    const unions = rqChildren.filter(
+      (c: ParseTreeNode) => c.constructor.name === Ctx.Union,
+    ) as ParseTreeNode[];
+
+    if (unions.length > 0) {
+      const branches: AdvancedCypherAST[] = [];
+      const unionTypes: (UnionType | null)[] = [null]; // first branch
+
+      // First branch: direct SingleQuery child of RegularQuery
+      const firstSingleQuery = rqChildren.find(
+        (c: ParseTreeNode) => c.constructor.name === Ctx.SingleQuery,
+      ) as ParseTreeNode | undefined;
+      if (firstSingleQuery) {
+        branches.push(extractSingleQuery(firstSingleQuery));
+      }
+
+      // Subsequent branches: SingleQuery inside each Union
+      for (let i = 0; i < unions.length; i++) {
+        const union = unions[i]!;
+        const isUnionAll = hasTerminal(union, 'ALL');
+        // Push the union type that precedes the next branch
+        unionTypes.push(isUnionAll ? 'UNION ALL' : 'UNION');
+
+        const branchQuery = findChild(union, Ctx.SingleQuery);
+        if (branchQuery) {
+          branches.push(extractSingleQuery(branchQuery));
+        }
+      }
+
+      // Extract ORDER BY / SKIP / LIMIT from the last branch's RETURN clause.
+      // In the ANTLR4 grammar, these are attached to the last SingleQuery's
+      // ReturnClause, but semantically they apply to the entire UNION result.
+      const lastBranch = branches[branches.length - 1];
+      let unionOrderBy: OrderByItem[] | undefined;
+      let unionSkip: number | undefined;
+      let unionLimit: number | undefined;
+      if (lastBranch?.return) {
+        const ret = lastBranch.return;
+        if (ret.orderBy || ret.skip !== undefined || ret.limit !== undefined) {
+          unionOrderBy = ret.orderBy;
+          unionSkip = ret.skip;
+          unionLimit = ret.limit;
+          // Clear from last branch so they're not applied twice
+          lastBranch.return = { ...ret, orderBy: undefined, skip: undefined, limit: undefined };
+        }
+      }
+
+      return { type: 'UnionQuery', branches, unionTypes, orderBy: unionOrderBy, skip: unionSkip, limit: unionLimit };
+    }
+  }
+
+  // Single query (no UNION)
+  const singleQuery = findChild(regularQuery, Ctx.SingleQuery);
+  if (!singleQuery) {
+    return { type: 'Query', stages: [], return: undefined };
+  }
+
+  return extractSingleQuery(singleQuery);
 }

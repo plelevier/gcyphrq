@@ -18,7 +18,6 @@ function buildIndexes(
   nodeIterator: Iterable<[string, Record<string, unknown>]>,
   graph: GraphInstance,
   config: GraphConfig,
-  onWarning?: (message: string) => void,
 ): GraphIndexes {
   const labelIndex = new Map<string, Set<string>>();
   const propertyIndex = new Map<string, Map<string, Set<string>>>();
@@ -30,16 +29,27 @@ function buildIndexes(
 
   // Build label and property indexes
   for (const [id, attrs] of nodeIterator) {
-    const label = attrs[config.labelProperty];
+    const rawLabel = attrs[config.labelProperty];
 
-    if (label && typeof label === 'string') {
+    if (typeof rawLabel === 'string') {
       hasLabelProperty = true;
-      let labelSet = labelIndex.get(label);
+      let labelSet = labelIndex.get(rawLabel);
       if (!labelSet) {
         labelSet = new Set();
-        labelIndex.set(label, labelSet);
+        labelIndex.set(rawLabel, labelSet);
       }
       labelSet.add(id);
+    } else if (Array.isArray(rawLabel)) {
+      for (const label of rawLabel) {
+        if (typeof label !== 'string') continue;
+        hasLabelProperty = true;
+        let labelSet = labelIndex.get(label);
+        if (!labelSet) {
+          labelSet = new Set();
+          labelIndex.set(label, labelSet);
+        }
+        labelSet.add(id);
+      }
     }
 
     for (const [key, value] of Object.entries(attrs)) {
@@ -125,16 +135,6 @@ function buildIndexes(
     }
   });
 
-  // Warn if configured property names don't exist in the graph
-  // Always emit via onWarning or console.warn as a last resort
-  const warn = onWarning ?? ((msg: string) => console.warn(msg));
-  if (!hasLabelProperty) {
-    warn(`No nodes have a "${config.labelProperty}" property. Label-based matching (e.g. MATCH (n:Label)) will return no results.`);
-  }
-  if (edgeCount > 0 && !hasEdgeTypeProperty) {
-    warn(`No edges have a "${config.edgeTypeProperty}" property. Relationship-type matching (e.g. -[:TYPE]->) will not use the adjacency index and will scan all edges instead.`);
-  }
-
   return {
     labelIndex,
     propertyIndex,
@@ -162,11 +162,10 @@ function buildIndexes(
 export function buildGraphIndexesFromGraph(
   graph: GraphInstance,
   config: GraphConfig,
-  onWarning?: (message: string) => void,
 ): GraphIndexes {
   const allNodes = graph.filterNodes(() => true);
   const nodeEntries: [string, Record<string, unknown>][] = allNodes.map((id) => [id, graph.getNodeAttributes(id)]);
-  return buildIndexes(nodeEntries, graph, config, onWarning);
+  return buildIndexes(nodeEntries, graph, config);
 }
 
 /**
@@ -189,8 +188,7 @@ export function buildGraphIndexesFromData(
   data: NormalizedGraphFile,
   graph: GraphInstance,
   config: GraphConfig,
-  onWarning?: (message: string) => void,
 ): GraphIndexes {
   const nodeEntries: [string, Record<string, unknown>][] = data.nodes.map((node) => [node.id, node]);
-  return buildIndexes(nodeEntries, graph, config, onWarning);
+  return buildIndexes(nodeEntries, graph, config);
 }

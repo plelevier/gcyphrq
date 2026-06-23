@@ -4,8 +4,8 @@ export type CypherLiteral = string | number | boolean | null;
 
 export interface CypherNode {
   id: string;
-  label?: string;
-  [key: string]: CypherLiteral | undefined;
+  label?: string | string[];
+  [key: string]: CypherLiteral | string[] | undefined;
 }
 
 export interface CypherEdge {
@@ -62,16 +62,36 @@ export interface GraphIndexes {
   config?: GraphConfig;
 }
 
-export type CypherValue = CypherNode | CypherEdge[] | CypherLiteral[] | CypherLiteral | Record<string, CypherLiteral> | null | undefined;
+export type CypherValue = CypherNode | CypherEdge[] | CypherLiteral[] | CypherLiteral | Record<string, unknown> | null | undefined;
 
 // ── AST types ────────────────────────────────────────────────────────────────
 
 export type Direction = 'OUT' | 'IN' | 'UNDIRECTED';
 
+/**
+ * Label expression supporting union (`|`) and negation (`!`).
+ *
+ * `labels` — positive labels from the first label expression (AND semantics).
+ *   e.g. `:Service:Infrastructure` → labels: ['Service','Infrastructure']
+ * `orLabels` — additional positive labels after `|` (OR semantics).
+ *   e.g. `:Movie|Person` → labels: ['Movie'], orLabels: ['Person']
+ * `notLabels` — negated labels from the first expression (AND NOT semantics).
+ *   e.g. `:Movie:!Person` → labels: ['Movie'], notLabels: ['Person']
+ * `orNotLabels` — negated labels after `|` (OR NOT semantics — matches all nodes
+ *   WITHOUT that label).
+ *   e.g. `:Movie|!Person` → labels: ['Movie'], orNotLabels: ['Person']
+ */
+export interface LabelExpression {
+  labels: string[];         // positive labels from first expression (AND semantics)
+  orLabels: string[];       // additional positive labels from | (OR semantics)
+  notLabels: string[];      // negated labels from first expression (AND NOT)
+  orNotLabels: string[];    // negated labels from | alternatives (OR NOT)
+}
+
 export interface NodePattern {
   variable: string;
-  label: string | undefined;
-  properties: Record<string, CypherLiteral> | undefined;
+  labels: LabelExpression | undefined;
+  properties: Record<string, CypherValue> | undefined;
 }
 
 export interface RelationPattern {
@@ -94,8 +114,11 @@ export interface MatchClause {
 export interface CreateClause {
   type: 'CREATE';
   variable: string;
-  label: string | undefined;
-  properties: Record<string, CypherLiteral> | undefined;
+  labels: string[] | undefined;
+  /** Static properties evaluated at parse time (for CREATE outside FOREACH). */
+  properties: Record<string, CypherValue> | undefined;
+  /** Dynamic property expressions evaluated at runtime (for CREATE inside FOREACH). */
+  propertiesExpr: Record<string, Expression> | undefined;
 }
 
 export interface DeleteClause {
@@ -107,12 +130,14 @@ export interface SetClause {
   type: 'SET';
   variable: string;
   property: string;
-  value: CypherLiteral;
+  value: Expression;
+  /** Labels to add to the node (e.g. `SET n:Label`). Undefined for property-only SET. */
+  labels: string[] | undefined;
 }
 
 export interface RemoveItem {
   variable: string;
-  label: string | undefined;
+  labels: string[] | undefined;
   property: string | undefined;
 }
 
@@ -127,7 +152,7 @@ export interface RemoveClause {
 export interface MergeSetAction {
   variable: string;
   property: string;
-  value: CypherLiteral;
+  value: Expression;
 }
 
 /** An ON CREATE or ON MATCH action block inside a MERGE clause. */
@@ -166,12 +191,12 @@ export interface LiteralExpression {
 
 export interface ListLiteralExpression {
   type: 'ListLiteral';
-  values: (CypherLiteral | Record<string, CypherLiteral>)[];
+  values: Expression[];
 }
 
 export interface MapLiteralExpression {
   type: 'MapLiteral';
-  values: Record<string, CypherLiteral>;
+  entries: { key: string; value: Expression }[];
 }
 
 export interface AggregationExpression {
@@ -182,7 +207,33 @@ export interface AggregationExpression {
   distinct: boolean;
 }
 
-export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression;
+/** A scalar function call (toLower, toUpper, substring, split, replace, trim, …). */
+export interface FunctionCallExpression {
+  type: 'FunctionCall';
+  functionName: string;  // normalised to lowercase
+  arguments: Expression[];
+}
+
+/** A list slice expression (e.g., n.tags[0..2], [1,2,3][1..]). */
+export interface ListSliceExpression {
+  type: 'ListSlice';
+  list: Expression;
+  start: Expression;
+  end: Expression;
+}
+
+/** An arithmetic expression (e.g., n.score * 2, -n.value, 10 % 3). */
+export interface ArithmeticExpression {
+  type: 'Arithmetic';
+  operator: '+' | '-' | '*' | '/' | '%' | '^' | 'UNARY_MINUS' | 'UNARY_PLUS';
+  left: Expression | undefined;  // undefined for unary operators
+  right: Expression;
+}
+
+// Note: Parenthesized expressions (e.g., (n.a + n.b) * 2) are unwrapped during parsing
+// and do not produce a separate AST node. The inner expression is returned directly.
+
+export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression;
 
 export interface BinaryExpression {
   type: 'BinaryExpression';
@@ -243,12 +294,23 @@ export interface UnwindClause {
   variable: string;
 }
 
+export interface ForeachClause {
+  type: 'FOREACH';
+  /** Loop variable (e.g., "x" in `FOREACH (x IN ...)`). */
+  variable: string;
+  /** List expression to iterate over (e.g., n.tags). */
+  expression: Expression;
+  /** Inner write clause to execute for each element. */
+  innerClause: WriteClause;
+}
+
 export type Stage =
   | { type: 'MATCH'; clause: MatchClause }
   | { type: 'WITH'; clause: WithClause }
   | { type: 'WRITE'; clause: WriteClause }
   | { type: 'MERGE'; clause: MergeClause }
-  | { type: 'UNWIND'; clause: UnwindClause };
+  | { type: 'UNWIND'; clause: UnwindClause }
+  | { type: 'FOREACH'; clause: ForeachClause };
 
 export interface AdvancedCypherAST {
   type: 'Query';
@@ -256,8 +318,29 @@ export interface AdvancedCypherAST {
   return: ReturnClause | undefined;
 }
 
+// ── UNION types ──────────────────────────────────────────────────────────────
+
+export type UnionType = 'UNION' | 'UNION ALL';
+
+export interface UnionQueryAST {
+  type: 'UnionQuery';
+  /** All query branches in order (first branch + each UNION branch). */
+  branches: AdvancedCypherAST[];
+  /** null for the first branch, then 'UNION' or 'UNION ALL' for each subsequent branch. */
+  unionTypes: (UnionType | null)[];
+  /** ORDER BY applied to the combined result (extracted from the last branch's RETURN). */
+  orderBy: OrderByItem[] | undefined;
+  /** SKIP applied to the combined result. */
+  skip: number | undefined;
+  /** LIMIT applied to the combined result. */
+  limit: number | undefined;
+}
+
+/** Top-level AST returned by the parser (single query or UNION of queries). */
+export type CypherAST = AdvancedCypherAST | UnionQueryAST;
+
 // ── Runtime types ────────────────────────────────────────────────────────────
 
-export type QueryContext = Record<string, CypherNode | CypherEdge[] | CypherLiteral[] | CypherLiteral | Record<string, CypherLiteral> | null | undefined>;
+export type QueryContext = Record<string, CypherValue>;
 
-export type ResultRow = Record<string, CypherNode | CypherEdge[] | CypherLiteral[] | CypherLiteral | Record<string, CypherLiteral> | null | undefined>;
+export type ResultRow = Record<string, CypherValue>;

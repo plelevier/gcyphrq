@@ -368,7 +368,9 @@ async function main(): Promise<void> {
     const indexes = buildGraphIndexes(graphData, graph, { config, onWarning: (msg) => console.warn(msg) });
     const engine = new GraphEngine(graph, indexes);
     const ast = parseCypher(args.expr);
-    const results = engine.execute(ast);
+    const results = ast.type === 'UnionQuery'
+      ? engine.executeUnion(ast)
+      : engine.execute(ast);
 
     // Default to graph format for chaining (stdout → stdin)
     // Falls back to rows when results contain only scalars (no nodes/edges)
