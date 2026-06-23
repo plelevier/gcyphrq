@@ -58,22 +58,7 @@ src/
 
 ### Graph file format
 
-Uses [Graphology JSON format](https://graphology.github.io/):
-
-```json
-{
-  "nodes": [{ "key": "alice", "attributes": { "label": "User", "name": "Alice" } }],
-  "edges": [{ "source": "alice", "target": "bob", "attributes": { "type": "FRIEND" } }]
-}
-```
-
-- `nodes[].key` — required, unique identifier
-- `nodes[].attributes` — required, node properties (`label` used for Cypher label filtering; customizable via `--node-label-property-name` CLI flag or `config.labelProperty` library option)
-- `edges[].source` / `edges[].target` — required, node keys
-- `edges[].attributes` — required, edge properties (`type` used for relationship filtering; customizable via `--edge-type-property-name` CLI flag or `config.edgeTypeProperty` library option)
-- `options` — optional (`type` can be `"directed"`, `"undirected"`, or `"mixed"`; `allowSelfLoops` and `multi` cause errors)
-
-Omit `options` — defaults to a directed graph. Use `type: 'undirected'` or `type: 'mixed'` for undirected or mixed graphs respectively. In mixed graphs, set `undirected: true` on edges to make them bidirectional.
+Graphology JSON: `{ nodes: [{key, attributes}], edges: [{source, target, attributes}] }`. See SKILL.md for details on label/edge-type property customization.
 
 ## Supported Cypher Features
 
@@ -102,9 +87,4 @@ See `examples/README.md` for 12 query examples against `cloud-infra.json`.
 
 ## Docs
 
-- `docs/query-guide.md` — Cypher syntax reference and query patterns (Jekyll site at `docs/`)
-- `docs/library-api.md` — Library API reference
-- `docs/examples.md` — Ready-to-run query examples
-- `docs/cli.md` — CLI usage reference
-- `docs/getting-started.md` — Getting started guide
-- `examples/README.md` — Graph file format and CLI query examples
+`docs/query-guide.md`, `docs/library-api.md`, `docs/examples.md`, `docs/cli.md`, `docs/getting-started.md`, `examples/README.md`
