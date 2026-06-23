@@ -280,7 +280,7 @@ MATCH (u:User) RETURN coalesce(u.nick, u.name, 'Unknown') AS displayName
 MATCH (u:User) RETURN toInteger(u.age) AS age
 ```
 
-> **Note:** `repl` is used instead of `replace`, and `reltype` instead of `type` because these are reserved keywords in the ANTLR4 Cypher grammar. `labels` is standard Cypher and works directly (also available as `labelsOf`). `startnode()` and `endnode()` return string IDs, not node objects. `nodes(path)` and `relationships(path)` extract from path variables bound with `MATCH path = ...`.
+> **Note:** `repl` is used instead of `replace`, and `reltype` instead of `type` because these are reserved keywords in the ANTLR4 Cypher grammar. `labels` is standard Cypher and works in RETURN; use `labelsOf` in WHERE/WITH/ORDER BY (ANTLR4 keyword limitation). `startnode()` and `endnode()` return string IDs, not node objects. `nodes(path)` and `relationships(path)` extract from path variables bound with `MATCH path = ...`.
 
 ---
 
