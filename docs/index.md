@@ -32,7 +32,7 @@ description: A Cypher graph query engine for in-memory graphs built on Grapholog
   </div>
   <div class="feature-card">
     <h3>✏️ Mutations</h3>
-    <p>Create, update, delete, and remove labels with <code>CREATE</code>, <code>SET</code>, <code>DELETE</code>, and <code>REMOVE</code> clauses.</p>
+    <p>Create, update, delete, and remove labels or properties with <code>CREATE</code>, <code>SET</code>, <code>DELETE</code>, and <code>REMOVE</code> clauses.</p>
   </div>
   <div class="feature-card">
     <h3>🔧 TypeScript</h3>

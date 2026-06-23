@@ -110,10 +110,15 @@ export interface SetClause {
   value: CypherLiteral;
 }
 
-export interface RemoveClause {
-  type: 'REMOVE';
+export interface RemoveItem {
   variable: string;
   label: string | undefined;
+  property: string | undefined;
+}
+
+export interface RemoveClause {
+  type: 'REMOVE';
+  items: RemoveItem[];
 }
 
 // ── MERGE clause types ───────────────────────────────────────────────────────

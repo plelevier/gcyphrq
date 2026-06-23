@@ -696,26 +696,46 @@ export class AdvancedCypherGraphologyEngine {
         }
       }
     } else if (clause.type === 'REMOVE') {
-      const nodeIds = new Set<string>();
-      for (const context of materialised) {
-        const targetNode = context[clause.variable] as CypherNode | undefined;
-        if (targetNode && targetNode.id && this.graph.hasNode(targetNode.id)) {
-          nodeIds.add(targetNode.id);
+      // Collect all node IDs across all items (different variables possible)
+      const nodeMap = new Map<string, Set<string>>();
+      for (const item of clause.items) {
+        for (const context of materialised) {
+          const targetNode = context[item.variable] as CypherNode | undefined;
+          if (targetNode && targetNode.id && this.graph.hasNode(targetNode.id)) {
+            if (!nodeMap.has(item.variable)) nodeMap.set(item.variable, new Set());
+            nodeMap.get(item.variable)!.add(targetNode.id);
+          }
         }
       }
-      for (const nodeId of nodeIds) {
-        const attrs = this.graph.getNodeAttributes(nodeId);
-        const currentLabel = attrs[this.config.labelProperty];
-        // Only remove if the label matches (or no specific label targeted)
-        if (!clause.label || currentLabel === clause.label) {
-          this.graph.setNodeAttribute(nodeId, this.config.labelProperty, undefined);
+
+      // Apply each removal
+      for (const item of clause.items) {
+        const nodeIds = nodeMap.get(item.variable);
+        if (!nodeIds) continue;
+
+        for (const nodeId of nodeIds) {
+          if (item.property) {
+            // Property removal
+            this.graph.setNodeAttribute(nodeId, item.property, undefined);
+          } else {
+            // Label removal: only if the label matches
+            const attrs = this.graph.getNodeAttributes(nodeId);
+            const currentLabel = attrs[this.config.labelProperty];
+            if (currentLabel === item.label) {
+              this.graph.setNodeAttribute(nodeId, this.config.labelProperty, undefined);
+            }
+          }
         }
       }
-      for (const context of materialised) {
-        const targetNode = context[clause.variable] as CypherNode | undefined;
-        if (targetNode && targetNode.id && nodeIds.has(targetNode.id)) {
-          const fresh = { id: targetNode.id, ...this.graph.getNodeAttributes(targetNode.id) } as CypherNode;
-          context[clause.variable] = fresh;
+
+      // Refresh all affected nodes in context
+      for (const [variable, nodeIds] of nodeMap) {
+        for (const context of materialised) {
+          const targetNode = context[variable] as CypherNode | undefined;
+          if (targetNode && targetNode.id && nodeIds.has(targetNode.id)) {
+            const fresh = { id: targetNode.id, ...this.graph.getNodeAttributes(targetNode.id) } as CypherNode;
+            context[variable] = fresh;
+          }
         }
       }
     }

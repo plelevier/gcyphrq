@@ -981,6 +981,62 @@ describe('AdvancedCypherGraphologyEngine', () => {
         expect(row.label).toBeUndefined();
       }
     });
+
+    it('removes a property from a node', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', age: 30 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (u:User {name: "Alice"}) REMOVE u.age RETURN u',
+      );
+      const results = e.execute(ast);
+      const removedNode = node(results[0]!, 'u');
+      expect(removedNode.name).toBe('Alice');
+      expect(removedNode.age).toBeUndefined();
+    });
+
+    it('removes property and label in a single REMOVE', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', age: 30 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (u:User {name: "Alice"}) REMOVE u.age, u:User RETURN u',
+      );
+      const results = e.execute(ast);
+      const removedNode = node(results[0]!, 'u');
+      expect(removedNode.name).toBe('Alice');
+      expect(removedNode.age).toBeUndefined();
+      expect(removedNode.label).toBeUndefined();
+    });
+
+    it('REMOVE property is a no-op when property does not exist', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (u:User {name: "Alice"}) REMOVE u.age RETURN u',
+      );
+      const results = e.execute(ast);
+      const keptNode = node(results[0]!, 'u');
+      expect(keptNode.name).toBe('Alice');
+      expect(keptNode.label).toBe('User');
+    });
+
+    it('REMOVE affects subsequent stages after property removal', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', secret: 'hidden' });
+      g.addNode('b', { label: 'User', name: 'Bob', secret: 'also-hidden' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (u:User {name: "Alice"}) REMOVE u.secret RETURN u.secret AS secret',
+      );
+      const results = e.execute(ast);
+      expect(results[0]!.secret).toBeUndefined();
+    });
   });
 
   describe('execute - mixed aggregation error', () => {

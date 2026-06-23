@@ -318,13 +318,15 @@ MATCH (f:User {name: 'Bob'}) DELETE f
 
 ### REMOVE
 
-Remove a label from a node. The node and its relationships remain in the graph.
+Remove a label or property from a node. The node and its relationships remain in the graph.
 
 ```cypher
 MATCH (u:User {name: 'Alice'}) REMOVE u:User RETURN u
+MATCH (u:User {name: 'Alice'}) REMOVE u.age RETURN u
+MATCH (u:User {name: 'Alice'}) REMOVE u.age, u:User RETURN u
 ```
 
-> **Note:** Only label removal is supported (`REMOVE n:Label`). Property removal (`REMOVE n.property`) is not supported.
+Multiple items can be combined in a single REMOVE clause (property and/or label).
 
 ---
 

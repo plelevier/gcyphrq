@@ -71,7 +71,7 @@ Trigger for: service dependencies, blast radius / impact analysis, path tracing,
 | CREATE | `CREATE (n:Service {name: "X", type: "RPC"}) RETURN n` |
 | SET | `MATCH (n {name: "X"}) SET n.status = "updated" RETURN n` |
 | DELETE | `MATCH (n {name: "X"}) DELETE n` |
-| REMOVE (label) | `MATCH (n {name: "X"}) REMOVE n:Label RETURN n` |
+| REMOVE (label/property) | `MATCH (n {name: "X"}) REMOVE n:Label RETURN n` / `MATCH (n) REMOVE n.age RETURN n` |
 | MERGE | `MERGE (n:User {name: "Alice"}) ON CREATE SET n.createdAt = 0 RETURN n` |
 | MERGE relationship chain | `MERGE (a:User)-[:FRIEND]->(b:User) RETURN a, b` |
 | UNWIND | `UNWIND ["a", "b", "c"] AS x RETURN x` |
@@ -89,7 +89,7 @@ See `references/queries.md` for more patterns (blast radius variants, degree thr
 - `avg()`/`min()`/`max()` return null on empty numeric sets
 - No nested property access beyond one level
 - MERGE: no WHERE, no DELETE/REMOVE in ON CREATE/ON MATCH (SET only)
-- REMOVE: label removal only (`REMOVE n:Label`), no property removal (`REMOVE n.prop`)
+- REMOVE: supports label removal (`REMOVE n:Label`), property removal (`REMOVE n.prop`), and mixed items (`REMOVE n.prop, n:Label`)
 
 ## Bundled Reference Graph
 
