@@ -245,7 +245,7 @@ const results = engine.execute(ast);
 
 > **Tip:** For best performance, always pass pre-computed indexes to `GraphEngine`. Without indexes, every label and property lookup triggers a full-graph scan.
 >
-> **Note:** Indexes are invalidated after `CREATE`/`SET`/`DELETE` mutations. Subsequent MATCH/WITH stages within the same query fall back to full-graph scans to see updated graph state.
+> **Note:** Indexes are invalidated after `CREATE`/`SET`/`DELETE`/`REMOVE` mutations. Subsequent MATCH/WITH stages within the same query fall back to full-graph scans to see updated graph state.
 
 ---
 
@@ -398,7 +398,7 @@ console.log(ast.stages[0].clause.sourcePattern.properties);
 
 ### Pattern 6: Mutation followed by query
 
-The engine supports `CREATE`, `SET`, and `DELETE` mutations within queries. Mutations modify the underlying graph in-place:
+The engine supports `CREATE`, `SET`, `DELETE`, and `REMOVE` mutations within queries. Mutations modify the underlying graph in-place:
 
 ```ts
 import { createGraph, GraphEngine, parseCypher } from 'gcyphrq';

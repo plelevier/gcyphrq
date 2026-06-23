@@ -316,6 +316,16 @@ MATCH (u:User {name: 'Alice'}) SET u.age = 31 RETURN u
 MATCH (f:User {name: 'Bob'}) DELETE f
 ```
 
+### REMOVE
+
+Remove a label from a node. The node and its relationships remain in the graph.
+
+```cypher
+MATCH (u:User {name: 'Alice'}) REMOVE u:User RETURN u
+```
+
+> **Note:** Only label removal is supported (`REMOVE n:Label`). Property removal (`REMOVE n.property`) is not supported.
+
 ---
 
 ## Query Patterns

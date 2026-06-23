@@ -1,6 +1,6 @@
 ---
 name: gcyphrq
-description: "Use for querying graph data with Cypher — service dependencies, infrastructure topology, blast radius analysis, path tracing, graph mutations. Runs against JSON graph files with an in-memory Cypher engine supporting MATCH, OPTIONAL MATCH, MERGE, WITH, UNWIND, RETURN DISTINCT, aggregations (including DISTINCT), ORDER BY, SKIP, LIMIT, variable-length paths, IN/STARTS WITH/ENDS WITH, IS NULL/IS NOT NULL, string comparisons, and CREATE/SET/DELETE mutations."
+description: "Use for querying graph data with Cypher — service dependencies, infrastructure topology, blast radius analysis, path tracing, graph mutations. Runs against JSON graph files with an in-memory Cypher engine supporting MATCH, OPTIONAL MATCH, MERGE, WITH, UNWIND, RETURN DISTINCT, aggregations (including DISTINCT), ORDER BY, SKIP, LIMIT, variable-length paths, IN/STARTS WITH/ENDS WITH, IS NULL/IS NOT NULL, string comparisons, and CREATE/SET/DELETE/REMOVE mutations."
 ---
 
 # gcyphrq
@@ -50,7 +50,7 @@ Graphology JSON: `{ nodes: [{ key, attributes }], edges: [{ source, target, attr
 | Pipelining | `WITH`, `count()`, `sum()`, `avg()`, `min()`, `max()`, `count(DISTINCT)`, `sum(DISTINCT)`, `avg(DISTINCT)` |
 | Expansion | `UNWIND list AS var` (expands list to one row per element) |
 | Output | `RETURN` (nodes, properties, aliases), `RETURN DISTINCT`, `ORDER BY`, `SKIP`, `LIMIT` |
-| Mutations | `CREATE`, `SET`, `DELETE`, `MERGE` (in-memory only) |
+| Mutations | `CREATE`, `SET`, `DELETE`, `REMOVE`, `MERGE` (in-memory only) |
 | **Not supported** | chained `MATCH`, subqueries, `CALL`, APOC, `labels()`, `head()`, MERGE with WHERE, MERGE with DELETE/REMOVE |
 
 ## When to Use
@@ -86,6 +86,7 @@ Trigger for: service dependencies, blast radius / impact analysis, path tracing,
 | CREATE | `CREATE (n:Service {name: "X", type: "RPC"}) RETURN n` |
 | SET | `MATCH (n {name: "X"}) SET n.status = "updated" RETURN n` |
 | DELETE | `MATCH (n {name: "X"}) DELETE n` |
+| REMOVE (label) | `MATCH (n {name: "X"}) REMOVE n:Label RETURN n` |
 | MERGE (create or match) | `MERGE (n:User {name: "Alice"}) RETURN n` |
 | MERGE with ON CREATE/ON MATCH | `MERGE (n:User {name: "Alice"}) ON CREATE SET n.createdAt = 0 ON MATCH SET n.lastSeen = 0 RETURN n` |
 | MERGE relationship chain | `MERGE (a:User)-[:FRIEND]->(b:User) RETURN a, b` |
@@ -114,6 +115,7 @@ Errors go to stderr with `Error: ` prefix, exit code 1.
 - No nested property access beyond one level
 - MERGE does not support WHERE clause (use property filters in the pattern)
 - MERGE does not support DELETE/REMOVE in ON CREATE/ON MATCH (only SET)
+- REMOVE only supports label removal (`REMOVE n:Label`), not property removal (`REMOVE n.prop`)
 
 ## Bundled Reference Graph
 

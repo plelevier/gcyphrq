@@ -77,7 +77,7 @@ Omit `options` — defaults to a directed graph. Use `type: 'undirected'` or `ty
 
 ## Supported Cypher Features
 
-**Supported:** MATCH (labels/properties), OPTIONAL MATCH, MERGE (single node and relationship chains, ON CREATE/ON MATCH SET), variable-length paths `*min..max`, directional edges (`->`, `<-`, `-`), RETURN (property access, aliases), RETURN DISTINCT, WITH + implicit grouping, aggregations (`count`, `sum`, `avg`, `min`, `max`, `count(DISTINCT)`, `sum(DISTINCT)`, `avg(DISTINCT)`), WHERE (`>`, `<`, `=`, `<>`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `AND`/`OR`/`NOT`, IS NULL/IS NOT NULL, string comparisons for `<`/`>`), UNWIND, CREATE/SET/DELETE mutations, ORDER BY (multi-column, ASC/DESC), SKIP, LIMIT, multiple chained clauses (single MATCH per stage).
+**Supported:** MATCH (labels/properties), OPTIONAL MATCH, MERGE (single node and relationship chains, ON CREATE/ON MATCH SET), variable-length paths `*min..max`, directional edges (`->`, `<-`, `-`), RETURN (property access, aliases), RETURN DISTINCT, WITH + implicit grouping, aggregations (`count`, `sum`, `avg`, `min`, `max`, `count(DISTINCT)`, `sum(DISTINCT)`, `avg(DISTINCT)`), WHERE (`>`, `<`, `=`, `<>`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `AND`/`OR`/`NOT`, IS NULL/IS NOT NULL, string comparisons for `<`/`>`), UNWIND, CREATE/SET/DELETE/REMOVE mutations, ORDER BY (multi-column, ASC/DESC), SKIP, LIMIT, multiple chained clauses (single MATCH per stage).
 
 **Not supported:** Subqueries, `CALL`, APOC.
 
