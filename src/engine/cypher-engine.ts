@@ -447,7 +447,7 @@ export class AdvancedCypherGraphologyEngine {
     clause: MatchClause,
     incomingContexts: (QueryContext | ContextChain)[],
   ): (QueryContext | ContextChain)[] {
-    const { sourcePattern, relationPattern, targetPattern, optional, hasChains } = clause;
+    const { sourcePattern, relationPattern, targetPattern, optional, hasChains, pathVariable } = clause;
     const outgoingContexts: (QueryContext | ContextChain)[] = [];
 
     // Variable to null-fill on OPTIONAL MATCH miss:
@@ -483,9 +483,16 @@ export class AdvancedCypherGraphologyEngine {
 
         if (!hasChains) {
           matchFoundForThisContext = true;
+          const overrides: QueryContext = { [sourcePattern.variable]: sourceNode };
+          if (pathVariable) {
+            overrides[pathVariable] = {
+              nodes: [sourceNode] as CypherNode[],
+              relationships: [] as CypherEdge[],
+            } as unknown as CypherValue;
+          }
           outgoingContexts.push({
             [CHAIN_BASE]: context,
-            [CHAIN_OVERRIDES]: { [sourcePattern.variable]: sourceNode },
+            [CHAIN_OVERRIDES]: overrides,
           });
           return;
         }
@@ -518,22 +525,38 @@ export class AdvancedCypherGraphologyEngine {
             matchFoundForThisContext = true;
 
             const targetAttr = this.graph.getNodeAttributes(currentId);
-            const chain: ContextChain = {
-              [CHAIN_BASE]: context,
-              [CHAIN_OVERRIDES]: {
-                [sourcePattern.variable]: sourceNode,
-                [targetPattern.variable]: { id: currentId, ...targetAttr } as CypherNode,
-              },
-            };
+            const targetNode = { id: currentId, ...targetAttr } as CypherNode;
+            const edges = edgeHistory.map(
+              ({ edgeId, source, target }) => ({ id: edgeId, source, target, ...this.graph.getEdgeAttributes(edgeId) } as CypherEdge),
+            );
 
+            const matchOverrides: QueryContext = {
+              [sourcePattern.variable]: sourceNode,
+              [targetPattern.variable]: targetNode,
+            };
             if (relationPattern.variable) {
-              // Snapshot edge history only on match (optimisation #1)
-              chain[CHAIN_OVERRIDES][relationPattern.variable] = edgeHistory.map(
-                ({ edgeId, source, target }) => ({ id: edgeId, source, target, ...this.graph.getEdgeAttributes(edgeId) } as CypherEdge),
-              );
+              matchOverrides[relationPattern.variable] = edges;
+            }
+            if (pathVariable) {
+              // Build path: interleave source + target nodes with edges
+              const pathNodes: CypherNode[] = [sourceNode];
+              for (const step of edgeHistory) {
+                const tAttr = this.graph.getNodeAttributes(step.target);
+                pathNodes.push({ id: step.target, ...tAttr } as CypherNode);
+              }
+              // Deduplicate consecutive duplicate nodes (e.g., self-loops)
+              for (let i = pathNodes.length - 1; i > 0; i--) {
+                if (pathNodes[i]!.id === pathNodes[i - 1]!.id) {
+                  pathNodes.splice(i, 1);
+                }
+              }
+              matchOverrides[pathVariable] = { nodes: pathNodes, relationships: edges } as unknown as CypherValue;
             }
 
-            outgoingContexts.push(chain);
+            outgoingContexts.push({
+              [CHAIN_BASE]: context,
+              [CHAIN_OVERRIDES]: matchOverrides,
+            });
           }
 
           // Stop exploring if max depth reached
@@ -549,19 +572,35 @@ export class AdvancedCypherGraphologyEngine {
               if (edgeHistory.length + 1 >= minDepth && eligibleTargetIds.has(currentId)) {
                 matchFoundForThisContext = true;
                 const targetAttr = this.graph.getNodeAttributes(currentId);
-                const chain: ContextChain = {
-                  [CHAIN_BASE]: context,
-                  [CHAIN_OVERRIDES]: {
-                    [sourcePattern.variable]: sourceNode,
-                    [targetPattern.variable]: { id: currentId, ...targetAttr } as CypherNode,
-                  },
+                const targetNode = { id: currentId, ...targetAttr } as CypherNode;
+                const allSteps = [...edgeHistory, { edgeId, source: currentId, target: currentId }];
+                const edges = allSteps.map(
+                  ({ edgeId: eid, source, target }) => ({ id: eid, source, target, ...this.graph.getEdgeAttributes(eid) } as CypherEdge),
+                );
+                const selfLoopOverrides: QueryContext = {
+                  [sourcePattern.variable]: sourceNode,
+                  [targetPattern.variable]: targetNode,
                 };
                 if (relationPattern.variable) {
-                  chain[CHAIN_OVERRIDES][relationPattern.variable] = [...edgeHistory, { edgeId, source: currentId, target: currentId }].map(
-                    ({ edgeId: eid, source, target }) => ({ id: eid, source, target, ...this.graph.getEdgeAttributes(eid) } as CypherEdge),
-                  );
+                  selfLoopOverrides[relationPattern.variable] = edges;
                 }
-                outgoingContexts.push(chain);
+                if (pathVariable) {
+                  const pathNodes: CypherNode[] = [sourceNode];
+                  for (const step of allSteps) {
+                    const tAttr = this.graph.getNodeAttributes(step.target);
+                    pathNodes.push({ id: step.target, ...tAttr } as CypherNode);
+                  }
+                  for (let i = pathNodes.length - 1; i > 0; i--) {
+                    if (pathNodes[i]!.id === pathNodes[i - 1]!.id) {
+                      pathNodes.splice(i, 1);
+                    }
+                  }
+                  selfLoopOverrides[pathVariable] = { nodes: pathNodes, relationships: edges } as unknown as CypherValue;
+                }
+                outgoingContexts.push({
+                  [CHAIN_BASE]: context,
+                  [CHAIN_OVERRIDES]: selfLoopOverrides,
+                });
               }
               return;
             }
@@ -583,6 +622,7 @@ export class AdvancedCypherGraphologyEngine {
           [CHAIN_OVERRIDES]: { [nullVar]: null },
         };
         if (relationPattern.variable) nullChain[CHAIN_OVERRIDES][relationPattern.variable] = [];
+        if (pathVariable) nullChain[CHAIN_OVERRIDES][pathVariable] = null;
         outgoingContexts.push(nullChain);
       }
     }
@@ -611,6 +651,7 @@ export class AdvancedCypherGraphologyEngine {
               [CHAIN_OVERRIDES]: { [nullVar]: null },
             };
             if (relationPattern.variable) nullChain[CHAIN_OVERRIDES][relationPattern.variable] = [];
+            if (pathVariable) nullChain[CHAIN_OVERRIDES][pathVariable] = null;
             filtered.push(nullChain);
           }
         }
@@ -2038,8 +2079,8 @@ export class AdvancedCypherGraphologyEngine {
       }
 
       // ── Labels (for nodes) ─────────────────────────────────────────────
-      // NOTE: "labels" is a reserved keyword in the ANTLR4 Cypher grammar,
-      // so we use "labelsOf" instead.
+      // "labels" is standard Cypher; "labelsOf" is our alias (reserved keyword workaround).
+      case 'labels':
       case 'labelsof': {
         const val = args[0];
         if (!val || typeof val !== 'object') return [];
@@ -2094,6 +2135,28 @@ export class AdvancedCypherGraphologyEngine {
         if (val == null) return null;
         if (Array.isArray(val)) return val.length;
         return String(val).length;
+      }
+
+      // ── Nodes (from path variable) ─────────────────────────────────────
+      case 'nodes': {
+        const val = args[0];
+        if (!val || typeof val !== 'object' || Array.isArray(val)) return [];
+        const obj = val as Record<string, unknown>;
+        if (Array.isArray(obj.nodes)) return obj.nodes as unknown as CypherValue;
+        // Fallback: single node treated as list
+        if ('id' in obj) return [obj as CypherNode] as unknown as CypherValue;
+        return [];
+      }
+
+      // ── Relationships (from path variable) ─────────────────────────────
+      case 'relationships': {
+        const val = args[0];
+        if (!val || typeof val !== 'object' || Array.isArray(val)) return [];
+        const obj = val as Record<string, unknown>;
+        if (Array.isArray(obj.relationships)) return obj.relationships as unknown as CypherValue;
+        // Fallback: single relationship treated as list
+        if ('source' in obj && 'target' in obj) return [obj as CypherEdge] as unknown as CypherValue;
+        return [];
       }
 
       // ── Coalesce (first non-null) ──────────────────────────────────────

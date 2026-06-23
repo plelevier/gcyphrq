@@ -60,6 +60,10 @@ const Ctx = {
   FunctionInvocation: 'FunctionInvocationContext',
   FunctionInvocationBody: 'FunctionInvocationBodyContext',
   FunctionName: 'FunctionNameContext',
+  Func: 'FuncContext',
+  ProcedureInvocation: 'ProcedureInvocationContext',
+  ProcedureInvocationBody: 'ProcedureInvocationBodyContext',
+  ProcedureName: 'ProcedureNameContext',
   IntegerLiteral: 'IntegerLiteralContext',
   Keyword: 'KeywordContext',
   LabelName: 'LabelNameContext',
@@ -837,6 +841,45 @@ function extractLiteral(literalCtx: TreeNode): Expression | undefined {
   return undefined;
 }
 
+// ── Pseudo-procedure call extraction ─────────────────────────────────────────
+// ANTLR4 parses `labels(n)`, `nodes(p)`, `relationships(p)` as ProcedureInvocation
+// (because these are Cypher keywords), not as FunctionInvocation.
+// We extract them as FunctionCallExpression so the engine can handle them normally.
+
+/** Keywords that are parsed as procedures but should be treated as scalar functions. */
+const PSEUDO_PROCEDURE_NAMES = new Set(['labels', 'nodes', 'relationships']);
+
+function extractPseudoProcedureCall(procCtx: TreeNode): FunctionCallExpression | undefined {
+  if (!procCtx) return undefined;
+
+  const bodyCtx = findChild(procCtx, Ctx.ProcedureInvocationBody);
+  const procNameCtx = findChild(bodyCtx, Ctx.ProcedureName);
+  const procName = procNameCtx ? getSymbolicName(procNameCtx) : undefined;
+
+  if (!procName || !PSEUDO_PROCEDURE_NAMES.has(procName.toLowerCase())) return undefined;
+
+  // Find the Expression inside ProcedureArguments
+  // ANTLR4 structure: ProcedureInvocation > ProcedureArguments > Expression
+  const argExprs: Expression[] = [];
+  const procArgsCtx = findChild(procCtx, 'ProcedureArgumentsContext');
+  if (procArgsCtx && procArgsCtx.children) {
+    for (const child of procArgsCtx.children) {
+      if (child.constructor.name === Ctx.Expression) {
+        const expr = evaluateExpression(child);
+        if (expr) argExprs.push(expr);
+      }
+    }
+  }
+
+  if (argExprs.length === 0) return undefined;
+
+  return {
+    type: 'FunctionCall' as const,
+    functionName: procName.toLowerCase(),
+    arguments: argExprs,
+  };
+}
+
 // ── Function call extraction ─────────────────────────────────────────────────
 
 /**
@@ -1304,12 +1347,43 @@ function extractMatchClause(clauseCtx: ParseTreeNode): MatchClause {
     targetPattern = extractNodePattern(nodePatterns[1]);
   }
 
+  // Extract path variable (if present): `MATCH path = (a)-[r]->(b)`
+  // The path variable appears as a VariableContext child of PatternPartContext,
+  // followed by a `=` terminal, then the AnonymousPatternPartContext.
+  let pathVariable: string | undefined;
+  if (patternPart) {
+    // Check if there's a VariableContext before the AnonymousPatternPart
+    // (indicating a path variable assignment)
+    const partChildren = patternPart.children;
+    if (partChildren) {
+      for (let i = 0; i < partChildren.length; i++) {
+        const child = partChildren[i];
+        if (child && child.constructor.name === Ctx.Variable) {
+          // Check if next non-whitespace child is `=`
+          for (let j = i + 1; j < partChildren.length; j++) {
+            const next = partChildren[j];
+            if (next?.constructor.name === Ctx.TerminalNode) {
+              if (next.symbol?.text === '=') {
+                pathVariable = getSymbolicName(child);
+              }
+              break; // stop at first terminal
+            }
+            if (next?.symbol?.text && next.symbol.text.trim() !== '') {
+              break; // non-whitespace, non-terminal — not a path var
+            }
+          }
+          break;
+        }
+      }
+    }
+  }
+
   // Extract WHERE clause (if present)
   const whereCtx = findChild(matchCtx, Ctx.Where);
   const whereExpr = findChild(whereCtx, Ctx.Expression);
   const where = whereExpr ? extractWhereExpression(whereExpr) : undefined;
 
-  return { optional: !!optional, hasChains, sourcePattern, relationPattern, targetPattern, where: where ?? undefined };
+  return { optional: !!optional, hasChains, sourcePattern, relationPattern, targetPattern, where: where ?? undefined, pathVariable };
 }
 
 function computeDefaultAlias(expr: Expression): string {
@@ -1358,13 +1432,42 @@ function extractReturnBody(returnBody: ParseTreeNode | null): Projection[] {
   const returnItems = findChild(returnBody, Ctx.ReturnItems);
   if (!returnItems) return [];
 
-  const items = findAllChildren(returnItems, Ctx.ReturnItem);
-
+  // ReturnItems can contain ReturnItemContext (regular expressions) and
+  // FuncContext (pseudo-procedures like labels/nodes/relationships).
+  // Collect all item-like children.
+  const allItems: ParseTreeNode[] = [];
+  if (returnItems.children) {
+    for (const child of returnItems.children) {
+      const cname = child.constructor.name;
+      if (cname === Ctx.ReturnItem || cname === Ctx.Func) {
+        allItems.push(child);
+      }
+    }
+  }
+  if (allItems.length === 0 && returnItems.children) {
+    // Fallback: also check for FuncContext directly under ReturnItems
+    const funcChildren = findAllChildren(returnItems, Ctx.Func);
+    allItems.push(...funcChildren);
+  }
   // Single pass: parse each item once
   const parsedItems: ParsedItem[] = [];
-  for (const item of items) {
-    const exprCtx = findChild(item, Ctx.Expression);
-    const expr = evaluateExpression(exprCtx);
+  for (const item of allItems) {
+    // Check for "pseudo-procedure" calls (labels, nodes, relationships)
+    // which ANTLR4 parses as ProcedureInvocation, not FunctionInvocation.
+    const funcCtx = item.constructor.name === Ctx.Func ? item : findChild(item, Ctx.Func);
+    let expr: Expression | undefined;
+    if (funcCtx) {
+      const procCtx = findChild(funcCtx, Ctx.ProcedureInvocation);
+      if (procCtx) {
+        const procCall = extractPseudoProcedureCall(procCtx);
+        if (procCall) expr = procCall;
+      }
+    }
+    // Fall back to regular expression
+    if (!expr) {
+      const exprCtx = findChild(item, Ctx.Expression);
+      expr = evaluateExpression(exprCtx);
+    }
     if (!expr) continue;
 
     const hasAs = hasTerminal(item, 'AS');
