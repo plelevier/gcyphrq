@@ -3517,4 +3517,235 @@ describe('AdvancedCypherGraphologyEngine', () => {
       expect(results.map((r) => r.name)).toEqual(['Gadget', 'Widget', 'Doohickey']);
     });
   });
+
+  describe('CASE expressions', () => {
+    const buildTestGraph = () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Person', name: 'Alice', age: 30, score: 95 });
+      g.addNode('b', { label: 'Person', name: 'Bob', age: 25, score: 80 });
+      g.addNode('c', { label: 'Person', name: 'Charlie', age: 35, score: 60 });
+      return g;
+    };
+
+    describe('general CASE (CASE WHEN ... THEN ...)', () => {
+      it('evaluates simple equality condition', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.name = "Alice" THEN "first" ELSE "other" END AS position');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', position: 'first' },
+          { name: 'Bob', position: 'other' },
+          { name: 'Charlie', position: 'other' },
+        ]);
+      });
+
+      it('evaluates multiple WHEN branches', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.name = "Alice" THEN 1 WHEN n.name = "Bob" THEN 2 WHEN n.name = "Charlie" THEN 3 ELSE 0 END AS rank');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', rank: 1 },
+          { name: 'Bob', rank: 2 },
+          { name: 'Charlie', rank: 3 },
+        ]);
+      });
+
+      it('evaluates numeric comparison', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.age > 30 THEN "senior" WHEN n.age > 20 THEN "junior" ELSE "young" END AS tier');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', tier: 'junior' },
+          { name: 'Bob', tier: 'junior' },
+          { name: 'Charlie', tier: 'senior' },
+        ]);
+      });
+
+      it('evaluates IS NULL condition', () => {
+        const g = new Graph();
+        g.addNode('a', { label: 'Person', name: 'Alice', age: 30 });
+        g.addNode('b', { label: 'Person', name: 'Bob' });
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.age IS NULL THEN "no age" ELSE "has age" END AS status');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', status: 'has age' },
+          { name: 'Bob', status: 'no age' },
+        ]);
+      });
+
+      it('evaluates string functions in conditions', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.name STARTS WITH "A" THEN "A-group" WHEN n.name CONTAINS "ob" THEN "B-group" ELSE "other" END AS group');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', group: 'A-group' },
+          { name: 'Bob', group: 'B-group' },
+          { name: 'Charlie', group: 'other' },
+        ]);
+      });
+
+      it('evaluates OR conditions', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.name = "Alice" OR n.name = "Bob" THEN "A or B" ELSE "other" END AS group');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', group: 'A or B' },
+          { name: 'Bob', group: 'A or B' },
+          { name: 'Charlie', group: 'other' },
+        ]);
+      });
+
+      it('evaluates AND conditions', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.age > 25 AND n.score > 90 THEN "top" ELSE "other" END AS tier');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', tier: 'top' },
+          { name: 'Bob', tier: 'other' },
+          { name: 'Charlie', tier: 'other' },
+        ]);
+      });
+
+      it('returns null when no ELSE and no match', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.name = "Alice" THEN 1 END AS flag');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', flag: 1 },
+          { name: 'Bob', flag: null },
+          { name: 'Charlie', flag: null },
+        ]);
+      });
+
+      it('evaluates bare boolean literal true', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.name = "Alice" THEN CASE WHEN true THEN "yes" ELSE "no" END ELSE "other" END AS nested');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', nested: 'yes' },
+          { name: 'Bob', nested: 'other' },
+          { name: 'Charlie', nested: 'other' },
+        ]);
+      });
+
+      it('evaluates bare boolean literal false', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.name = "Alice" THEN CASE WHEN false THEN "yes" ELSE "no" END ELSE "other" END AS nested');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', nested: 'no' },
+          { name: 'Bob', nested: 'other' },
+          { name: 'Charlie', nested: 'other' },
+        ]);
+      });
+    });
+
+    describe('simple CASE (CASE expr WHEN value THEN ...)', () => {
+      it('evaluates equality against subject', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE n.name WHEN "Alice" THEN 1 WHEN "Bob" THEN 2 ELSE 3 END AS rank');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', rank: 1 },
+          { name: 'Bob', rank: 2 },
+          { name: 'Charlie', rank: 3 },
+        ]);
+      });
+
+      it('evaluates numeric subject', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE n.age WHEN 30 THEN "thirty" WHEN 25 THEN "twenty-five" ELSE "other" END AS ageGroup');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', ageGroup: 'thirty' },
+          { name: 'Bob', ageGroup: 'twenty-five' },
+          { name: 'Charlie', ageGroup: 'other' },
+        ]);
+      });
+    });
+
+    describe('CASE in different contexts', () => {
+      it('works in ORDER BY', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name ORDER BY CASE n.name WHEN "Charlie" THEN 0 WHEN "Alice" THEN 1 WHEN "Bob" THEN 2 ELSE 3 END');
+        const results = e.execute(ast);
+        expect(results.map((r) => r.name)).toEqual(['Charlie', 'Alice', 'Bob']);
+      });
+
+      it('works in WITH clause', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) WITH n.name, CASE WHEN n.score > 90 THEN "A" WHEN n.score > 70 THEN "B" ELSE "C" END AS grade RETURN name, grade');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', grade: 'A' },
+          { name: 'Bob', grade: 'B' },
+          { name: 'Charlie', grade: 'C' },
+        ]);
+      });
+
+      it('works in SET clause', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) SET n.grade = CASE WHEN n.score > 90 THEN "A" WHEN n.score > 70 THEN "B" ELSE "C" END RETURN n.name, n.grade');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', grade: 'A' },
+          { name: 'Bob', grade: 'B' },
+          { name: 'Charlie', grade: 'C' },
+        ]);
+      });
+
+      it('works with arithmetic in THEN result', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.score > 90 THEN n.score * 2 ELSE n.score END AS adjusted');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', adjusted: 190 },
+          { name: 'Bob', adjusted: 80 },
+          { name: 'Charlie', adjusted: 60 },
+        ]);
+      });
+
+      it('works with string functions in THEN result', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.name = "Alice" THEN toUpper(n.name) ELSE n.name END AS displayName');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', displayName: 'ALICE' },
+          { name: 'Bob', displayName: 'Bob' },
+          { name: 'Charlie', displayName: 'Charlie' },
+        ]);
+      });
+    });
+
+    describe('nested CASE', () => {
+      it('supports deeply nested CASE expressions', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.name = "Alice" THEN CASE WHEN n.age > 30 THEN "mature Alice" ELSE "young Alice" END ELSE "not Alice" END AS desc');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', desc: 'young Alice' },
+          { name: 'Bob', desc: 'not Alice' },
+          { name: 'Charlie', desc: 'not Alice' },
+        ]);
+      });
+    });
+  });
 });

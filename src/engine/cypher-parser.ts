@@ -125,6 +125,8 @@ const Ctx = {
   UnwindClause: 'UnwindClauseContext',
   UnaryAddOrSubtractExpression: 'UnaryAddOrSubtractExpressionContext',
   ForeachClause: 'ForeachClauseContext',
+  CaseExpression: 'CaseExpressionContext',
+  CaseAlternatives: 'CaseAlternativesContext',
 } as const;
 
 /**
@@ -693,6 +695,13 @@ function evaluateExpressionFromAtom(atom: TreeNode, fullCtx?: TreeNode): Express
     }
   }
 
+  // CASE expression: CASE WHEN cond THEN result [WHEN cond THEN result ...] [ELSE result] END
+  const caseCtx = findChild(atom, Ctx.CaseExpression);
+  if (caseCtx) {
+    const caseExpr = extractCaseExpression(caseCtx);
+    if (caseExpr) return caseExpr;
+  }
+
   // Variable reference (with optional property access, e.g., u.name)
   const varCtx = findChild(atom, Ctx.Variable);
   if (varCtx) {
@@ -869,6 +878,136 @@ function extractFunctionCall(funcCtx: TreeNode, funcName: string): FunctionCallE
     functionName: funcName.toLowerCase(),
     arguments: argExpressions,
   };
+}
+
+// ── CASE expression extraction ──────────────────────────────────────────────
+
+/**
+ * Extract a CASE expression from a CaseExpressionContext.
+ *
+ * Supports both forms:
+ *   General CASE: CASE WHEN cond THEN result [WHEN cond THEN result ...] [ELSE result] END
+ *   Simple CASE:  CASE expr WHEN value THEN result [WHEN value THEN result ...] [ELSE result] END
+ *
+ * ANTLR4 tree structure (general CASE):
+ *   CaseExpressionContext
+ *     TerminalNodeImpl [CASE]
+ *     CaseAlternativesContext
+ *       TerminalNodeImpl [WHEN]
+ *       ExpressionContext (condition)
+ *       TerminalNodeImpl [THEN]
+ *       ExpressionContext (result)
+ *     CaseAlternativesContext  (repeated...)
+ *     TerminalNodeImpl [ELSE]  (optional)
+ *     ExpressionContext (else result) (optional)
+ *     TerminalNodeImpl [END]
+ *
+ * ANTLR4 tree structure (simple CASE):
+ *   CaseExpressionContext
+ *     TerminalNodeImpl [CASE]
+ *     ExpressionContext (subject)
+ *     CaseAlternativesContext
+ *       TerminalNodeImpl [WHEN]
+ *       ExpressionContext (value to compare)
+ *       TerminalNodeImpl [THEN]
+ *       ExpressionContext (result)
+ *     ...
+ *     TerminalNodeImpl [END]
+ */
+function extractCaseExpression(caseCtx: TreeNode): Expression | undefined {
+  if (!caseCtx || !caseCtx.children) return undefined;
+
+  const children = caseCtx.children;
+  const branches: { condition: Expression | WhereExpression; result: Expression }[] = [];
+  let subject: Expression | undefined;
+  let elseResult: Expression | undefined;
+
+  // Determine if this is a simple CASE (has subject) or general CASE.
+  // Simple CASE: CASE <expr> WHEN ...
+  //   The first non-terminal after CASE is an ExpressionContext (the subject),
+  //   followed by CaseAlternativesContext children.
+  // General CASE: CASE WHEN ...
+  //   The first non-terminal after CASE is a CaseAlternativesContext.
+  let startIndex = 0;
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    if (!child) continue;
+    // Skip CASE keyword terminal and whitespace
+    if (child.constructor.name === Ctx.TerminalNode) {
+      if (child.symbol?.text === 'CASE') continue;
+      if (child.symbol?.text && child.symbol.text.trim() === '') continue;
+      break;
+    }
+    // First meaningful non-terminal after CASE
+    if (child.constructor.name === Ctx.Expression) {
+      // This is a simple CASE — the subject expression
+      const subjectExpr = evaluateExpression(child);
+      if (subjectExpr) subject = subjectExpr;
+      startIndex = i + 1;
+      break;
+    }
+    // If first non-terminal is CaseAlternatives, it's a general CASE
+    break;
+  }
+
+  // Collect WHEN ... THEN ... pairs from CaseAlternativesContext children
+  const alternatives = findAllChildren(caseCtx, Ctx.CaseAlternatives);
+  for (const alt of alternatives) {
+    // CaseAlternatives has two ExpressionContext children: WHEN condition and THEN result
+    const exprChildren = findAllChildren(alt, Ctx.Expression);
+    if (exprChildren.length < 2) continue;
+
+    const result = evaluateExpression(exprChildren[1]);
+    if (!result) continue;
+
+    let condition: Expression | WhereExpression;
+    if (subject) {
+      // Simple CASE: WHEN value is compared for equality against subject
+      const condExpr = evaluateExpression(exprChildren[0]);
+      if (!condExpr) continue;
+      condition = condExpr;
+    } else {
+      // General CASE: WHEN condition is a boolean expression (comparison, logical, etc.)
+      const condWhere = extractWhereExpression(exprChildren[0]);
+      if (condWhere) {
+        condition = condWhere;
+      } else {
+        // Fallback: bare boolean literal or other expression (e.g., CASE WHEN true)
+        const condExpr = evaluateExpression(exprChildren[0]);
+        if (!condExpr) continue;
+        // Wrap in a synthetic comparison: expr = true
+        condition = { type: 'BinaryExpression', operator: '=', left: condExpr, right: { type: 'Literal', value: true as CypherLiteral } };
+      }
+    }
+
+    branches.push({ condition, result });
+  }
+
+  // Check for optional ELSE clause
+  // ELSE appears as a terminal "ELSE" followed by an ExpressionContext, before "END"
+  // We need to find ELSE terminal and the ExpressionContext that follows it
+  let foundElse = false;
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    if (!child) continue;
+    if (child.constructor.name === Ctx.TerminalNode && child.symbol?.text === 'ELSE') {
+      foundElse = true;
+      // The next ExpressionContext after ELSE is the else result
+      for (let j = i + 1; j < children.length; j++) {
+        const nextChild = children[j];
+        if (!nextChild) continue;
+        if (nextChild.constructor.name === Ctx.Expression) {
+          elseResult = evaluateExpression(nextChild);
+          break;
+        }
+      }
+      break;
+    }
+  }
+
+  if (branches.length === 0 && !elseResult) return undefined;
+
+  return { type: 'Case' as const, subject, branches, elseResult };
 }
 
 // ── Node pattern extraction ──────────────────────────────────────────────────
@@ -1199,6 +1338,9 @@ function computeDefaultAlias(expr: Expression): string {
     const leftAlias = computeDefaultAlias(expr.left!);
     const rightAlias = computeDefaultAlias(expr.right);
     return `${leftAlias} ${expr.operator} ${rightAlias}`;
+  }
+  if (expr.type === 'Case') {
+    return 'CASE';
   }
   return String(expr.value);
 }

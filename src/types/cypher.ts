@@ -239,7 +239,26 @@ export interface ArithmeticExpression {
 // Note: Parenthesized expressions (e.g., (n.a + n.b) * 2) are unwrapped during parsing
 // and do not produce a separate AST node. The inner expression is returned directly.
 
-export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression;
+/**
+ * A CASE expression supporting both general and simple forms.
+ *
+ * General CASE: `CASE WHEN cond THEN result [WHEN cond THEN result ...] [ELSE result] END`
+ *   subject is undefined; each branch.condition is a WhereExpression (boolean).
+ *
+ * Simple CASE: `CASE expr WHEN value THEN result [WHEN value THEN result ...] [ELSE result] END`
+ *   subject is defined; each branch.condition is an Expression (compared for equality).
+ */
+export interface CaseExpression {
+  type: 'Case';
+  /** Optional subject expression (simple CASE only). */
+  subject: Expression | undefined;
+  /** WHEN condition → THEN result pairs. General CASE uses WhereExpression, simple CASE uses Expression. */
+  branches: { condition: Expression | WhereExpression; result: Expression }[];
+  /** Optional ELSE clause result. */
+  elseResult: Expression | undefined;
+}
+
+export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression;
 
 export interface BinaryExpression {
   type: 'BinaryExpression';
