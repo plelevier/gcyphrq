@@ -21,6 +21,7 @@ import type {
   ReturnClause,
   CypherLiteral,
   Projection,
+  RemoveClause,
 } from '../types/cypher';
 import type { ParseTreeNode, RecognitionException, BaseErrorListener } from 'antlr4';
 
@@ -83,6 +84,8 @@ const Ctx = {
   RelationshipPatternStart: 'RelationshipPatternStartContext',
   RelationshipType: 'RelationshipTypeContext',
   RelationshipTypes: 'RelationshipTypesContext',
+  RemoveClause: 'RemoveClauseContext',
+  RemoveItem: 'RemoveItemContext',
   RegularQuery: 'RegularQueryContext',
   Query: 'QueryContext',
   RightArrowHead: 'RightArrowHeadContext',
@@ -1196,6 +1199,25 @@ function extractValueExpression(ctx: TreeNode): Expression | undefined {
   return extractLiteral(literalCtx);
 }
 
+function extractRemoveClause(clauseCtx: ParseTreeNode): RemoveClause {
+  const removeCtx = findChild(clauseCtx, Ctx.RemoveClause);
+  if (!removeCtx) throw new Error('Failed to parse REMOVE: missing RemoveClause node.');
+
+  const removeItem = findChild(removeCtx, Ctx.RemoveItem);
+  if (!removeItem) throw new Error('Failed to parse REMOVE: missing RemoveItem node.');
+
+  const varCtx = findChild(removeItem, Ctx.Variable);
+  const variable = getSymbolicName(varCtx);
+  if (!variable) throw new Error('Failed to parse REMOVE: missing variable name.');
+
+  const labelsCtx = findChild(removeItem, Ctx.NodeLabels);
+  const labelCtx = findChild(labelsCtx, Ctx.NodeLabel);
+  const labelNameCtx = findChild(labelCtx, Ctx.LabelName);
+  const label = getSymbolicName(labelNameCtx);
+
+  return { type: 'REMOVE' as const, variable, label };
+}
+
 function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
   // SET clause
   const setCtx = findChild(clauseCtx, Ctx.SetClause);
@@ -1267,6 +1289,12 @@ function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
     if (!variable) throw new Error('Failed to parse DELETE: missing variable name.');
 
     return { type: 'DELETE' as const, variable };
+  }
+
+  // REMOVE clause
+  const removeCtx = findChild(clauseCtx, Ctx.RemoveClause);
+  if (removeCtx) {
+    return extractRemoveClause(clauseCtx);
   }
 
   return undefined;
@@ -1446,6 +1474,9 @@ export function parseCypher(query: string): AdvancedCypherAST {
       const writeClause = extractWriteClause(clause);
       if (writeClause) stages.push({ type: 'WRITE', clause: writeClause });
     } else if (findChild(clause, Ctx.DeleteClause)) {
+      const writeClause = extractWriteClause(clause);
+      if (writeClause) stages.push({ type: 'WRITE', clause: writeClause });
+    } else if (findChild(clause, Ctx.RemoveClause)) {
       const writeClause = extractWriteClause(clause);
       if (writeClause) stages.push({ type: 'WRITE', clause: writeClause });
     } else if (findChild(clause, Ctx.MergeClause)) {

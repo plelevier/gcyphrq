@@ -543,7 +543,7 @@ function isGraphInstance(value: GraphInstance | GraphInput): value is GraphInsta
  * The Cypher query engine. Accepts a `GraphInstance` and executes parsed ASTs.
  *
  * For best performance, pass pre-computed indexes as the second argument.
- * Note: indexes are invalidated after any CREATE/SET/DELETE mutation so that
+ * Note: indexes are invalidated after any CREATE/SET/DELETE/REMOVE mutation so that
  * subsequent MATCH/WITH stages see the updated graph state via full-graph scan.
  *
  * @example
@@ -617,6 +617,7 @@ export type {
   CreateClause,
   DeleteClause,
   SetClause,
+  RemoveClause,
   UnwindClause,
   NodePattern,
   RelationPattern,

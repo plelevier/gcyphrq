@@ -211,6 +211,15 @@ describe('parseCypher', () => {
       if (writeStage.clause.type !== 'DELETE') return;
       expect(writeStage.clause.variable).toBe('n');
     });
+
+    it('parses REMOVE clause with label', () => {
+      const ast = parseCypher('MATCH (n:User) REMOVE n:User RETURN n');
+      const writeStage = ast.stages[1]! as { type: 'WRITE'; clause: WriteClause };
+      expect(writeStage.clause.type).toBe('REMOVE');
+      if (writeStage.clause.type !== 'REMOVE') return;
+      expect(writeStage.clause.variable).toBe('n');
+      expect(writeStage.clause.label).toBe('User');
+    });
   });
 
   describe('Expression parsing', () => {

@@ -695,6 +695,29 @@ export class AdvancedCypherGraphologyEngine {
           context[clause.variable] = null;
         }
       }
+    } else if (clause.type === 'REMOVE') {
+      const nodeIds = new Set<string>();
+      for (const context of materialised) {
+        const targetNode = context[clause.variable] as CypherNode | undefined;
+        if (targetNode && targetNode.id && this.graph.hasNode(targetNode.id)) {
+          nodeIds.add(targetNode.id);
+        }
+      }
+      for (const nodeId of nodeIds) {
+        const attrs = this.graph.getNodeAttributes(nodeId);
+        const currentLabel = attrs[this.config.labelProperty];
+        // Only remove if the label matches (or no specific label targeted)
+        if (!clause.label || currentLabel === clause.label) {
+          this.graph.setNodeAttribute(nodeId, this.config.labelProperty, undefined);
+        }
+      }
+      for (const context of materialised) {
+        const targetNode = context[clause.variable] as CypherNode | undefined;
+        if (targetNode && targetNode.id && nodeIds.has(targetNode.id)) {
+          const fresh = { id: targetNode.id, ...this.graph.getNodeAttributes(targetNode.id) } as CypherNode;
+          context[clause.variable] = fresh;
+        }
+      }
     }
 
     // Invalidate indexes so subsequent stages use full-graph scan

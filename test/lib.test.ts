@@ -218,6 +218,21 @@ describe('mutations', () => {
     expect(results).toEqual([{ age: 31 }]);
   });
 
+  it('supports REMOVE mutation via GraphEngine', () => {
+    const graph = createGraph(sampleGraph);
+    const engine = new GraphEngine(graph);
+
+    engine.execute(parseCypher('MATCH (u:User {name: "Alice"}) REMOVE u:User'));
+
+    // Alice should no longer match :User
+    const results = engine.execute(parseCypher('MATCH (u:User {name: "Alice"}) RETURN u.name'));
+    expect(results).toEqual([]);
+
+    // But the node still exists (just without the label)
+    const allResults = engine.execute(parseCypher('MATCH (u {name: "Alice"}) RETURN u.name'));
+    expect(allResults).toEqual([{ name: 'Alice' }]);
+  });
+
   it('supports mutation followed by query via executeQuery', () => {
     const graph = createGraph(sampleGraph);
     const engine = new GraphEngine(graph);

@@ -929,6 +929,60 @@ describe('AdvancedCypherGraphologyEngine', () => {
     });
   });
 
+  describe('execute - REMOVE mutation', () => {
+    it('removes a label from a node', () => {
+      const ast = parseCypher(
+        'MATCH (u:User {name: "Alice"}) REMOVE u:User RETURN u',
+      );
+      const results = engine.execute(ast);
+      const removedNode = node(results[0]!, 'u');
+      expect(removedNode.name).toBe('Alice');
+      expect(removedNode.label).toBeUndefined();
+    });
+
+    it('REMOVE is a no-op when label does not match', () => {
+      const ast = parseCypher(
+        'MATCH (u:User {name: "Alice"}) REMOVE u:Admin RETURN u',
+      );
+      const results = engine.execute(ast);
+      const keptNode = node(results[0]!, 'u');
+      expect(keptNode.name).toBe('Alice');
+      expect(keptNode.label).toBe('User');
+    });
+
+    it('REMOVE affects subsequent MATCH stages', () => {
+      const ast = parseCypher(
+        'MATCH (u:User {name: "Alice"}) REMOVE u:User MATCH (v:User) RETURN v.name AS name',
+      );
+      const results = engine.execute(ast);
+      const names = results.map((r) => r.name);
+      expect(names).toContain('Bob');
+      expect(names).toContain('Charlie');
+      expect(names).not.toContain('Alice');
+    });
+
+    it('executes REMOVE then SET in sequence', () => {
+      const ast = parseCypher(
+        'MATCH (u:User {name: "Alice"}) REMOVE u:User SET u.role = "admin" RETURN u',
+      );
+      const results = engine.execute(ast);
+      const updatedNode = node(results[0]!, 'u');
+      expect(updatedNode.name).toBe('Alice');
+      expect(updatedNode.label).toBeUndefined();
+      expect(updatedNode.role).toBe('admin');
+    });
+
+    it('executes REMOVE on multiple nodes via multiple contexts', () => {
+      const ast = parseCypher(
+        'MATCH (u:User) REMOVE u:User RETURN u.name AS name, u.label AS label',
+      );
+      const results = engine.execute(ast);
+      for (const row of results) {
+        expect(row.label).toBeUndefined();
+      }
+    });
+  });
+
   describe('execute - mixed aggregation error', () => {
     it('throws when non-aggregation varies across rows in RETURN without WITH', () => {
       const ast = parseCypher(
