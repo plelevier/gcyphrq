@@ -629,11 +629,12 @@ gcyphrq -g examples/team.json -e 'MATCH (p:Person {name: "Alice"}) REMOVE p:Pers
 ```json
 [
   {
-    "name": "Alice",
-    "label": undefined
+    "name": "Alice"
   }
 ]
 ```
+
+(The `label` key is omitted entirely since `undefined` is not serializable to JSON.)
 
 > **Note:** Only label removal is supported (`REMOVE n:Label`). Property removal (`REMOVE n.property`) is not supported.
 
