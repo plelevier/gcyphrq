@@ -1445,11 +1445,6 @@ function extractReturnBody(returnBody: ParseTreeNode | null): Projection[] {
       }
     }
   }
-  if (allItems.length === 0 && returnItems.children) {
-    // Fallback: also check for FuncContext directly under ReturnItems
-    const funcChildren = findAllChildren(returnItems, Ctx.Func);
-    allItems.push(...funcChildren);
-  }
   // Single pass: parse each item once
   const parsedItems: ParsedItem[] = [];
   for (const item of allItems) {
@@ -2302,7 +2297,7 @@ function extractForeachClause(clauseCtx: ParseTreeNode): ForeachClause | undefin
   if (innerClauseCtxs.length === 0) {
     throw new Error('Failed to parse FOREACH: missing inner update clause.');
   }
-  const innerClauseCtx = innerClauseCtxs[innerClauseCtxs.length - 1]; // last Clause child
+  const innerClauseCtx = innerClauseCtxs[innerClauseCtxs.length - 1]!; // last Clause child
 
   const innerClause = extractWriteClause(innerClauseCtx);
   if (!innerClause) {
@@ -2500,7 +2495,7 @@ function extractWhereFromQuery(queryText: string): string | undefined {
   let start = queryText.indexOf('WHERE', whereIndex);
   if (start === -1) return undefined;
   start += 5; // Skip "WHERE"
-  while (start < queryText.length && /\s/.test(queryText[start])) start++;
+  while (start < queryText.length && /\s/.test(queryText.charAt(start))) start++;
 
   // Find the end of the WHERE expression by tracking parentheses, brackets, and strings
   let parenDepth = 0;
@@ -2510,10 +2505,10 @@ function extractWhereFromQuery(queryText: string): string | undefined {
   let end = start;
 
   while (end < queryText.length) {
-    const char = queryText[end];
+    const char = queryText.charAt(end);
 
     if (inString) {
-      if (char === stringChar && (end === 0 || queryText[end - 1] !== '\\')) {
+      if (char === stringChar && (end === 0 || queryText.charAt(end - 1) !== '\\')) {
         inString = false;
       }
     } else if (char === '"' || char === "'") {
@@ -2558,10 +2553,10 @@ function extractOnActionFromQuery(queryText: string, actionType: 'MATCH' | 'CREA
   let end = start;
 
   while (end < queryText.length) {
-    const char = queryText[end];
+    const char = queryText.charAt(end);
 
     if (inString) {
-      if (char === stringChar && (end === 0 || queryText[end - 1] !== '\\')) {
+      if (char === stringChar && (end === 0 || queryText.charAt(end - 1) !== '\\')) {
         inString = false;
       }
     } else if (char === '"' || char === "'") {
@@ -2651,7 +2646,7 @@ function extractMergeActionFromText(text: string, actionType: 'CREATE' | 'MATCH'
   // Extract SET actions: SET var.prop = expr [, var2.prop2 = expr2]
   const setMatch = text.match(/SET\s+(.+?)(?:\s+DELETE|\s+REMOVE|\s*$)/i);
   if (setMatch) {
-    const setText = setMatch[1].trim();
+    const setText = setMatch[1]!.trim();
     // Parse each SET assignment using bracket-aware split
     for (const assignment of splitRespectingBrackets(setText)) {
       const setPartMatch = assignment.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\.(\w+)\s*=\s*(.+)$/);
@@ -2699,7 +2694,7 @@ function extractMergeActionFromText(text: string, actionType: 'CREATE' | 'MATCH'
   // Extract DELETE variables: DELETE var1, var2
   const deleteMatch = text.match(/DELETE\s+(.+?)(?:\s+REMOVE|\s*$)/i);
   if (deleteMatch) {
-    const deleteText = deleteMatch[1].trim();
+    const deleteText = deleteMatch[1]!.trim();
     for (const varRef of deleteText.split(/,\s*/)) {
       const v = varRef.trim();
       if (v) deleteVariables.push(v);
@@ -2712,7 +2707,7 @@ function extractMergeActionFromText(text: string, actionType: 'CREATE' | 'MATCH'
   // all labels after the colon until we hit a dot-separated property or end of text.
   const removeMatch = text.match(/REMOVE\s+(.+?)(?:\s*$)/i);
   if (removeMatch) {
-    const removeText = removeMatch[1].trim();
+    const removeText = removeMatch[1]!.trim();
     // Use bracket-aware split to handle complex expressions
     for (const item of splitRespectingBrackets(removeText)) {
       const itemText = item.trim();
@@ -2785,7 +2780,7 @@ function extractSingleQuery(singleQuery: ParseTreeNode, rawQuery?: string): Adva
   const queryText = rawQuery ?? singleQuery.getText();
   for (let i = 0; i < stages.length - 1; i++) {
     if (stages[i]?.type !== 'MERGE') continue;
-    const mergeClause = stages[i].clause as MergeClause;
+    const mergeClause = stages[i]!.clause as MergeClause;
     const nextStage = stages[i + 1];
 
     // Check if next stage is a WRITE (DELETE/REMOVE) that should belong to the MERGE action
@@ -2903,7 +2898,7 @@ function extractSingleQuery(singleQuery: ParseTreeNode, rawQuery?: string): Adva
   if (!returnClause) {
     const returnMatch = queryText.match(/RETURN\s+(.+?)(?:\s*;|\s*$)/i);
     if (returnMatch) {
-      const returnText = returnMatch[1].trim();
+      const returnText = returnMatch[1]!.trim();
       const syntheticQuery = `MATCH (x) RETURN ${returnText}`;
       // Check cache first
       let cachedResult = syntheticParseCache.get(syntheticQuery);

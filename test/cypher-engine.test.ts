@@ -3866,8 +3866,8 @@ describe('AdvancedCypherGraphologyEngine', () => {
         const e = new AdvancedCypherGraphologyEngine(g);
         const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN n.name, CASE WHEN n.age >= 30 THEN "yes" ELSE "no" END');
         const results = e.execute(ast);
-        expect(results[0]).toHaveProperty('CASE');
-        expect(results[0].CASE).toBe('yes');
+        expect(results[0]!).toHaveProperty('CASE');
+        expect(results[0]!.CASE).toBe('yes');
       });
 
       it('works with CASE in CREATE', () => {
@@ -4143,7 +4143,7 @@ describe('AdvancedCypherGraphologyEngine', () => {
       const e = new AdvancedCypherGraphologyEngine(g);
       const ast = parseCypher('MATCH (n) RETURN labels(n)');
       const results = e.execute(ast);
-      expect(results[0]['labels(n)']).toEqual(['Service', 'Infrastructure']);
+      expect(results[0]!['labels(n)']).toEqual(['Service', 'Infrastructure']);
     });
 
     it('returns empty array for null argument', () => {
@@ -4152,7 +4152,7 @@ describe('AdvancedCypherGraphologyEngine', () => {
       const e = new AdvancedCypherGraphologyEngine(g);
       const ast = parseCypher('MATCH (n) OPTIONAL MATCH (n)-[]->(m) RETURN labels(m)');
       const results = e.execute(ast);
-      expect(results[0]['labels(m)']).toEqual([]);
+      expect(results[0]!['labels(m)']).toEqual([]);
     });
   });
 
@@ -4173,7 +4173,7 @@ describe('AdvancedCypherGraphologyEngine', () => {
       const ast = parseCypher('MATCH p=(n) RETURN p');
       const results = e.execute(ast);
       expect(results.length).toBe(3);
-      const firstPath = results[0].p as Record<string, unknown>;
+      const firstPath = results[0]!.p as Record<string, unknown>;
       expect(Array.isArray(firstPath.nodes)).toBe(true);
       expect(Array.isArray(firstPath.relationships)).toBe(true);
       expect((firstPath.nodes as unknown[]).length).toBe(1);
@@ -4186,7 +4186,7 @@ describe('AdvancedCypherGraphologyEngine', () => {
       const ast = parseCypher('MATCH path=(a)-[r]->(b) RETURN path');
       const results = e.execute(ast);
       expect(results.length).toBe(2);
-      const firstPath = results[0].path as Record<string, unknown>;
+      const firstPath = results[0]!.path as Record<string, unknown>;
       expect((firstPath.nodes as unknown[]).length).toBe(2);
       expect((firstPath.relationships as unknown[]).length).toBe(1);
     });
@@ -4198,11 +4198,11 @@ describe('AdvancedCypherGraphologyEngine', () => {
       const results = e.execute(ast);
       expect(results.length).toBe(3); // a->b, a->b->c, b->c
       // First result: Alice -> Bob (1 hop)
-      const firstPath = results[0].path as Record<string, unknown>;
+      const firstPath = results[0]!.path as Record<string, unknown>;
       expect((firstPath.nodes as unknown[]).length).toBe(2);
       expect((firstPath.relationships as unknown[]).length).toBe(1);
       // Second result: Alice -> Bob -> Charlie (2 hops)
-      const secondPath = results[1].path as Record<string, unknown>;
+      const secondPath = results[1]!.path as Record<string, unknown>;
       expect((secondPath.nodes as unknown[]).length).toBe(3);
       expect((secondPath.relationships as unknown[]).length).toBe(2);
     });
@@ -4254,10 +4254,10 @@ describe('AdvancedCypherGraphologyEngine', () => {
       const ast = parseCypher('MATCH path=(a)-[r]->(b) RETURN nodes(path)');
       const results = e.execute(ast);
       expect(results.length).toBe(2);
-      const firstNodes = results[0]['nodes(path)'] as CypherNode[];
+      const firstNodes = results[0]!['nodes(path)'] as CypherNode[];
       expect(firstNodes.length).toBe(2);
-      expect(firstNodes[0].id).toBe('a');
-      expect(firstNodes[1].id).toBe('b');
+      expect(firstNodes[0]!.id).toBe('a');
+      expect(firstNodes[1]!.id).toBe('b');
     });
 
     it('returns nodes for single-node path', () => {
@@ -4300,9 +4300,9 @@ describe('AdvancedCypherGraphologyEngine', () => {
       const ast = parseCypher('MATCH path=(a)-[r]->(b) RETURN relationships(path)');
       const results = e.execute(ast);
       expect(results.length).toBe(2);
-      const firstRels = results[0]['relationships(path)'] as CypherEdge[];
+      const firstRels = results[0]!['relationships(path)'] as CypherEdge[];
       expect(firstRels.length).toBe(1);
-      expect(firstRels[0].id).toBe('a-friend-b');
+      expect(firstRels[0]!.id).toBe('a-friend-b');
     });
 
     it('returns relationships for multi-hop path', () => {

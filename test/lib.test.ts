@@ -305,7 +305,7 @@ describe('executeQuery with raw graphology Graph', () => {
     graph.addNode('bob', { label: 'User', name: 'Bob', age: 25 });
     graph.addEdge('alice', 'bob', { type: 'FRIEND' });
 
-    const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name');
+    const results = executeQuery(graph as unknown as GraphInstance, 'MATCH (u:User) RETURN u.name');
     const names = results.map((r) => r.name).sort();
     expect(names).toEqual(['Alice', 'Bob']);
   });
@@ -318,8 +318,8 @@ describe('executeQuery with raw graphology Graph', () => {
     graph.addEdge('alice', 'bob', { type: 'FRIEND' });
     graph.addEdge('bob', 'charlie', { type: 'FRIEND' });
 
-    const indexes = buildGraphIndexes(graph);
-    const engine = new GraphEngine(graph, indexes);
+    const indexes = buildGraphIndexes(graph as unknown as GraphInstance);
+    const engine = new GraphEngine(graph as unknown as GraphInstance, indexes);
 
     const results = engine.execute(
       parseCypher('MATCH (a:User {name: "Alice"})-[r:FRIEND*1..2]->(b:User) RETURN b.name'),
@@ -336,7 +336,7 @@ describe('executeQuery with raw graphology Graph', () => {
     graph.addEdge('alice', 'bob', { type: 'FRIEND' });
 
     const results = executeQuery(
-      graph,
+      graph as unknown as GraphInstance,
       'MATCH (u:User) OPTIONAL MATCH (u)-[r:FRIEND]->(f:User) RETURN u.name, f.name',
     );
     const rows = results
@@ -353,7 +353,7 @@ describe('executeQuery with raw graphology Graph', () => {
     const graph = new Graphology();
     graph.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
 
-    const engine = new GraphEngine(graph);
+    const engine = new GraphEngine(graph as unknown as GraphInstance);
     engine.execute(parseCypher('CREATE (n:User {name: "Bob", age: 25})'));
 
     const results = engine.execute(parseCypher('MATCH (u:User) RETURN count(u)'));
@@ -379,7 +379,7 @@ describe('executeQuery with raw graphology Graph', () => {
     graph.addEdge('a', 'b', { type: 'CALLS' });
     graph.addEdge('a', 'c', { type: 'CONNECTS' });
 
-    const indexes = buildGraphIndexes(graph);
+    const indexes = buildGraphIndexes(graph as unknown as GraphInstance);
 
     expect(indexes.labelIndex.get('Service')?.size).toBe(2);
     expect(indexes.labelIndex.get('Database')?.size).toBe(1);

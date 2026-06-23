@@ -45,7 +45,7 @@ src/
 
 **Aggregations:** `count`, `sum`, `avg`, `min`, `max`, `count(DISTINCT)`, `sum(DISTINCT)`, `avg(DISTINCT)`.
 
-**Scalar functions:** 28+ (`toLower`, `toUpper`, `substring`, `split`, `repl`, `trim`, `ltrim`, `rtrim`, `length`, `head`, `last`, `tail`, `reverse`, `size`, `id`, `labels`, `labelsOf`, `nodes`, `relationships`, `reltype`, `startnode`, `endnode`, `coalesce`, `toString`, `toInteger`, `toFloat`). Work in RETURN/WHERE/WITH/ORDER BY, nested supported. Note: `repl`/`reltype` (not `replace`/`type`) — ANTLR4 reserved. `labels(n)` works in RETURN only (ANTLR4 keyword limitation); use `labelsOf(n)` in WHERE/WITH/ORDER BY. `nodes(path)`/`relationships(path)` extract from path variables. `startnode()`/`endnode()` return string IDs.
+**Scalar functions:** 28+ (`toLower`, `toUpper`, `substring`, `split`, `repl`, `trim`, `ltrim`, `rtrim`, `length`, `head`, `last`, `tail`, `reverse`, `size`, `id`, `labels`, `labelsOf`, `nodes`, `relationships`, `reltype`, `startnode`, `endnode`, `coalesce`, `toString`, `toInteger`, `toFloat`). Work in RETURN/WHERE/WITH/ORDER BY, nested supported. Note: `repl`/`reltype` (not `replace`/`type`) — ANTLR4 reserved. `labels(n)` works as sole RETURN item only (ANTLR4 keyword limitation); use `labelsOf(n)` everywhere else. `nodes(path)`/`relationships(path)` extract from path variables (sole RETURN item only). `startnode()`/`endnode()` return string IDs. `labels()`, `nodes()`, `relationships()` do not support `AS` aliases (ANTLR4 grammar limitation).
 
 **Arithmetic expressions:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`. Work in RETURN/WHERE/WITH/ORDER BY/SET. Parentheses for grouping. Null propagation (any null operand → null). Division/modulo by zero → null.
 
