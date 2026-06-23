@@ -2551,6 +2551,245 @@ describe('AdvancedCypherGraphologyEngine', () => {
       expect(edges).toHaveLength(1);
       expect(edges[0]?.updated).toBe(true);
     });
+
+    // ── MERGE with WHERE ─────────────────────────────────────────────
+
+    it('MERGE with WHERE matches only nodes satisfying the condition', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
+      g.addNode('bob', { label: 'User', name: 'Bob', age: 17 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      // Alice (age 30) satisfies age > 18, Bob (age 17) does not
+      const ast = parseCypher('MERGE (u:User {name: "Alice"}) WHERE u.age > 18 ON MATCH SET u.verified = true RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').id).toBe('alice');
+      expect(node(results[0]!, 'u').verified).toBe(true);
+    });
+
+    it('MERGE with WHERE does not match when condition fails', () => {
+      const g = new Graph();
+      g.addNode('bob', { label: 'User', name: 'Bob', age: 17 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      // Bob (age 17) does not satisfy age > 18, so ON CREATE should apply
+      const ast = parseCypher('MERGE (u:User {name: "Bob"}) WHERE u.age > 18 ON CREATE SET u.status = "new" RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').status).toBe('new');
+    });
+
+    it('MERGE with WHERE creates node when none exist', () => {
+      const g = new Graph();
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (u:User {name: "Charlie"}) WHERE u.age > 18 ON CREATE SET u.age = 25 RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Charlie');
+      expect(node(results[0]!, 'u').age).toBe(25);
+    });
+
+    // ── MERGE with DELETE in ON MATCH ─────────────────────────────────
+
+    it('MERGE with DELETE in ON MATCH deletes the matched node', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (u:User {name: "Alice"}) ON MATCH DELETE u RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.u).toBeNull();
+      expect(g.order).toBe(0);
+    });
+
+    it('MERGE with DELETE in ON MATCH deletes the matched edge', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      g.addNode('bob', { label: 'User', name: 'Bob' });
+      g.addEdge('alice', 'bob', { type: 'FRIEND' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (a:User {name: "Alice"})-[r:FRIEND]->(b:User {name: "Bob"}) ON MATCH DELETE r RETURN a, r, b');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.r).toBeNull();
+      expect(g.order).toBe(2); // Nodes still exist
+      let edgeCount = 0;
+      g.forEachEdge(() => { edgeCount++; });
+      expect(edgeCount).toBe(0);
+    });
+
+    // ── MERGE with REMOVE in ON MATCH ─────────────────────────────────
+
+    it('MERGE with REMOVE label in ON MATCH', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: ['User', 'Admin'], name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (u:User {name: "Alice"}) ON MATCH REMOVE u:Admin RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').label).toBe('User');
+    });
+
+    it('MERGE with REMOVE property in ON MATCH', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice', status: 'active' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (u:User {name: "Alice"}) ON MATCH REMOVE u.status RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').status).toBeUndefined();
+    });
+
+    // ── MERGE with combined SET / DELETE / REMOVE ─────────────────────
+
+    it('MERGE with SET and REMOVE in ON MATCH', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: ['User', 'Active'], name: 'Alice', status: 'active' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (u:User {name: "Alice"}) ON MATCH SET u.status = "inactive" REMOVE u:Active RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').status).toBe('inactive');
+      expect(node(results[0]!, 'u').label).toBe('User');
+    });
+
+    it('MERGE with SET and DELETE in ON CREATE', () => {
+      const g = new Graph();
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (u:User {name: "Bob"}) ON CREATE SET u.status = "new" RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').name).toBe('Bob');
+      expect(node(results[0]!, 'u').status).toBe('new');
+    });
+
+    // ── MERGE with WHERE + DELETE/REMOVE on relationship chains ──
+
+    it('MERGE with WHERE and DELETE on relationship chain', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
+      g.addNode('bob', { label: 'User', name: 'Bob', age: 25 });
+      g.addEdge('alice', 'bob', { type: 'FRIEND', since: 2020 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (a:User {name: "Alice"})-[r:FRIEND]->(b:User {name: "Bob"}) WHERE a.age > 18 ON MATCH DELETE r RETURN a, r, b');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.r).toBeNull();
+      expect(g.order).toBe(2); // Nodes still exist
+      let edgeCount = 0;
+      g.forEachEdge(() => { edgeCount++; });
+      expect(edgeCount).toBe(0);
+    });
+
+    it('MERGE with WHERE and REMOVE on relationship chain', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
+      g.addNode('bob', { label: 'User', name: 'Bob', age: 25 });
+      g.addEdge('alice', 'bob', { type: 'FRIEND', since: 2020 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (a:User {name: "Alice"})-[r:FRIEND]->(b:User {name: "Bob"}) WHERE a.age > 18 ON MATCH REMOVE a:User RETURN a, r, b');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'a').label).toBeUndefined();
+    });
+
+    it('MERGE with WHERE and DELETE on relationship chain creates when WHERE fails', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice', age: 15 }); // age < 18
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (a:User {name: "Alice"}) WHERE a.age > 18 ON CREATE SET a.status = "new" RETURN a');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'a').status).toBe('new');
+    });
+
+    it('MERGE with DELETE in ON CREATE without WHERE', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      // MERGE without WHERE, DELETE in ON CREATE
+      const ast = parseCypher('MERGE (u:User {name: "Charlie"}) ON CREATE SET u.status = "new" DELETE u RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.u).toBeNull();
+    });
+
+    it('MERGE with REMOVE in ON CREATE without WHERE', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: ['User', 'Admin'], name: 'Alice' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      // MERGE without WHERE, REMOVE in ON CREATE
+      const ast = parseCypher('MERGE (u:User {name: "Bob"}) ON CREATE SET u.status = "new" REMOVE u:Admin RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').status).toBe('new');
+    });
+
+    it('MERGE with WHERE and both ON CREATE and ON MATCH', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      // Alice exists and satisfies WHERE, so ON MATCH applies
+      const ast1 = parseCypher('MERGE (u:User {name: "Alice"}) WHERE u.age > 18 ON CREATE SET u.status = "new" ON MATCH SET u.verified = true RETURN u');
+      const results1 = e.execute(ast1);
+      expect(results1.length).toBe(1);
+      expect(node(results1[0]!, 'u').verified).toBe(true);
+      expect(node(results1[0]!, 'u').status).toBeUndefined();
+
+      // Bob doesn't exist, so ON CREATE applies
+      const ast2 = parseCypher('MERGE (u:User {name: "Bob"}) WHERE u.age > 18 ON CREATE SET u.status = "new" ON MATCH SET u.verified = true RETURN u');
+      const results2 = e.execute(ast2);
+      expect(results2.length).toBe(1);
+      expect(node(results2[0]!, 'u').status).toBe('new');
+      expect(node(results2[0]!, 'u').verified).toBeUndefined();
+    });
+
+    it('MERGE with WHERE containing bracket index access', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice', tags: ['admin', 'user'] });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (u:User {name: "Alice"}) WHERE u.tags[0] = "admin" ON MATCH SET u.verified = true RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').verified).toBe(true);
+    });
+
+    it('MERGE with WHERE containing property named "on"', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice', on: true });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (u:User {name: "Alice"}) WHERE u.on = true ON MATCH SET u.verified = true RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').verified).toBe(true);
+    });
+
+    it('MERGE with WHERE containing "ON MATCH" in string literal', () => {
+      const g = new Graph();
+      g.addNode('alice', { label: 'User', name: 'Alice', status: 'ON MATCH' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MERGE (u:User {name: "Alice"}) WHERE u.status = "ON MATCH" ON MATCH SET u.verified = true RETURN u');
+      const results = e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(node(results[0]!, 'u').verified).toBe(true);
+    });
   });
 
   describe('multiple labels', () => {

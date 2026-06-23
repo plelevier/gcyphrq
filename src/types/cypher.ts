@@ -159,8 +159,12 @@ export interface MergeSetAction {
 export interface MergeAction {
   /** 'CREATE' for ON CREATE, 'MATCH' for ON MATCH */
   actionType: 'CREATE' | 'MATCH';
-  /** SET actions to apply (only SET is supported in ON CREATE/ON MATCH) */
+  /** SET actions to apply */
   setActions: MergeSetAction[];
+  /** Variables to DELETE (e.g., DELETE n, DELETE r) */
+  deleteVariables: string[];
+  /** REMOVE items (labels or properties) */
+  removeItems: RemoveItem[];
 }
 
 export interface MergeClause {
@@ -170,9 +174,11 @@ export interface MergeClause {
   sourcePattern: NodePattern;
   relationPattern: RelationPattern;
   targetPattern: NodePattern;
-  /** ON CREATE SET actions (empty array if absent) */
+  /** Optional WHERE clause to filter which existing nodes count as a match */
+  where: WhereExpression | undefined;
+  /** ON CREATE actions (empty array if absent) */
   onCreate: MergeAction | undefined;
-  /** ON MATCH SET actions (empty array if absent) */
+  /** ON MATCH actions (empty array if absent) */
   onMatch: MergeAction | undefined;
 }
 

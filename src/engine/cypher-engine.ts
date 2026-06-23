@@ -1261,10 +1261,22 @@ export class AdvancedCypherGraphologyEngine {
         [CHAIN_OVERRIDES]: overrides,
       };
 
-      // Apply ON CREATE SET or ON MATCH SET
-      const action = created ? onCreate : onMatch;
-      if (action && action.setActions.length > 0) {
-        this.applyMergeSetActions(action.setActions, chain, hasChains ? relationPattern.variable : undefined);
+      // Apply WHERE filter (if present) — only count as a match if WHERE passes
+      let isMatch = !created;
+      if (clause.where) {
+        const flat = materialiseChain(chain);
+        if (!this.evaluateWhere(clause.where, flat)) {
+          if (!created) {
+            // Existing node but WHERE failed — skip ON MATCH
+            isMatch = false;
+          }
+        }
+      }
+
+      // Apply ON CREATE or ON MATCH actions (SET / DELETE / REMOVE)
+      const action = isMatch ? onMatch : onCreate;
+      if (action && (action.setActions.length > 0 || action.deleteVariables.length > 0 || action.removeItems.length > 0)) {
+        this.applyMergeActions(action, chain, hasChains ? relationPattern.variable : undefined);
       }
 
       outgoingContexts.push(chain);
@@ -1436,16 +1448,18 @@ export class AdvancedCypherGraphologyEngine {
     return foundEdgeId;
   }
 
-  /** Apply SET actions from ON CREATE / ON MATCH to a context chain. */
-  private applyMergeSetActions(
-    actions: MergeSetAction[],
+  /** Apply SET / DELETE / REMOVE actions from ON CREATE / ON MATCH to a context chain. */
+  private applyMergeActions(
+    action: MergeAction,
     chain: ContextChain,
     relationVariable?: string,
   ): void {
     const context = materialiseChain(chain);
-    for (const action of actions) {
-      const varName = action.variable;
-      const value = this.evaluateExpression(action.value, context);
+
+    // ── SET actions ──────────────────────────────────────────────────
+    for (const setAction of action.setActions) {
+      const varName = setAction.variable;
+      const value = this.evaluateExpression(setAction.value, context);
 
       // Check if this is a relationship variable
       if (relationVariable && varName === relationVariable) {
@@ -1453,8 +1467,7 @@ export class AdvancedCypherGraphologyEngine {
         if (edgeArray && edgeArray.length > 0) {
           const edge = edgeArray[0]!;
           if (edge.id) {
-            this.graph.setEdgeAttribute(edge.id, action.property, value);
-            // Update the in-context edge with fresh data
+            this.graph.setEdgeAttribute(edge.id, setAction.property, value);
             const freshAttrs = this.graph.getEdgeAttributes(edge.id);
             edgeArray[0] = { id: edge.id, source: edge.source, target: edge.target, ...freshAttrs } as CypherEdge;
           }
@@ -1465,10 +1478,158 @@ export class AdvancedCypherGraphologyEngine {
       // Node variable
       const targetNode = chain[CHAIN_OVERRIDES][varName] as CypherNode | undefined;
       if (targetNode && targetNode.id) {
-        this.graph.setNodeAttribute(targetNode.id, action.property, value);
-        // Update the in-context node with fresh data
+        this.graph.setNodeAttribute(targetNode.id, setAction.property, value);
         const fresh = { id: targetNode.id, ...this.graph.getNodeAttributes(targetNode.id) } as CypherNode;
         chain[CHAIN_OVERRIDES][varName] = fresh;
+      }
+    }
+
+    // ── DELETE actions ───────────────────────────────────────────────
+    const nodeIds = new Set<string>();
+    const edgeIds = new Set<string>();
+    for (const varName of action.deleteVariables) {
+      const target = chain[CHAIN_OVERRIDES][varName];
+      if (!target || typeof target !== 'object') continue;
+
+      // Could be a single node/edge or an array of edges
+      if (Array.isArray(target)) {
+        for (const edge of target as CypherEdge[]) {
+          if (edge.id && this.graph.hasEdge(edge.id)) edgeIds.add(edge.id);
+        }
+      } else if ('id' in target) {
+        const id = (target as CypherNode | CypherEdge).id;
+        if (this.graph.hasNode(id)) nodeIds.add(id);
+        else if (this.graph.hasEdge(id)) edgeIds.add(id);
+      }
+    }
+    for (const nodeId of nodeIds) {
+      this.graph.dropNode(nodeId);
+    }
+    for (const edgeId of edgeIds) {
+      this.graph.dropEdge(edgeId);
+    }
+    // Null-out deleted variables in context
+    for (const varName of action.deleteVariables) {
+      const target = chain[CHAIN_OVERRIDES][varName];
+      if (Array.isArray(target)) {
+        for (const edge of target as CypherEdge[]) {
+          if (edge.id && edgeIds.has(edge.id)) {
+            chain[CHAIN_OVERRIDES][varName] = null;
+            break;
+          }
+        }
+      } else if (target && typeof target === 'object' && 'id' in target) {
+        const id = (target as CypherNode | CypherEdge).id;
+        if (nodeIds.has(id) || edgeIds.has(id)) {
+          chain[CHAIN_OVERRIDES][varName] = null;
+        }
+      }
+    }
+
+    // ── REMOVE actions ───────────────────────────────────────────────
+    const nodeMap = new Map<string, Set<string>>();
+    const edgeMap = new Map<string, Set<string>>();
+    for (const item of action.removeItems) {
+      const target = chain[CHAIN_OVERRIDES][item.variable];
+      if (!target || typeof target !== 'object') continue;
+
+      if (Array.isArray(target)) {
+        for (const edge of target as CypherEdge[]) {
+          if (edge.id && this.graph.hasEdge(edge.id)) {
+            if (!edgeMap.has(item.variable)) edgeMap.set(item.variable, new Set());
+            edgeMap.get(item.variable)!.add(edge.id);
+          }
+        }
+      } else if ('id' in target) {
+        const id = (target as CypherNode | CypherEdge).id;
+        if (this.graph.hasNode(id)) {
+          if (!nodeMap.has(item.variable)) nodeMap.set(item.variable, new Set());
+          nodeMap.get(item.variable)!.add(id);
+        } else if (this.graph.hasEdge(id)) {
+          if (!edgeMap.has(item.variable)) edgeMap.set(item.variable, new Set());
+          edgeMap.get(item.variable)!.add(id);
+        }
+      }
+    }
+
+    for (const item of action.removeItems) {
+      const nodeIdsToRemove = nodeMap.get(item.variable);
+      const edgeIdsToRemove = edgeMap.get(item.variable);
+
+      // Property removal on nodes
+      if (nodeIdsToRemove && item.property) {
+        for (const nodeId of nodeIdsToRemove) {
+          this.graph.setNodeAttribute(nodeId, item.property, undefined);
+        }
+      }
+      // Property removal on edges
+      if (edgeIdsToRemove && item.property) {
+        for (const edgeId of edgeIdsToRemove) {
+          this.graph.setEdgeAttribute(edgeId, item.property, undefined);
+        }
+      }
+      // Label removal on nodes
+      if (nodeIdsToRemove && item.labels && item.labels.length > 0) {
+        const removeLabels = item.labels;
+        for (const nodeId of nodeIdsToRemove) {
+          const attrs = this.graph.getNodeAttributes(nodeId);
+          const currentRaw = attrs[this.config.labelProperty];
+          if (typeof currentRaw === 'string') {
+            if (removeLabels.some((l) => l === currentRaw)) {
+              this.graph.setNodeAttribute(nodeId, this.config.labelProperty, undefined);
+            }
+          } else if (Array.isArray(currentRaw)) {
+            const remaining = currentRaw.filter((l: string) => !removeLabels.includes(l));
+            if (remaining.length === 0) {
+              this.graph.setNodeAttribute(nodeId, this.config.labelProperty, undefined);
+            } else if (remaining.length === 1) {
+              this.graph.setNodeAttribute(nodeId, this.config.labelProperty, remaining[0]);
+            } else {
+              this.graph.setNodeAttribute(nodeId, this.config.labelProperty, remaining);
+            }
+          }
+        }
+      }
+    }
+
+    // Refresh non-deleted targets in context after REMOVE
+    for (const [variable, nodeIds] of nodeMap) {
+      const target = chain[CHAIN_OVERRIDES][variable];
+      if (target && typeof target === 'object' && !Array.isArray(target) && 'id' in target) {
+        const id = (target as CypherNode).id;
+        if (nodeIds.has(id)) {
+          chain[CHAIN_OVERRIDES][variable] = { id, ...this.graph.getNodeAttributes(id) } as CypherNode;
+        }
+      }
+    }
+    for (const [variable, edgeIds] of edgeMap) {
+      const target = chain[CHAIN_OVERRIDES][variable];
+      if (Array.isArray(target)) {
+        for (const edge of target as CypherEdge[]) {
+          if (edge.id && edgeIds.has(edge.id)) {
+            const edgeInfo = this.graph.getEdgeEndpoints(edge.id);
+            const idx = (target as CypherEdge[]).indexOf(edge);
+            if (idx >= 0) {
+              (target as CypherEdge[])[idx] = {
+                id: edge.id,
+                source: edgeInfo.source,
+                target: edgeInfo.target,
+                ...this.graph.getEdgeAttributes(edge.id),
+              } as CypherEdge;
+            }
+          }
+        }
+      } else if (target && typeof target === 'object' && 'id' in target) {
+        const id = (target as CypherEdge).id;
+        if (edgeIds.has(id)) {
+          const edgeInfo = this.graph.getEdgeEndpoints(id);
+          chain[CHAIN_OVERRIDES][variable] = {
+            id,
+            source: edgeInfo.source,
+            target: edgeInfo.target,
+            ...this.graph.getEdgeAttributes(id),
+          } as CypherEdge;
+        }
       }
     }
   }

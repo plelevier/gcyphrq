@@ -2106,9 +2106,65 @@ function extractMergeAction(actionCtx: TreeNode): MergeAction | undefined {
   const setCtx = findChild(actionCtx, Ctx.SetClause);
   const setActions = setCtx ? extractMergeSetActions(setCtx) : [];
 
+  // Extract DELETE variables from DeleteClause inside the action
+  const deleteCtx = findChild(actionCtx, Ctx.DeleteClause);
+  const deleteVariables: string[] = [];
+  if (deleteCtx) {
+    const exprCtx = findChild(deleteCtx, Ctx.Expression);
+    if (exprCtx) {
+      const atom = getAtom(exprCtx);
+      if (atom) {
+        const varCtx = findChild(atom, Ctx.Variable);
+        const variable = getSymbolicName(varCtx);
+        if (variable) deleteVariables.push(variable);
+      }
+    }
+  }
+
+  // Extract REMOVE items from RemoveClause inside the action
+  const removeCtx = findChild(actionCtx, Ctx.RemoveClause);
+  const removeItems: RemoveItem[] = [];
+  if (removeCtx) {
+    const removeItemsCtxs = findAllChildren(removeCtx, Ctx.RemoveItem);
+    for (const removeItem of removeItemsCtxs) {
+      // Property removal: PropertyExpression > Atom > Variable + PropertyLookup
+      const propExpr = findChild(removeItem, Ctx.PropertyExpression);
+      if (propExpr) {
+        const atom = findChild(propExpr, Ctx.Atom);
+        if (atom) {
+          const varCtx = findChild(atom, Ctx.Variable);
+          const variable = getSymbolicName(varCtx);
+          if (variable) {
+            const propLookup = findChild(propExpr, Ctx.PropertyLookup);
+            const propKeyCtx = propLookup ? findChild(propLookup, Ctx.PropertyKey) : null;
+            const property = getSymbolicName(propKeyCtx);
+            if (property) {
+              removeItems.push({ variable, labels: undefined, property });
+            }
+          }
+        }
+        continue;
+      }
+
+      // Label removal: Variable + NodeLabels
+      const varCtx = findChild(removeItem, Ctx.Variable);
+      const variable = getSymbolicName(varCtx);
+      if (variable) {
+        const labelsCtx = findChild(removeItem, Ctx.NodeLabels);
+        const labelCtxs = labelsCtx ? findAllChildren(labelsCtx, Ctx.NodeLabel) : [];
+        const labels = labelCtxs.length > 0
+          ? labelCtxs.map((lc) => getSymbolicName(findChild(lc, Ctx.LabelName))).filter((l): l is string => !!l)
+          : undefined;
+        removeItems.push({ variable, labels, property: undefined });
+      }
+    }
+  }
+
   return {
     actionType: onCreate ? 'CREATE' : 'MATCH',
     setActions,
+    deleteVariables,
+    removeItems,
   };
 }
 
@@ -2168,16 +2224,277 @@ function extractMergeClause(clauseCtx: ParseTreeNode): MergeClause {
     }
   }
 
-  return { type: 'MERGE', hasChains, sourcePattern, relationPattern, targetPattern, onCreate, onMatch };
+  // Extract WHERE clause (if present)
+  const whereCtx = findChild(mergeCtx, Ctx.Where);
+  const whereExpr = findChild(whereCtx, Ctx.Expression);
+  const where = whereExpr ? extractWhereExpression(whereExpr) : undefined;
+
+  return { type: 'MERGE', hasChains, sourcePattern, relationPattern, targetPattern, where, onCreate, onMatch };
 }
 
 // ── Main parser ──────────────────────────────────────────────────────────────
 
 /**
+ * Cache for synthetic ANTLR4 parsing results. Key is the synthetic query text.
+ * Avoids re-parsing the same synthetic queries multiple times within a single parseCypher call.
+ * Cleared at the end of each parseCypher call to prevent unbounded memory growth.
+ */
+const syntheticParseCache = new Map<string, { whereExpr: WhereExpression | undefined, returnClause: ReturnClause | undefined }>();
+
+/**
+ * Extract a WHERE expression from raw query text by tracking parentheses and strings.
+ * More robust than regex for edge cases like `n.on = true` or keywords in strings.
+ */
+function extractWhereFromQuery(queryText: string): string | undefined {
+  const whereIndex = queryText.search(/\)\s+WHERE\s+/i);
+  if (whereIndex === -1) return undefined;
+
+  // Skip past "WHERE "
+  let start = queryText.indexOf('WHERE', whereIndex);
+  if (start === -1) return undefined;
+  start += 5; // Skip "WHERE"
+  while (start < queryText.length && /\s/.test(queryText[start])) start++;
+
+  // Find the end of the WHERE expression by tracking parentheses, brackets, and strings
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let inString = false;
+  let stringChar = '';
+  let end = start;
+
+  while (end < queryText.length) {
+    const char = queryText[end];
+
+    if (inString) {
+      if (char === stringChar && (end === 0 || queryText[end - 1] !== '\\')) {
+        inString = false;
+      }
+    } else if (char === '"' || char === "'") {
+      inString = true;
+      stringChar = char;
+    } else if (char === '(') {
+      parenDepth++;
+    } else if (char === ')') {
+      parenDepth--;
+    } else if (char === '[') {
+      bracketDepth++;
+    } else if (char === ']') {
+      bracketDepth--;
+    } else if (parenDepth === 0 && bracketDepth === 0 && /\s/.test(char)) {
+      // Check for top-level keywords
+      const remaining = queryText.slice(end).trim();
+      if (/^(ON\s+(CREATE|MATCH)|RETURN|MATCH|MERGE|WITH|UNWIND|FOREACH|;|$)/i.test(remaining)) {
+        break;
+      }
+    }
+    end++;
+  }
+
+  return queryText.slice(start, end).trim() || undefined;
+}
+
+/**
+ * Extract an ON MATCH/ON CREATE action body from raw query text by tracking parentheses, brackets, and strings.
+ */
+function extractOnActionFromQuery(queryText: string, actionType: 'MATCH' | 'CREATE'): string | undefined {
+  const regex = new RegExp(`ON\\s+${actionType}\\s+`, 'i');
+  const match = queryText.match(regex);
+  if (!match) return undefined;
+
+  let start = match.index! + match[0].length;
+
+  // Find the end by tracking parentheses, brackets, and strings
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let inString = false;
+  let stringChar = '';
+  let end = start;
+
+  while (end < queryText.length) {
+    const char = queryText[end];
+
+    if (inString) {
+      if (char === stringChar && (end === 0 || queryText[end - 1] !== '\\')) {
+        inString = false;
+      }
+    } else if (char === '"' || char === "'") {
+      inString = true;
+      stringChar = char;
+    } else if (char === '(') {
+      parenDepth++;
+    } else if (char === ')') {
+      parenDepth--;
+    } else if (char === '[') {
+      bracketDepth++;
+    } else if (char === ']') {
+      bracketDepth--;
+    } else if (parenDepth === 0 && bracketDepth === 0 && /\s/.test(char)) {
+      const remaining = queryText.slice(end).trim();
+      const otherAction = actionType === 'MATCH' ? 'ON\s+CREATE' : 'ON\s+MATCH';
+      if (new RegExp(`^(?:${otherAction}|RETURN|MATCH|MERGE|WITH|UNWIND|FOREACH|;|$)`, 'i').test(remaining)) {
+        break;
+      }
+    }
+    end++;
+  }
+
+  return queryText.slice(start, end).trim() || undefined;
+}
+
+/**
+ * Split a comma-separated string while respecting parentheses, brackets, and strings.
+ * Used to split SET assignments and REMOVE items without breaking list literals.
+ */
+function splitRespectingBrackets(text: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let inString = false;
+  let stringChar = '';
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+
+    if (inString) {
+      current += char;
+      if (char === stringChar && (i === 0 || text[i - 1] !== '\\')) {
+        inString = false;
+      }
+    } else if (char === '"' || char === "'") {
+      current += char;
+      inString = true;
+      stringChar = char;
+    } else if (char === '(') {
+      current += char;
+      parenDepth++;
+    } else if (char === ')') {
+      current += char;
+      parenDepth--;
+    } else if (char === '[') {
+      current += char;
+      bracketDepth++;
+    } else if (char === ']') {
+      current += char;
+      bracketDepth--;
+    } else if (char === ',' && parenDepth === 0 && bracketDepth === 0) {
+      parts.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+
+  if (current.trim()) {
+    parts.push(current.trim());
+  }
+
+  return parts;
+}
+
+/**
+ * Extract SET/DELETE/REMOVE from raw ON MATCH/ON CREATE text using regex.
+ * Used as fallback when ANTLR4 crashes on DELETE/REMOVE in ON MATCH/ON CREATE.
+ */
+function extractMergeActionFromText(text: string, actionType: 'CREATE' | 'MATCH'): MergeAction | undefined {
+  const setActions: MergeSetAction[] = [];
+  const deleteVariables: string[] = [];
+  const removeItems: RemoveItem[] = [];
+
+  // Extract SET actions: SET var.prop = expr [, var2.prop2 = expr2]
+  const setMatch = text.match(/SET\s+(.+?)(?:\s+DELETE|\s+REMOVE|\s*$)/i);
+  if (setMatch) {
+    const setText = setMatch[1].trim();
+    // Parse each SET assignment using bracket-aware split
+    for (const assignment of splitRespectingBrackets(setText)) {
+      const setPartMatch = assignment.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\.(\w+)\s*=\s*(.+)$/);
+      if (setPartMatch) {
+        const varName = setPartMatch[1]!;
+        const property = setPartMatch[2]!;
+        const valueText = setPartMatch[3]!.trim();
+        // Parse the value expression using synthetic query
+        const syntheticQuery = `MATCH (x) RETURN ${valueText} AS _v`;
+        try {
+          const syntheticChars = antlr4.CharStreams.fromString(syntheticQuery);
+          const syntheticLexer = new CypherLexer(syntheticChars);
+          const syntheticTokens = new antlr4.CommonTokenStream(syntheticLexer);
+          const syntheticParser = new CypherParser(syntheticTokens);
+          syntheticParser.removeErrorListeners();
+          syntheticParser.addErrorListener(new ErrorCollector());
+          const syntheticTree = syntheticParser.cypher();
+
+          const findReturn = (node: any): any => {
+            if (node.constructor.name === Ctx.ReturnClause) return node;
+            if (node.children) {
+              for (const child of node.children) {
+                const found = findReturn(child);
+                if (found) return found;
+              }
+            }
+            return null;
+          };
+
+          const returnCtx = findReturn(syntheticTree);
+          if (returnCtx) {
+            const returnBody = findChild(returnCtx, Ctx.ReturnBody);
+            const projections = extractReturnBody(returnBody);
+            if (projections.length > 0) {
+              setActions.push({ variable: varName, property, value: projections[0]!.expression });
+            }
+          }
+        } catch {
+          // Skip this SET action if parsing fails
+        }
+      }
+    }
+  }
+
+  // Extract DELETE variables: DELETE var1, var2
+  const deleteMatch = text.match(/DELETE\s+(.+?)(?:\s+REMOVE|\s*$)/i);
+  if (deleteMatch) {
+    const deleteText = deleteMatch[1].trim();
+    for (const varRef of deleteText.split(/,\s*/)) {
+      const v = varRef.trim();
+      if (v) deleteVariables.push(v);
+    }
+  }
+
+  // Extract REMOVE items: REMOVE var:Label1,Label2 or var.prop
+  // Labels can be comma-separated (var:Label1,Label2) or dot-separated (var.prop).
+  // We handle label removal by finding the first var:Label pattern and parsing
+  // all labels after the colon until we hit a dot-separated property or end of text.
+  const removeMatch = text.match(/REMOVE\s+(.+?)(?:\s*$)/i);
+  if (removeMatch) {
+    const removeText = removeMatch[1].trim();
+    // Use bracket-aware split to handle complex expressions
+    for (const item of splitRespectingBrackets(removeText)) {
+      const itemText = item.trim();
+      // Check for label removal: var:Label1,Label2
+      const labelMatch = itemText.match(/^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$/);
+      if (labelMatch) {
+        removeItems.push({ variable: labelMatch[1]!, labels: labelMatch[2]!.split(/\s*,\s*/), property: undefined });
+      } else {
+        // Property removal: var.prop
+        const propMatch = itemText.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\.(\w+)$/);
+        if (propMatch) {
+          removeItems.push({ variable: propMatch[1]!, labels: undefined, property: propMatch[2]! });
+        }
+      }
+    }
+  }
+
+  if (setActions.length === 0 && deleteVariables.length === 0 && removeItems.length === 0) {
+    return undefined;
+  }
+
+  return { actionType, setActions, deleteVariables, removeItems };
+}
+
+/**
  * Extract stages + return clause from a SingleQuery node.
  * Shared by both single-query and UNION branch parsing.
  */
-function extractSingleQuery(singleQuery: ParseTreeNode): AdvancedCypherAST {
+function extractSingleQuery(singleQuery: ParseTreeNode, rawQuery?: string): AdvancedCypherAST {
   const stages: AdvancedCypherAST['stages'] = [];
   let returnClause: ReturnClause | undefined;
 
@@ -2215,6 +2532,184 @@ function extractSingleQuery(singleQuery: ParseTreeNode): AdvancedCypherAST {
     }
   }
 
+  // ── Post-process: re-associate DELETE/REMOVE after MERGE ON MATCH/ON CREATE ──
+  // ANTLR4 parses "ON MATCH DELETE n" as: MergeAction (empty) + separate DeleteClause.
+  // We detect DELETE/REMOVE clauses that follow a MERGE and attach them to the MERGE action.
+  const queryText = rawQuery ?? singleQuery.getText();
+  for (let i = 0; i < stages.length - 1; i++) {
+    if (stages[i]?.type !== 'MERGE') continue;
+    const mergeClause = stages[i].clause as MergeClause;
+    const nextStage = stages[i + 1];
+
+    // Check if next stage is a WRITE (DELETE/REMOVE) that should belong to the MERGE action
+    if (nextStage?.type === 'WRITE') {
+      const writeClause = nextStage.clause as WriteClause;
+      // Determine target action: prefer ON MATCH, fallback to ON CREATE.
+      // If neither exists, check raw query for ON MATCH/ON CREATE and create empty action.
+      let targetAction = mergeClause.onMatch || mergeClause.onCreate;
+      if (!targetAction) {
+        // Check raw query for ON MATCH/ON CREATE (ANTLR4 might have dropped them)
+        const hasOnMatch = /ON\s+MATCH\b/i.test(queryText);
+        const hasOnCreate = /ON\s+CREATE\b/i.test(queryText);
+        if (hasOnMatch) {
+          mergeClause.onMatch = { actionType: 'MATCH', setActions: [], deleteVariables: [], removeItems: [] };
+          targetAction = mergeClause.onMatch;
+        } else if (hasOnCreate) {
+          mergeClause.onCreate = { actionType: 'CREATE', setActions: [], deleteVariables: [], removeItems: [] };
+          targetAction = mergeClause.onCreate;
+        }
+      }
+      if (targetAction) {
+        if (writeClause.type === 'DELETE') {
+          targetAction.deleteVariables.push(writeClause.variable);
+          stages.splice(i + 1, 1);
+          i--; // Adjust index after splice
+        } else if (writeClause.type === 'REMOVE') {
+          targetAction.removeItems.push(...writeClause.items);
+          stages.splice(i + 1, 1);
+          i--; // Adjust index after splice
+        }
+      }
+    }
+  }
+
+  // ── Post-process: extract WHERE + ON CREATE/ON MATCH from raw query for MERGE clauses ──
+  // ANTLR4 drops WHERE after MERGE entirely (and everything after it), so we extract
+  // both WHERE and ON CREATE/ON MATCH from the raw query text.
+  for (const stage of stages) {
+    if (stage.type !== 'MERGE') continue;
+    const mergeClause = stage.clause as MergeClause;
+
+    // Extract WHERE from raw query using smart extraction (handles edge cases)
+    if (!mergeClause.where) {
+      const whereText = extractWhereFromQuery(queryText);
+      if (whereText) {
+        const syntheticQuery = `MATCH (x) WHERE ${whereText} RETURN x`;
+        // Check cache first
+        let cachedResult = syntheticParseCache.get(syntheticQuery);
+        if (!cachedResult) {
+          try {
+            const syntheticChars = antlr4.CharStreams.fromString(syntheticQuery);
+            const syntheticLexer = new CypherLexer(syntheticChars);
+            const syntheticTokens = new antlr4.CommonTokenStream(syntheticLexer);
+            const syntheticParser = new CypherParser(syntheticTokens);
+            syntheticParser.removeErrorListeners();
+            syntheticParser.addErrorListener(new ErrorCollector());
+            const syntheticTree = syntheticParser.cypher();
+
+            const findWhere = (node: any): any => {
+              if (node.constructor.name === Ctx.Where) return node;
+              if (node.children) {
+                for (const child of node.children) {
+                  const found = findWhere(child);
+                  if (found) return found;
+                }
+              }
+              return null;
+            };
+
+            const whereCtx = findWhere(syntheticTree);
+            let whereExpr: WhereExpression | undefined;
+            if (whereCtx) {
+              const expr = findChild(whereCtx, Ctx.Expression);
+              whereExpr = expr ? extractWhereExpression(expr) : undefined;
+            }
+            cachedResult = { whereExpr, returnClause: undefined };
+            syntheticParseCache.set(syntheticQuery, cachedResult);
+          } catch {
+            // If parsing fails, silently skip WHERE extraction
+            cachedResult = { whereExpr: undefined, returnClause: undefined };
+            syntheticParseCache.set(syntheticQuery, cachedResult);
+          }
+        }
+        if (cachedResult.whereExpr) {
+          mergeClause.where = cachedResult.whereExpr;
+        }
+      }
+    }
+
+    // Extract ON CREATE/ON MATCH from raw query (when ANTLR4 dropped them due to WHERE)
+    if (!mergeClause.onCreate || !mergeClause.onMatch) {
+      const onMatchText = extractOnActionFromQuery(queryText, 'MATCH');
+      const onCreateText = extractOnActionFromQuery(queryText, 'CREATE');
+
+      // Extract SET/DELETE/REMOVE from raw text using regex.
+      // ANTLR4 drops WHERE after MERGE (and everything after it), so we extract
+      // ON CREATE/ON MATCH from the raw query text directly.
+      if (onMatchText && !mergeClause.onMatch) {
+        const fromText = extractMergeActionFromText(onMatchText, 'MATCH');
+        if (fromText) {
+          mergeClause.onMatch = fromText;
+        }
+      }
+      if (onCreateText && !mergeClause.onCreate) {
+        const fromText = extractMergeActionFromText(onCreateText, 'CREATE');
+        if (fromText) {
+          mergeClause.onCreate = fromText;
+        }
+      }
+    }
+  }
+
+  // ── Post-process: extract RETURN from raw query when ANTLR4 dropped it ──
+  // ANTLR4 drops RETURN after MERGE with WHERE, so extract from raw query.
+  if (!returnClause) {
+    const returnMatch = queryText.match(/RETURN\s+(.+?)(?:\s*;|\s*$)/i);
+    if (returnMatch) {
+      const returnText = returnMatch[1].trim();
+      const syntheticQuery = `MATCH (x) RETURN ${returnText}`;
+      // Check cache first
+      let cachedResult = syntheticParseCache.get(syntheticQuery);
+      if (!cachedResult) {
+        try {
+          const syntheticChars = antlr4.CharStreams.fromString(syntheticQuery);
+          const syntheticLexer = new CypherLexer(syntheticChars);
+          const syntheticTokens = new antlr4.CommonTokenStream(syntheticLexer);
+          const syntheticParser = new CypherParser(syntheticTokens);
+          syntheticParser.removeErrorListeners();
+          syntheticParser.addErrorListener(new ErrorCollector());
+          const syntheticTree = syntheticParser.cypher();
+
+          const findReturn = (node: any): any => {
+            if (node.constructor.name === Ctx.ReturnClause) return node;
+            if (node.children) {
+              for (const child of node.children) {
+                const found = findReturn(child);
+                if (found) return found;
+              }
+            }
+            return null;
+          };
+
+          const returnCtx = findReturn(syntheticTree);
+          let extractedReturn: ReturnClause | undefined;
+          if (returnCtx) {
+            // Extract directly from ReturnClauseContext (extractReturnClause expects ClauseContext)
+            const returnBody = findChild(returnCtx, Ctx.ReturnBody);
+            let projections = extractReturnBody(returnBody);
+            const orderBy = extractOrderBy(returnBody);
+            const skip = extractSkip(returnBody);
+            const limit = extractLimit(returnBody);
+            const hasDistinct = hasTerminal(returnCtx, 'DISTINCT');
+            if (hasDistinct) {
+              projections = projections.map((p) => ({ ...p, distinct: true }));
+            }
+            extractedReturn = { projections, orderBy, skip, limit };
+          }
+          cachedResult = { whereExpr: undefined, returnClause: extractedReturn };
+          syntheticParseCache.set(syntheticQuery, cachedResult);
+        } catch {
+          // If parsing fails, silently skip RETURN extraction
+          cachedResult = { whereExpr: undefined, returnClause: undefined };
+          syntheticParseCache.set(syntheticQuery, cachedResult);
+        }
+      }
+      if (cachedResult.returnClause) {
+        returnClause = cachedResult.returnClause;
+      }
+    }
+  }
+
   return { type: 'Query', stages, return: returnClause };
 }
 
@@ -2247,7 +2742,12 @@ export function parseCypher(query: string): CypherAST {
     // Label colon: expects '{' or ')' after a label
     const isLabelColon = (err.includes("mismatched input ':'") || err.includes("extraneous input ':'")) &&
       (err.includes("expecting {'{") || err.includes("expecting {')"));
-    if (isLabelUnionPipe || isLabelNegation || isLabelColon) return false;
+    // WHERE on MERGE: ANTLR4 grammar doesn't support WHERE after MERGE pattern
+    const isMergeWhere = err.includes("mismatched input 'WHERE'") &&
+      (err.includes("expecting {<EOF>") || err.includes("expecting {';'}"));
+    // DELETE/REMOVE in ON CREATE/ON MATCH: ANTLR4 expects SET but we support DELETE/REMOVE too
+    const isMergeDeleteOrRemove = (err.includes("missing SET at 'DELETE'") || err.includes("missing SET at 'REMOVE'"));
+    if (isLabelUnionPipe || isLabelNegation || isLabelColon || isMergeWhere || isMergeDeleteOrRemove) return false;
     return true;
   });
 
@@ -2282,7 +2782,7 @@ export function parseCypher(query: string): CypherAST {
         (c: ParseTreeNode) => c.constructor.name === Ctx.SingleQuery,
       ) as ParseTreeNode | undefined;
       if (firstSingleQuery) {
-        branches.push(extractSingleQuery(firstSingleQuery));
+        branches.push(extractSingleQuery(firstSingleQuery, query));
       }
 
       // Subsequent branches: SingleQuery inside each Union
@@ -2294,7 +2794,7 @@ export function parseCypher(query: string): CypherAST {
 
         const branchQuery = findChild(union, Ctx.SingleQuery);
         if (branchQuery) {
-          branches.push(extractSingleQuery(branchQuery));
+          branches.push(extractSingleQuery(branchQuery, query));
         }
       }
 
@@ -2316,6 +2816,7 @@ export function parseCypher(query: string): CypherAST {
         }
       }
 
+      syntheticParseCache.clear();
       return { type: 'UnionQuery', branches, unionTypes, orderBy: unionOrderBy, skip: unionSkip, limit: unionLimit };
     }
   }
@@ -2323,8 +2824,11 @@ export function parseCypher(query: string): CypherAST {
   // Single query (no UNION)
   const singleQuery = findChild(regularQuery, Ctx.SingleQuery);
   if (!singleQuery) {
+    syntheticParseCache.clear();
     return { type: 'Query', stages: [], return: undefined };
   }
 
-  return extractSingleQuery(singleQuery);
+  const result = extractSingleQuery(singleQuery, query);
+  syntheticParseCache.clear();
+  return result;
 }

@@ -41,7 +41,7 @@ src/
 
 ## Supported Cypher
 
-**Clauses:** MATCH (`:A`, `:A:B` AND, `:A|B` OR, `:!A`), OPTIONAL MATCH, MERGE (single node + chains, ON CREATE/ON MATCH SET), variable-length `*min..max`, directional edges (`->`, `<-`, `-`), RETURN (property access, aliases), RETURN DISTINCT, WITH + grouping, UNWIND, FOREACH (SET, CREATE, DELETE, REMOVE on nodes and edges), CREATE/SET/DELETE/REMOVE (`REMOVE n:Label` partial, `REMOVE n.prop`), ORDER BY (multi, ASC/DESC), SKIP, LIMIT, UNION/UNION ALL (each branch must end with RETURN, ORDER BY/SKIP/LIMIT apply to combined result).
+**Clauses:** MATCH (`:A`, `:A:B` AND, `:A|B` OR, `:!A`), OPTIONAL MATCH, MERGE (single node + chains, WHERE filter, ON CREATE/ON MATCH with SET/DELETE/REMOVE), variable-length `*min..max`, directional edges (`->`, `<-`, `-`), RETURN (property access, aliases), RETURN DISTINCT, WITH + grouping, UNWIND, FOREACH (SET, CREATE, DELETE, REMOVE on nodes and edges), CREATE/SET/DELETE/REMOVE (`REMOVE n:Label` partial, `REMOVE n.prop`), ORDER BY (multi, ASC/DESC), SKIP, LIMIT, UNION/UNION ALL (each branch must end with RETURN, ORDER BY/SKIP/LIMIT apply to combined result).
 
 **Aggregations:** `count`, `sum`, `avg`, `min`, `max`, `count(DISTINCT)`, `sum(DISTINCT)`, `avg(DISTINCT)`.
 
