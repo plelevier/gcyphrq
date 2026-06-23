@@ -2166,7 +2166,7 @@ export class AdvancedCypherGraphologyEngine {
    * Extract a flat array of CypherValue values from a ListLiteral expression, a single literal,
    * a property access, or a function call. Uses the provided evaluator for dynamic values.
    */
-  private extractListValues(expr: Expression, evalExpr: (e: Expression) => unknown): CypherValue[] {
+  private extractListValues(expr: Expression, evalExpr: (e: Expression) => CypherValue): CypherValue[] {
     if (expr.type === 'ListLiteral') {
       const values: CypherValue[] = [];
       for (const le of expr.values) {
@@ -2201,7 +2201,7 @@ export class AdvancedCypherGraphologyEngine {
    */
   private evaluateWhereCore(
     whereNode: WhereExpression,
-    evalExpr: (e: Expression) => unknown,
+    evalExpr: (e: Expression) => CypherValue,
     extractList: (e: Expression) => CypherValue[],
   ): boolean {
     if (whereNode.type === 'LogicalExpression') {
