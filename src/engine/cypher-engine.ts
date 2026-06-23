@@ -1857,8 +1857,11 @@ export class AdvancedCypherGraphologyEngine {
         if (cond.type === 'Literal' && typeof cond.value === 'boolean') {
           // Bare boolean literal (e.g., CASE WHEN true)
           condResult = cond.value;
+        } else if (this.isWhereExpression(cond)) {
+          condResult = this.evaluateWhere(cond, context);
         } else {
-          condResult = this.evaluateWhere(cond as WhereExpression, context);
+          // Non-boolean, non-WhereExpression condition — treat as falsy
+          condResult = false;
         }
         if (condResult) {
           return this.evaluateExpression(branch.result, context) ?? null;
@@ -1929,8 +1932,11 @@ export class AdvancedCypherGraphologyEngine {
         if (cond.type === 'Literal' && typeof cond.value === 'boolean') {
           // Bare boolean literal (e.g., CASE WHEN true)
           condResult = cond.value;
+        } else if (this.isWhereExpression(cond)) {
+          condResult = this.evaluateWhereWithAggregations(cond, context, aggResults);
         } else {
-          condResult = this.evaluateWhereWithAggregations(cond as WhereExpression, context, aggResults);
+          // Non-boolean, non-WhereExpression condition — treat as falsy
+          condResult = false;
         }
         if (condResult) {
           return this.evaluateExpressionWithAggregations(branch.result, context, aggResults) ?? null;
@@ -2156,186 +2162,66 @@ export class AdvancedCypherGraphologyEngine {
     return true;
   }
 
-  /** Extract a flat array of CypherValue values from a ListLiteral expression, a single literal, a property access, or a function call. */
-  private extractListValues(expr: Expression, context: QueryContext): CypherValue[] {
+  /**
+   * Extract a flat array of CypherValue values from a ListLiteral expression, a single literal,
+   * a property access, or a function call. Uses the provided evaluator for dynamic values.
+   */
+  private extractListValues(expr: Expression, evalExpr: (e: Expression) => unknown): CypherValue[] {
     if (expr.type === 'ListLiteral') {
       const values: CypherValue[] = [];
       for (const le of expr.values) {
-        const val = this.evaluateExpression(le, context);
-        values.push(val as CypherValue);
+        values.push(evalExpr(le) as CypherValue);
       }
       return values;
     }
     if (expr.type === 'Literal') return [expr.value];
-    if (expr.type === 'PropertyAccess') {
-      const val = this.evaluateExpression(expr, context);
+    if (expr.type === 'PropertyAccess' || expr.type === 'FunctionCall' || expr.type === 'Case') {
+      const val = evalExpr(expr);
       if (Array.isArray(val)) return val;
-      if (val !== undefined && val !== null) return [val];
-      return [];
-    }
-    if (expr.type === 'FunctionCall') {
-      const val = this.evaluateExpression(expr, context);
-      if (Array.isArray(val)) return val;
-      if (val !== undefined && val !== null) return [val];
-      return [];
-    }
-    if (expr.type === 'Case') {
-      const val = this.evaluateExpression(expr, context);
-      if (Array.isArray(val)) return val;
-      if (val !== undefined && val !== null) return [val];
+      if (val !== undefined && val !== null) return [val as CypherValue];
       return [];
     }
     return [];
   }
 
-  /** Aggregation-aware version of extractListValues for use inside CASE with aggregations. */
-  private extractListValuesWithAggregations(
-    expr: Expression,
-    context: QueryContext,
-    aggResults: Map<string, CypherValue>,
-  ): CypherValue[] {
-    if (expr.type === 'ListLiteral') {
-      const values: CypherValue[] = [];
-      for (const le of expr.values) {
-        const val = this.evaluateExpressionWithAggregations(le, context, aggResults);
-        values.push(val as CypherValue);
-      }
-      return values;
-    }
-    if (expr.type === 'Literal') return [expr.value];
-    if (expr.type === 'PropertyAccess') {
-      const val = this.evaluateExpressionWithAggregations(expr, context, aggResults);
-      if (Array.isArray(val)) return val;
-      if (val !== undefined && val !== null) return [val];
-      return [];
-    }
-    if (expr.type === 'FunctionCall') {
-      const val = this.evaluateExpressionWithAggregations(expr, context, aggResults);
-      if (Array.isArray(val)) return val;
-      if (val !== undefined && val !== null) return [val];
-      return [];
-    }
-    if (expr.type === 'Case') {
-      const val = this.evaluateExpressionWithAggregations(expr, context, aggResults);
-      if (Array.isArray(val)) return val;
-      if (val !== undefined && val !== null) return [val];
-      return [];
-    }
-    return [];
+  /** Type guard: checks whether a value is a valid WhereExpression (not a bare Expression). */
+  private isWhereExpression(value: Expression | WhereExpression): value is WhereExpression {
+    return (
+      value.type === 'BinaryExpression' ||
+      value.type === 'LogicalExpression' ||
+      value.type === 'NotExpression' ||
+      value.type === 'IsNull'
+    );
   }
 
-  private evaluateWhere(whereNode: WhereExpression, context: QueryContext): boolean {
-    if (whereNode.type === 'LogicalExpression') {
-      if (whereNode.operator === 'AND') {
-        return this.evaluateWhere(whereNode.left, context) && this.evaluateWhere(whereNode.right, context);
-      }
-      if (whereNode.operator === 'OR') {
-        return this.evaluateWhere(whereNode.left, context) || this.evaluateWhere(whereNode.right, context);
-      }
-      return false;
-    }
-
-    if (whereNode.type === 'NotExpression') {
-      return !this.evaluateWhere(whereNode.expression, context);
-    }
-
-    if (whereNode.type === 'IsNull') {
-      const value = this.evaluateExpression(whereNode.expression, context);
-      const isNull = value === null || value === undefined;
-      return whereNode.negated ? !isNull : isNull;
-    }
-
-    const leftValue = this.evaluateExpression(whereNode.left, context);
-    const rightValue = this.evaluateExpression(whereNode.right, context);
-
-    // Null comparisons return false (Neo4j semantics)
-    if (leftValue == null || rightValue == null) {
-      return false;
-    }
-
-    switch (whereNode.operator) {
-      case '>':
-        if (typeof leftValue === 'number' && typeof rightValue === 'number') {
-          return leftValue > rightValue;
-        }
-        if (typeof leftValue === 'string' && typeof rightValue === 'string') {
-          return leftValue > rightValue;
-        }
-        throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
-      case '>=':
-        if (typeof leftValue === 'number' && typeof rightValue === 'number') {
-          return leftValue >= rightValue;
-        }
-        if (typeof leftValue === 'string' && typeof rightValue === 'string') {
-          return leftValue >= rightValue;
-        }
-        throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
-      case '<':
-        if (typeof leftValue === 'number' && typeof rightValue === 'number') {
-          return leftValue < rightValue;
-        }
-        if (typeof leftValue === 'string' && typeof rightValue === 'string') {
-          return leftValue < rightValue;
-        }
-        throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
-      case '<=':
-        if (typeof leftValue === 'number' && typeof rightValue === 'number') {
-          return leftValue <= rightValue;
-        }
-        if (typeof leftValue === 'string' && typeof rightValue === 'string') {
-          return leftValue <= rightValue;
-        }
-        throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
-      case '=':
-        if (leftValue === rightValue) return true;
-        return this.mapsEqual(leftValue, rightValue);
-      case '<>':
-        if (leftValue === rightValue) return false;
-        return !this.mapsEqual(leftValue, rightValue);
-      case 'CONTAINS':
-        return String(leftValue).includes(String(rightValue));
-      case 'STARTS WITH':
-        return String(leftValue).startsWith(String(rightValue));
-      case 'ENDS WITH':
-        return String(leftValue).endsWith(String(rightValue));
-      case 'IN': {
-        const rightList = this.extractListValues(whereNode.right, context);
-        for (const item of rightList) {
-          if (item === leftValue || this.mapsEqual(leftValue, item)) return true;
-        }
-        return false;
-      }
-
-      default:
-        return false;
-    }
-  }
-
-  /** Aggregation-aware version of evaluateWhere for use inside CASE within WITH/RETURN. */
-  private evaluateWhereWithAggregations(
+  /**
+   * Core WHERE evaluator parameterised by an expression evaluator and a list extractor.
+   * Used by both evaluateWhere (normal) and evaluateWhereWithAggregations.
+   * Throws on invalid comparison types for > / >= / < / <= (consistent error handling).
+   */
+  private evaluateWhereCore(
     whereNode: WhereExpression,
-    context: QueryContext,
-    aggResults: Map<string, CypherValue>,
+    evalExpr: (e: Expression) => unknown,
+    extractList: (e: Expression) => CypherValue[],
   ): boolean {
     if (whereNode.type === 'LogicalExpression') {
-      if (whereNode.operator === 'AND') {
-        return this.evaluateWhereWithAggregations(whereNode.left, context, aggResults) && this.evaluateWhereWithAggregations(whereNode.right, context, aggResults);
-      }
-      if (whereNode.operator === 'OR') {
-        return this.evaluateWhereWithAggregations(whereNode.left, context, aggResults) || this.evaluateWhereWithAggregations(whereNode.right, context, aggResults);
-      }
+      const left = this.evaluateWhereCore(whereNode.left, evalExpr, extractList);
+      const right = this.evaluateWhereCore(whereNode.right, evalExpr, extractList);
+      if (whereNode.operator === 'AND') return left && right;
+      if (whereNode.operator === 'OR') return left || right;
       return false;
     }
     if (whereNode.type === 'NotExpression') {
-      return !this.evaluateWhereWithAggregations(whereNode.expression, context, aggResults);
+      return !this.evaluateWhereCore(whereNode.expression, evalExpr, extractList);
     }
     if (whereNode.type === 'IsNull') {
-      const value = this.evaluateExpressionWithAggregations(whereNode.expression, context, aggResults);
+      const value = evalExpr(whereNode.expression);
       const isNull = value === null || value === undefined;
       return whereNode.negated ? !isNull : isNull;
     }
-    const leftValue = this.evaluateExpressionWithAggregations(whereNode.left, context, aggResults);
-    const rightValue = this.evaluateExpressionWithAggregations(whereNode.right, context, aggResults);
+    // BinaryExpression
+    const leftValue = evalExpr(whereNode.left);
+    const rightValue = evalExpr(whereNode.right);
     if (leftValue == null || rightValue == null) return false;
     switch (whereNode.operator) {
       case '=':
@@ -2344,19 +2230,19 @@ export class AdvancedCypherGraphologyEngine {
       case '>':
         if (typeof leftValue === 'number' && typeof rightValue === 'number') return leftValue > rightValue;
         if (typeof leftValue === 'string' && typeof rightValue === 'string') return leftValue > rightValue;
-        return false;
+        throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
       case '>=':
         if (typeof leftValue === 'number' && typeof rightValue === 'number') return leftValue >= rightValue;
         if (typeof leftValue === 'string' && typeof rightValue === 'string') return leftValue >= rightValue;
-        return false;
+        throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
       case '<':
         if (typeof leftValue === 'number' && typeof rightValue === 'number') return leftValue < rightValue;
         if (typeof leftValue === 'string' && typeof rightValue === 'string') return leftValue < rightValue;
-        return false;
+        throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
       case '<=':
         if (typeof leftValue === 'number' && typeof rightValue === 'number') return leftValue <= rightValue;
         if (typeof leftValue === 'string' && typeof rightValue === 'string') return leftValue <= rightValue;
-        return false;
+        throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
       case '<>':
         if (leftValue === rightValue) return false;
         return !this.mapsEqual(leftValue, rightValue);
@@ -2367,7 +2253,7 @@ export class AdvancedCypherGraphologyEngine {
       case 'ENDS WITH':
         return String(leftValue).endsWith(String(rightValue));
       case 'IN': {
-        const rightList = this.extractListValuesWithAggregations(whereNode.right, context, aggResults);
+        const rightList = extractList(whereNode.right);
         for (const item of rightList) {
           if (item === leftValue || this.mapsEqual(leftValue, item)) return true;
         }
@@ -2376,6 +2262,20 @@ export class AdvancedCypherGraphologyEngine {
       default:
         return false;
     }
+  }
+
+  private evaluateWhere(whereNode: WhereExpression, context: QueryContext): boolean {
+    const evalExpr = (e: Expression) => this.evaluateExpression(e, context);
+    return this.evaluateWhereCore(whereNode, evalExpr, (e) => this.extractListValues(e, evalExpr));
+  }
+
+  private evaluateWhereWithAggregations(
+    whereNode: WhereExpression,
+    context: QueryContext,
+    aggResults: Map<string, CypherValue>,
+  ): boolean {
+    const evalExpr = (e: Expression) => this.evaluateExpressionWithAggregations(e, context, aggResults);
+    return this.evaluateWhereCore(whereNode, evalExpr, (e) => this.extractListValues(e, evalExpr));
   }
 
   // ── ORDER BY with pre-computed sort keys (optimisation #11) ────────────────
