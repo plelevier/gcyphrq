@@ -2337,9 +2337,10 @@ export class AdvancedCypherGraphologyEngine {
     const leftValue = this.evaluateExpressionWithAggregations(whereNode.left, context, aggResults);
     const rightValue = this.evaluateExpressionWithAggregations(whereNode.right, context, aggResults);
     if (leftValue == null || rightValue == null) return false;
-    if (leftValue === rightValue) return true;
-    if (this.mapsEqual(leftValue, rightValue)) return true;
     switch (whereNode.operator) {
+      case '=':
+        if (leftValue === rightValue) return true;
+        return this.mapsEqual(leftValue, rightValue);
       case '>':
         if (typeof leftValue === 'number' && typeof rightValue === 'number') return leftValue > rightValue;
         if (typeof leftValue === 'string' && typeof rightValue === 'string') return leftValue > rightValue;

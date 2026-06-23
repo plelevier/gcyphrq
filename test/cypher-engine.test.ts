@@ -3995,6 +3995,46 @@ describe('AdvancedCypherGraphologyEngine', () => {
         ]);
       });
 
+      it('correctly handles <> with equal values in CASE with aggregation', () => {
+        const g = new Graph();
+        g.addNode('a', { label: 'Person', name: 'Alice' });
+        g.addNode('b', { label: 'Person', name: 'Bob' });
+        g.addEdge('a', 'b', { type: 'KNOWS' });
+        const e = new AdvancedCypherGraphologyEngine(g);
+        // friends = 1, so friends <> 1 should be false → falls to ELSE
+        const ast = parseCypher('MATCH (p:Person)-[:KNOWS]->(f) WITH p.name AS name, count(f) AS friends RETURN name, CASE WHEN friends <> 1 THEN "different" ELSE "same" END AS status');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', status: 'same' },
+        ]);
+      });
+
+      it('correctly handles = operator in CASE with aggregation', () => {
+        const g = new Graph();
+        g.addNode('a', { label: 'Person', name: 'Alice' });
+        g.addNode('b', { label: 'Person', name: 'Bob' });
+        g.addEdge('a', 'b', { type: 'KNOWS' });
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (p:Person)-[:KNOWS]->(f) WITH p.name AS name, count(f) AS friends RETURN name, CASE WHEN friends = 1 THEN "one" ELSE "other" END AS status');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', status: 'one' },
+        ]);
+      });
+
+      it('handles CASE WHEN true bare boolean in aggregation context', () => {
+        const g = new Graph();
+        g.addNode('a', { label: 'Person', name: 'Alice' });
+        g.addNode('b', { label: 'Person', name: 'Bob' });
+        g.addEdge('a', 'b', { type: 'KNOWS' });
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (p:Person)-[:KNOWS]->(f) WITH p.name AS name, count(f) AS friends RETURN name, CASE WHEN true THEN "always" ELSE "never" END AS status');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', status: 'always' },
+        ]);
+      });
+
     });
   });
 
