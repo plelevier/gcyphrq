@@ -815,17 +815,7 @@ export class AdvancedCypherGraphologyEngine {
 
   /** Check if a WhereExpression (or Expression) contains any aggregation. */
   private containsAggregationInWhere(expr: Expression | WhereExpression): boolean {
-    if ((expr as Expression).type === 'Aggregation') return true;
-    if ((expr as Expression).type === 'Arithmetic') return this.containsAggregation(expr as Expression);
-    if ((expr as Expression).type === 'FunctionCall') return this.containsAggregation(expr as Expression);
-    if ((expr as Expression).type === 'ListLiteral') return this.containsAggregation(expr as Expression);
-    if ((expr as Expression).type === 'MapLiteral') return this.containsAggregation(expr as Expression);
-    if ((expr as Expression).type === 'ListSlice') return this.containsAggregation(expr as Expression);
-    if ((expr as Expression).type === 'Case') return this.containsAggregation(expr as Expression);
-    // WhereExpression types
-    if (expr.type === 'BinaryExpression') {
-      return this.containsAggregation((expr as BinaryExpression).left) || this.containsAggregation((expr as BinaryExpression).right);
-    }
+    // WhereExpression types that are not in Expression union
     if (expr.type === 'LogicalExpression') {
       return this.containsAggregationInWhere((expr as LogicalExpression).left) || this.containsAggregationInWhere((expr as LogicalExpression).right);
     }
@@ -835,7 +825,8 @@ export class AdvancedCypherGraphologyEngine {
     if (expr.type === 'IsNull') {
       return this.containsAggregation((expr as IsNullExpression).expression);
     }
-    return false;
+    // BinaryExpression and all Expression types — delegate to main method
+    return this.containsAggregation(expr as Expression);
   }
 
   private executeWith(
@@ -926,15 +917,7 @@ export class AdvancedCypherGraphologyEngine {
 
   /** Collect aggregations from a WhereExpression (or Expression). */
   private collectAggregationsInWhere(expr: Expression | WhereExpression): AggregationExpression[] {
-    if ((expr as Expression).type === 'Aggregation' || (expr as Expression).type === 'Arithmetic'
-      || (expr as Expression).type === 'FunctionCall' || (expr as Expression).type === 'ListLiteral'
-      || (expr as Expression).type === 'MapLiteral' || (expr as Expression).type === 'ListSlice'
-      || (expr as Expression).type === 'Case') {
-      return this.collectAggregations(expr as Expression);
-    }
-    if (expr.type === 'BinaryExpression') {
-      return [...this.collectAggregations((expr as BinaryExpression).left), ...this.collectAggregations((expr as BinaryExpression).right)];
-    }
+    // WhereExpression types that are not in Expression union
     if (expr.type === 'LogicalExpression') {
       return [...this.collectAggregationsInWhere((expr as LogicalExpression).left), ...this.collectAggregationsInWhere((expr as LogicalExpression).right)];
     }
@@ -944,7 +927,8 @@ export class AdvancedCypherGraphologyEngine {
     if (expr.type === 'IsNull') {
       return this.collectAggregations((expr as IsNullExpression).expression);
     }
-    return [];
+    // BinaryExpression and all Expression types — delegate to main method
+    return this.collectAggregations(expr as Expression);
   }
 
   private computeAggregations(
@@ -1868,8 +1852,15 @@ export class AdvancedCypherGraphologyEngine {
     } else {
       // General CASE: CASE WHEN condition THEN result ...
       for (const branch of expr.branches) {
-        const cond = branch.condition as WhereExpression;
-        if (this.evaluateWhere(cond, context)) {
+        const cond = branch.condition;
+        let condResult: boolean;
+        if (cond.type === 'Literal' && typeof cond.value === 'boolean') {
+          // Bare boolean literal (e.g., CASE WHEN true)
+          condResult = cond.value;
+        } else {
+          condResult = this.evaluateWhere(cond as WhereExpression, context);
+        }
+        if (condResult) {
           return this.evaluateExpression(branch.result, context) ?? null;
         }
       }
@@ -1933,8 +1924,15 @@ export class AdvancedCypherGraphologyEngine {
       }
     } else {
       for (const branch of expr.branches) {
-        const cond = branch.condition as WhereExpression;
-        if (this.evaluateWhereWithAggregations(cond, context, aggResults)) {
+        const cond = branch.condition;
+        let condResult: boolean;
+        if (cond.type === 'Literal' && typeof cond.value === 'boolean') {
+          // Bare boolean literal (e.g., CASE WHEN true)
+          condResult = cond.value;
+        } else {
+          condResult = this.evaluateWhereWithAggregations(cond as WhereExpression, context, aggResults);
+        }
+        if (condResult) {
           return this.evaluateExpressionWithAggregations(branch.result, context, aggResults) ?? null;
         }
       }
@@ -2190,6 +2188,42 @@ export class AdvancedCypherGraphologyEngine {
     return [];
   }
 
+  /** Aggregation-aware version of extractListValues for use inside CASE with aggregations. */
+  private extractListValuesWithAggregations(
+    expr: Expression,
+    context: QueryContext,
+    aggResults: Map<string, CypherValue>,
+  ): CypherValue[] {
+    if (expr.type === 'ListLiteral') {
+      const values: CypherValue[] = [];
+      for (const le of expr.values) {
+        const val = this.evaluateExpressionWithAggregations(le, context, aggResults);
+        values.push(val as CypherValue);
+      }
+      return values;
+    }
+    if (expr.type === 'Literal') return [expr.value];
+    if (expr.type === 'PropertyAccess') {
+      const val = this.evaluateExpressionWithAggregations(expr, context, aggResults);
+      if (Array.isArray(val)) return val;
+      if (val !== undefined && val !== null) return [val];
+      return [];
+    }
+    if (expr.type === 'FunctionCall') {
+      const val = this.evaluateExpressionWithAggregations(expr, context, aggResults);
+      if (Array.isArray(val)) return val;
+      if (val !== undefined && val !== null) return [val];
+      return [];
+    }
+    if (expr.type === 'Case') {
+      const val = this.evaluateExpressionWithAggregations(expr, context, aggResults);
+      if (Array.isArray(val)) return val;
+      if (val !== undefined && val !== null) return [val];
+      return [];
+    }
+    return [];
+  }
+
   private evaluateWhere(whereNode: WhereExpression, context: QueryContext): boolean {
     if (whereNode.type === 'LogicalExpression') {
       if (whereNode.operator === 'AND') {
@@ -2305,11 +2339,42 @@ export class AdvancedCypherGraphologyEngine {
     if (leftValue == null || rightValue == null) return false;
     if (leftValue === rightValue) return true;
     if (this.mapsEqual(leftValue, rightValue)) return true;
-    if (whereNode.operator === '>') return typeof leftValue === 'number' && typeof rightValue === 'number' ? leftValue > rightValue : false;
-    if (whereNode.operator === '>=') return typeof leftValue === 'number' && typeof rightValue === 'number' ? leftValue >= rightValue : false;
-    if (whereNode.operator === '<') return typeof leftValue === 'number' && typeof rightValue === 'number' ? leftValue < rightValue : false;
-    if (whereNode.operator === '<=') return typeof leftValue === 'number' && typeof rightValue === 'number' ? leftValue <= rightValue : false;
-    return false;
+    switch (whereNode.operator) {
+      case '>':
+        if (typeof leftValue === 'number' && typeof rightValue === 'number') return leftValue > rightValue;
+        if (typeof leftValue === 'string' && typeof rightValue === 'string') return leftValue > rightValue;
+        return false;
+      case '>=':
+        if (typeof leftValue === 'number' && typeof rightValue === 'number') return leftValue >= rightValue;
+        if (typeof leftValue === 'string' && typeof rightValue === 'string') return leftValue >= rightValue;
+        return false;
+      case '<':
+        if (typeof leftValue === 'number' && typeof rightValue === 'number') return leftValue < rightValue;
+        if (typeof leftValue === 'string' && typeof rightValue === 'string') return leftValue < rightValue;
+        return false;
+      case '<=':
+        if (typeof leftValue === 'number' && typeof rightValue === 'number') return leftValue <= rightValue;
+        if (typeof leftValue === 'string' && typeof rightValue === 'string') return leftValue <= rightValue;
+        return false;
+      case '<>':
+        if (leftValue === rightValue) return false;
+        return !this.mapsEqual(leftValue, rightValue);
+      case 'CONTAINS':
+        return String(leftValue).includes(String(rightValue));
+      case 'STARTS WITH':
+        return String(leftValue).startsWith(String(rightValue));
+      case 'ENDS WITH':
+        return String(leftValue).endsWith(String(rightValue));
+      case 'IN': {
+        const rightList = this.extractListValuesWithAggregations(whereNode.right, context, aggResults);
+        for (const item of rightList) {
+          if (item === leftValue || this.mapsEqual(leftValue, item)) return true;
+        }
+        return false;
+      }
+      default:
+        return false;
+    }
   }
 
   // ── ORDER BY with pre-computed sort keys (optimisation #11) ────────────────

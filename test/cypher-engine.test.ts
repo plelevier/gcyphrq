@@ -3905,6 +3905,96 @@ describe('AdvancedCypherGraphologyEngine', () => {
         ]);
       });
 
+      it('works with <> operator in CASE with aggregation', () => {
+        const g = new Graph();
+        g.addNode('a', { label: 'Person', name: 'Alice' });
+        g.addNode('b', { label: 'Person', name: 'Bob' });
+        g.addNode('c', { label: 'Person', name: 'Charlie' });
+        g.addEdge('a', 'b', { type: 'KNOWS' });
+        g.addEdge('a', 'c', { type: 'KNOWS' });
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (p:Person)-[:KNOWS]->(f) WITH p.name AS name, count(f) AS friends RETURN name, CASE WHEN friends <> 0 THEN "connected" ELSE "isolated" END AS status');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', status: 'connected' },
+        ]);
+      });
+
+      it('works with CONTAINS operator in CASE with aggregation', () => {
+        const g = new Graph();
+        g.addNode('a', { label: 'Person', name: 'Alice' });
+        g.addNode('b', { label: 'Person', name: 'Bob' });
+        g.addNode('c', { label: 'Person', name: 'Charlie' });
+        g.addEdge('a', 'b', { type: 'KNOWS' });
+        g.addEdge('a', 'c', { type: 'KNOWS' });
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (p:Person)-[:KNOWS]->(f) WITH p.name AS name, count(f) AS friends RETURN name, CASE WHEN name CONTAINS "Ali" THEN "found" ELSE "other" END AS tag');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', tag: 'found' },
+        ]);
+      });
+
+      it('works with IN operator in CASE with aggregation', () => {
+        const g = new Graph();
+        g.addNode('a', { label: 'Person', name: 'Alice' });
+        g.addNode('b', { label: 'Person', name: 'Bob' });
+        g.addNode('c', { label: 'Person', name: 'Charlie' });
+        g.addEdge('a', 'b', { type: 'KNOWS' });
+        g.addEdge('a', 'c', { type: 'KNOWS' });
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (p:Person)-[:KNOWS]->(f) WITH p.name AS name, count(f) AS friends RETURN name, CASE WHEN friends IN [1, 2] THEN "in-range" ELSE "out-of-range" END AS tag');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', tag: 'in-range' },
+        ]);
+      });
+
+      it('works with string >= in CASE with aggregation', () => {
+        const g = new Graph();
+        g.addNode('a', { label: 'Person', name: 'Alice' });
+        g.addNode('b', { label: 'Person', name: 'Bob' });
+        g.addNode('c', { label: 'Person', name: 'Charlie' });
+        g.addEdge('a', 'b', { type: 'KNOWS' });
+        g.addEdge('a', 'c', { type: 'KNOWS' });
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (p:Person)-[:KNOWS]->(f) WITH p.name AS name, count(f) AS friends RETURN name, CASE WHEN name >= "Bob" THEN "latter" ELSE "former" END AS group');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', group: 'former' },
+        ]);
+      });
+
+      it('works with ENDS WITH in CASE with aggregation', () => {
+        const g = new Graph();
+        g.addNode('a', { label: 'Person', name: 'Alice' });
+        g.addNode('b', { label: 'Person', name: 'Bob' });
+        g.addNode('c', { label: 'Person', name: 'Charlie' });
+        g.addEdge('a', 'b', { type: 'KNOWS' });
+        g.addEdge('a', 'c', { type: 'KNOWS' });
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (p:Person)-[:KNOWS]->(f) WITH p.name AS name, count(f) AS friends RETURN name, CASE WHEN name ENDS WITH "e" THEN "ends-e" ELSE "other" END AS tag');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', tag: 'ends-e' },
+        ]);
+      });
+
+      it('works with STARTS WITH in CASE with aggregation', () => {
+        const g = new Graph();
+        g.addNode('a', { label: 'Person', name: 'Alice' });
+        g.addNode('b', { label: 'Person', name: 'Bob' });
+        g.addNode('c', { label: 'Person', name: 'Charlie' });
+        g.addEdge('a', 'b', { type: 'KNOWS' });
+        g.addEdge('a', 'c', { type: 'KNOWS' });
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (p:Person)-[:KNOWS]->(f) WITH p.name AS name, count(f) AS friends RETURN name, CASE WHEN name STARTS WITH "Al" THEN "starts-al" ELSE "other" END AS tag');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', tag: 'starts-al' },
+        ]);
+      });
+
     });
   });
 

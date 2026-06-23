@@ -923,11 +923,12 @@ function extractCaseExpression(caseCtx: TreeNode): Expression | undefined {
   let elseResult: Expression | undefined;
 
   // Determine if this is a simple CASE (has subject) or general CASE.
-  // Simple CASE: CASE <expr> WHEN ...
-  //   The first non-terminal after CASE is an ExpressionContext (the subject),
-  //   followed by CaseAlternativesContext children.
-  // General CASE: CASE WHEN ...
-  //   The first non-terminal after CASE is a CaseAlternativesContext.
+  // Relies on ANTLR4 grammar structure:
+  //   Simple CASE:  CASE <ExpressionContext> <CaseAlternativesContext> ...
+  //   General CASE: CASE <CaseAlternativesContext> ...
+  // We scan children after the CASE keyword terminal, skipping whitespace terminals,
+  // and check whether the first non-terminal is an ExpressionContext (simple) or
+  // CaseAlternativesContext (general).
   let startIndex = 0;
   for (let i = 0; i < children.length; i++) {
     const child = children[i];
@@ -972,11 +973,11 @@ function extractCaseExpression(caseCtx: TreeNode): Expression | undefined {
       if (condWhere) {
         condition = condWhere;
       } else {
-        // Fallback: bare boolean literal or other expression (e.g., CASE WHEN true)
+        // Bare boolean literal (e.g., CASE WHEN true) or other expression.
+        // Stored as-is (Expression) and handled directly in evaluateCase.
         const condExpr = evaluateExpression(exprChildren[0]);
         if (!condExpr) continue;
-        // Wrap in a synthetic comparison: expr = true
-        condition = { type: 'BinaryExpression', operator: '=', left: condExpr, right: { type: 'Literal', value: true as CypherLiteral } };
+        condition = condExpr;
       }
     }
 
