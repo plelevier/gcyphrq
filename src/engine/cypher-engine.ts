@@ -2228,12 +2228,28 @@ export class AdvancedCypherGraphologyEngine {
           return leftValue > rightValue;
         }
         throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
+      case '>=':
+        if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+          return leftValue >= rightValue;
+        }
+        if (typeof leftValue === 'string' && typeof rightValue === 'string') {
+          return leftValue >= rightValue;
+        }
+        throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
       case '<':
         if (typeof leftValue === 'number' && typeof rightValue === 'number') {
           return leftValue < rightValue;
         }
         if (typeof leftValue === 'string' && typeof rightValue === 'string') {
           return leftValue < rightValue;
+        }
+        throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
+      case '<=':
+        if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+          return leftValue <= rightValue;
+        }
+        if (typeof leftValue === 'string' && typeof rightValue === 'string') {
+          return leftValue <= rightValue;
         }
         throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
       case '=':
@@ -2289,6 +2305,10 @@ export class AdvancedCypherGraphologyEngine {
     if (leftValue == null || rightValue == null) return false;
     if (leftValue === rightValue) return true;
     if (this.mapsEqual(leftValue, rightValue)) return true;
+    if (whereNode.operator === '>') return typeof leftValue === 'number' && typeof rightValue === 'number' ? leftValue > rightValue : false;
+    if (whereNode.operator === '>=') return typeof leftValue === 'number' && typeof rightValue === 'number' ? leftValue >= rightValue : false;
+    if (whereNode.operator === '<') return typeof leftValue === 'number' && typeof rightValue === 'number' ? leftValue < rightValue : false;
+    if (whereNode.operator === '<=') return typeof leftValue === 'number' && typeof rightValue === 'number' ? leftValue <= rightValue : false;
     return false;
   }
 

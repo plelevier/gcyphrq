@@ -1766,7 +1766,7 @@ function extractComparison(compCtx: TreeNode): BinaryExpression | IsNullExpressi
   const partialCtx = findChild(compCtx, Ctx.PartialComparisonExpression);
   if (partialCtx) {
     const operatorTerm = findChild(partialCtx, Ctx.TerminalNode);
-    const operator = operatorTerm?.symbol?.text as '>' | '<' | '=' | '<>';
+    const operator = operatorTerm?.symbol?.text as '>' | '<' | '>=' | '<=' | '=' | '<>';
     if (!operator) return undefined;
 
     const leftExprCtx = findChild(compCtx, Ctx.AddOrSubtractExpression);

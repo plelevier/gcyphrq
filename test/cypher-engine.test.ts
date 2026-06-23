@@ -3564,6 +3564,30 @@ describe('AdvancedCypherGraphologyEngine', () => {
         ]);
       });
 
+      it('evaluates >= comparison', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.age >= 30 THEN "senior" WHEN n.age >= 20 THEN "junior" ELSE "young" END AS tier');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', tier: 'senior' },
+          { name: 'Bob', tier: 'junior' },
+          { name: 'Charlie', tier: 'senior' },
+        ]);
+      });
+
+      it('evaluates <= comparison', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.age <= 25 THEN "young" WHEN n.age <= 30 THEN "mid" ELSE "senior" END AS tier');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', tier: 'mid' },
+          { name: 'Bob', tier: 'young' },
+          { name: 'Charlie', tier: 'senior' },
+        ]);
+      });
+
       it('evaluates IS NULL condition', () => {
         const g = new Graph();
         g.addNode('a', { label: 'Person', name: 'Alice', age: 30 });

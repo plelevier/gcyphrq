@@ -262,7 +262,7 @@ export type Expression = PropertyAccessExpression | LiteralExpression | ListLite
 
 export interface BinaryExpression {
   type: 'BinaryExpression';
-  operator: '>' | '<' | '=' | '<>' | 'CONTAINS' | 'STARTS WITH' | 'ENDS WITH' | 'IN';
+  operator: '>' | '<' | '>=' | '<=' | '=' | '<>' | 'CONTAINS' | 'STARTS WITH' | 'ENDS WITH' | 'IN';
   left: Expression;
   right: Expression;
 }
