@@ -64,6 +64,7 @@ const Ctx = {
   ProcedureInvocation: 'ProcedureInvocationContext',
   ProcedureInvocationBody: 'ProcedureInvocationBodyContext',
   ProcedureName: 'ProcedureNameContext',
+  ProcedureArguments: 'ProcedureArgumentsContext',
   IntegerLiteral: 'IntegerLiteralContext',
   Keyword: 'KeywordContext',
   LabelName: 'LabelNameContext',
@@ -861,7 +862,7 @@ function extractPseudoProcedureCall(procCtx: TreeNode): FunctionCallExpression |
   // Find the Expression inside ProcedureArguments
   // ANTLR4 structure: ProcedureInvocation > ProcedureArguments > Expression
   const argExprs: Expression[] = [];
-  const procArgsCtx = findChild(procCtx, 'ProcedureArgumentsContext');
+  const procArgsCtx = findChild(procCtx, Ctx.ProcedureArguments);
   if (procArgsCtx && procArgsCtx.children) {
     for (const child of procArgsCtx.children) {
       if (child.constructor.name === Ctx.Expression) {

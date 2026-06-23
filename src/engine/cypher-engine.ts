@@ -450,6 +450,19 @@ export class AdvancedCypherGraphologyEngine {
     const { sourcePattern, relationPattern, targetPattern, optional, hasChains, pathVariable } = clause;
     const outgoingContexts: (QueryContext | ContextChain)[] = [];
 
+    // Helper: build path object from source node, edge history, and target node
+    const buildPath = (
+      source: CypherNode,
+      edges: CypherEdge[],
+    ): CypherValue => {
+      const pathNodes: CypherNode[] = [source];
+      for (const step of edges) {
+        const tAttr = this.graph.getNodeAttributes(step.target);
+        pathNodes.push({ id: step.target, ...tAttr } as CypherNode);
+      }
+      return { nodes: pathNodes, relationships: edges } as unknown as CypherValue;
+    };
+
     // Variable to null-fill on OPTIONAL MATCH miss:
     // source for simple patterns, target for chained patterns.
     const nullVar = hasChains ? targetPattern.variable : sourcePattern.variable;
@@ -485,10 +498,7 @@ export class AdvancedCypherGraphologyEngine {
           matchFoundForThisContext = true;
           const overrides: QueryContext = { [sourcePattern.variable]: sourceNode };
           if (pathVariable) {
-            overrides[pathVariable] = {
-              nodes: [sourceNode] as CypherNode[],
-              relationships: [] as CypherEdge[],
-            } as unknown as CypherValue;
+            overrides[pathVariable] = buildPath(sourceNode, []);
           }
           outgoingContexts.push({
             [CHAIN_BASE]: context,
@@ -538,19 +548,7 @@ export class AdvancedCypherGraphologyEngine {
               matchOverrides[relationPattern.variable] = edges;
             }
             if (pathVariable) {
-              // Build path: interleave source + target nodes with edges
-              const pathNodes: CypherNode[] = [sourceNode];
-              for (const step of edgeHistory) {
-                const tAttr = this.graph.getNodeAttributes(step.target);
-                pathNodes.push({ id: step.target, ...tAttr } as CypherNode);
-              }
-              // Deduplicate consecutive duplicate nodes (e.g., self-loops)
-              for (let i = pathNodes.length - 1; i > 0; i--) {
-                if (pathNodes[i]!.id === pathNodes[i - 1]!.id) {
-                  pathNodes.splice(i, 1);
-                }
-              }
-              matchOverrides[pathVariable] = { nodes: pathNodes, relationships: edges } as unknown as CypherValue;
+              matchOverrides[pathVariable] = buildPath(sourceNode, edges);
             }
 
             outgoingContexts.push({
@@ -585,17 +583,7 @@ export class AdvancedCypherGraphologyEngine {
                   selfLoopOverrides[relationPattern.variable] = edges;
                 }
                 if (pathVariable) {
-                  const pathNodes: CypherNode[] = [sourceNode];
-                  for (const step of allSteps) {
-                    const tAttr = this.graph.getNodeAttributes(step.target);
-                    pathNodes.push({ id: step.target, ...tAttr } as CypherNode);
-                  }
-                  for (let i = pathNodes.length - 1; i > 0; i--) {
-                    if (pathNodes[i]!.id === pathNodes[i - 1]!.id) {
-                      pathNodes.splice(i, 1);
-                    }
-                  }
-                  selfLoopOverrides[pathVariable] = { nodes: pathNodes, relationships: edges } as unknown as CypherValue;
+                  selfLoopOverrides[pathVariable] = buildPath(sourceNode, edges);
                 }
                 outgoingContexts.push({
                   [CHAIN_BASE]: context,
@@ -2137,10 +2125,12 @@ export class AdvancedCypherGraphologyEngine {
         return String(val).length;
       }
 
-      // ── Nodes (from path variable) ─────────────────────────────────────
+      // ── Nodes (from path variable or node) ──────────────────────────────
       case 'nodes': {
         const val = args[0];
-        if (!val || typeof val !== 'object' || Array.isArray(val)) return [];
+        if (!val || typeof val !== 'object') return [];
+        // Already an array — return as-is (e.g., nodes already extracted)
+        if (Array.isArray(val)) return val as unknown as CypherValue;
         const obj = val as Record<string, unknown>;
         if (Array.isArray(obj.nodes)) return obj.nodes as unknown as CypherValue;
         // Fallback: single node treated as list
@@ -2148,10 +2138,12 @@ export class AdvancedCypherGraphologyEngine {
         return [];
       }
 
-      // ── Relationships (from path variable) ─────────────────────────────
+      // ── Relationships (from path variable or edge) ──────────────────────
       case 'relationships': {
         const val = args[0];
-        if (!val || typeof val !== 'object' || Array.isArray(val)) return [];
+        if (!val || typeof val !== 'object') return [];
+        // Already an array — return as-is (e.g., variable-length edge list)
+        if (Array.isArray(val)) return val as unknown as CypherValue;
         const obj = val as Record<string, unknown>;
         if (Array.isArray(obj.relationships)) return obj.relationships as unknown as CypherValue;
         // Fallback: single relationship treated as list

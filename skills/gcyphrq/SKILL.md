@@ -39,7 +39,7 @@ See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 - **CASE:** `CASE WHEN cond THEN result` and `CASE expr WHEN val THEN result`. Nested. In RETURN/WHERE/WITH/ORDER BY/SET
 - **Pipelining:** `WITH`, `count()`, `sum()`, `avg()`, `min()`, `max()`, `DISTINCT` aggregations
 - **UNION/UNION ALL:** combine results from multiple branches (each ending with `RETURN`), ORDER BY/SKIP/LIMIT on combined result
-- **Scalar functions:** 25+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `labelsOf`, etc.)
+- **Scalar functions:** 28+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `labels`, `nodes`, `relationships`, etc.)
 - **Arithmetic:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`, parentheses. Works in RETURN/WHERE/WITH/ORDER BY/SET. Null propagation (null operand → null), division by zero → null
 - **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices
 - **Mutations:** `CREATE`, `SET`, `DELETE`, `REMOVE`, `MERGE` (in-memory only). MERGE: SET only in ON CREATE/ON MATCH (no WHERE/DELETE/REMOVE)
@@ -78,6 +78,10 @@ Service dependencies, blast radius, path tracing, infrastructure topology, monit
 | CASE | `MATCH (n) RETURN n.name, CASE WHEN n.type = "RPC" THEN "svc" ELSE "other" END AS cat` |
 | CASE simple | `MATCH (n) RETURN n.name, CASE n.type WHEN "RPC" THEN "svc" ELSE "other" END AS cat` |
 | CASE in ORDER BY | `MATCH (n) RETURN n.name ORDER BY CASE n.type WHEN "RPC" THEN 0 ELSE 1 END` |
+| Path variable | `MATCH path=(a)-[r]->(b) RETURN path` |
+| Path nodes | `MATCH path=(a)-[r]->(b) RETURN nodes(path)` |
+| Path relationships | `MATCH path=(a)-[r]->(b) RETURN relationships(path)` |
+| labels function | `MATCH (n) RETURN labels(n)` |
 
 See `references/queries.md` for more patterns.
 
