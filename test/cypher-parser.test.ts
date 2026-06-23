@@ -1161,6 +1161,78 @@ describe('parseCypher', () => {
       expect(ast.stages[0]?.type).toBe('MERGE');
       expect(ast.stages[1]?.type).toBe('MATCH');
     });
+
+    it('parses MERGE with WHERE clause', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) WHERE n.age > 18 ON MATCH SET n.verified = true RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.where).toBeDefined();
+    });
+
+    it('parses MERGE with DELETE in ON MATCH', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) ON MATCH DELETE n RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.onMatch!.deleteVariables).toEqual(['n']);
+    });
+
+    it('parses MERGE with REMOVE label in ON MATCH', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) ON MATCH REMOVE n:Admin RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.onMatch!.removeItems).toHaveLength(1);
+      expect(clause.onMatch!.removeItems[0]?.variable).toBe('n');
+      expect(clause.onMatch!.removeItems[0]?.labels).toEqual(['Admin']);
+    });
+
+    it('parses MERGE with REMOVE property in ON MATCH', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) ON MATCH REMOVE n.status RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.onMatch!.removeItems).toHaveLength(1);
+      expect(clause.onMatch!.removeItems[0]?.variable).toBe('n');
+      expect(clause.onMatch!.removeItems[0]?.property).toBe('status');
+    });
+
+    it('parses MERGE with SET and REMOVE in ON MATCH', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) ON MATCH SET n.status = "inactive" REMOVE n:Active RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.onMatch!.setActions).toHaveLength(1);
+      expect(clause.onMatch!.removeItems).toHaveLength(1);
+    });
+
+    it('parses MERGE with WHERE containing bracket index access', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) WHERE n.tags[0] = "admin" ON MATCH SET n.verified = true RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.where).toBeDefined();
+      expect(clause.onMatch).toBeDefined();
+    });
+
+    it('parses MERGE with WHERE containing property named "on"', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) WHERE n.on = true ON MATCH SET n.verified = true RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.where).toBeDefined();
+      expect(clause.onMatch).toBeDefined();
+    });
+
+    it('parses MERGE with WHERE containing "ON MATCH" in string literal', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) WHERE n.status = "ON MATCH" ON MATCH SET n.verified = true RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.where).toBeDefined();
+      expect(clause.onMatch).toBeDefined();
+    });
+
+    it('parses MERGE with both ON CREATE and ON MATCH', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) WHERE n.age > 18 ON CREATE SET n.status = "new" ON MATCH SET n.verified = true RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.where).toBeDefined();
+      expect(clause.onCreate).toBeDefined();
+      expect(clause.onMatch).toBeDefined();
+    });
+
+    it('parses MERGE with REMOVE property uses undefined labels', () => {
+      const ast = parseCypher('MERGE (n:User {name: "Alice"}) ON MATCH REMOVE n.status RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
+      expect(clause.onMatch!.removeItems).toHaveLength(1);
+      expect(clause.onMatch!.removeItems[0]?.labels).toBeUndefined();
+      expect(clause.onMatch!.removeItems[0]?.property).toBe('status');
+    });
   });
 
   describe('Map literals', () => {

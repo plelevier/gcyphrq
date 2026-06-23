@@ -681,6 +681,44 @@ MATCH (u)-[:FRIEND]->(f)
 RETURN u, f
 ```
 
+### MERGE with WHERE
+
+Filter which existing nodes count as a match. If no existing node satisfies the WHERE clause, the node is created:
+
+```cypher
+MERGE (u:User {name: "Alice"}) WHERE u.age > 18
+ON MATCH SET u.verified = true
+RETURN u
+```
+
+### MERGE with DELETE in ON MATCH
+
+Delete matched nodes or relationships:
+
+```cypher
+MERGE (u:User {name: "Alice"}) ON MATCH DELETE u RETURN u
+MERGE (a:User)-[r:FRIEND]->(b:User) ON MATCH DELETE r RETURN a, b
+```
+
+### MERGE with REMOVE in ON MATCH
+
+Remove labels or properties from matched nodes/relationships:
+
+```cypher
+MERGE (u:User {name: "Alice"}) ON MATCH REMOVE u:Admin RETURN u
+MERGE (u:User {name: "Alice"}) ON MATCH REMOVE u.status RETURN u
+```
+
+### MERGE with combined SET / DELETE / REMOVE
+
+Combine SET, DELETE, and REMOVE in ON CREATE / ON MATCH:
+
+```cypher
+MERGE (u:User {name: "Alice"})
+ON MATCH SET u.status = "inactive" REMOVE u:Active
+RETURN u
+```
+
 ---
 
 ## UNION / UNION ALL
@@ -754,8 +792,6 @@ The following Cypher features are **not** supported by the engine:
 - **Subqueries** — `CALL {}` syntax
 - **APOC procedures** — `CALL apoc.*`
 - **Multiple MATCH in same stage** — use `WITH` to chain stages
-- **MERGE with WHERE** — use property filters in the pattern instead
-- **MERGE with DELETE/REMOVE** — only SET is supported in ON CREATE/ON MATCH
 - **UNION without RETURN** — each branch must end with a `RETURN` clause
 
 
