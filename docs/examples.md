@@ -616,7 +616,179 @@ gcyphrq -g examples/team.json -e 'MATCH (p:Person {name: "Frank"}) DELETE p' --f
 
 > **Note:** `DELETE` without a `RETURN` clause produces an empty array (`[]`). The graph is modified in-memory for subsequent queries in the same session.
 
-### 31. REMOVE
+---
+
+## CASE Expressions
+
+### 31. General CASE with equality
+
+Classify people by name:
+
+```bash
+gcyphrq -g examples/team.json -e 'MATCH (p:Person) RETURN p.name, CASE WHEN p.name = "Alice" THEN "first" WHEN p.name = "Bob" THEN "second" ELSE "other" END AS position' --format rows
+```
+
+**Output:**
+
+```json
+[
+  { "name": "Alice", "position": "first" },
+  { "name": "Bob", "position": "second" },
+  { "name": "Charlie", "position": "other" },
+  { "name": "Diana", "position": "other" },
+  { "name": "Eve", "position": "other" },
+  { "name": "Frank", "position": "other" }
+]
+```
+
+### 32. General CASE with numeric comparison
+
+Categorize by age using `>=` and `<=`:
+
+```bash
+gcyphrq -g examples/team.json -e 'MATCH (p:Person) RETURN p.name, p.age, CASE WHEN p.age >= 35 THEN "senior" WHEN p.age >= 25 THEN "mid" ELSE "junior" END AS tier' --format rows
+```
+
+**Output:**
+
+```json
+[
+  { "name": "Alice", "age": 30, "tier": "mid" },
+  { "name": "Bob", "age": 25, "tier": "mid" },
+  { "name": "Charlie", "age": 35, "tier": "senior" },
+  { "name": "Diana", "age": 40, "tier": "senior" },
+  { "name": "Eve", "age": 28, "tier": "mid" },
+  { "name": "Frank", "age": 32, "tier": "mid" }
+]
+```
+
+### 33. Simple CASE
+
+Map role values to short codes:
+
+```bash
+gcyphrq -g examples/team.json -e 'MATCH (p:Person) RETURN p.name, CASE p.role WHEN "Engineer" THEN "eng" WHEN "Manager" THEN "mgmt" WHEN "Designer" THEN "des" ELSE "other" END AS dept' --format rows
+```
+
+**Output:**
+
+```json
+[
+  { "name": "Alice", "dept": "eng" },
+  { "name": "Bob", "dept": "eng" },
+  { "name": "Charlie", "dept": "des" },
+  { "name": "Diana", "dept": "mgmt" },
+  { "name": "Eve", "dept": "eng" },
+  { "name": "Frank", "dept": "des" }
+]
+```
+
+### 34. CASE with IS NULL
+
+Handle missing properties:
+
+```bash
+gcyphrq -g examples/team.json -e 'MATCH (p:Person) RETURN p.name, CASE WHEN p.email IS NULL THEN "no email" ELSE "has email" END AS status' --format rows
+```
+
+**Output:**
+
+```json
+[
+  { "name": "Alice", "status": "has email" },
+  { "name": "Bob", "status": "no email" },
+  { "name": "Charlie", "status": "has email" },
+  { "name": "Diana", "status": "has email" },
+  { "name": "Eve", "status": "no email" },
+  { "name": "Frank", "status": "no email" }
+]
+```
+
+### 35. CASE in ORDER BY
+
+Sort by custom priority:
+
+```bash
+gcyphrq -g examples/team.json -e 'MATCH (p:Person) RETURN p.name, p.role ORDER BY CASE p.role WHEN "Manager" THEN 0 WHEN "Engineer" THEN 1 WHEN "Designer" THEN 2 ELSE 3 END' --format rows
+```
+
+**Output:**
+
+```json
+[
+  { "name": "Diana", "role": "Manager" },
+  { "name": "Alice", "role": "Engineer" },
+  { "name": "Bob", "role": "Engineer" },
+  { "name": "Eve", "role": "Engineer" },
+  { "name": "Charlie", "role": "Designer" },
+  { "name": "Frank", "role": "Designer" }
+]
+```
+
+### 36. CASE with CONTAINS
+
+Classify by department substring:
+
+```bash
+gcyphrq -g examples/team.json -e 'MATCH (p:Person) RETURN p.name, p.department, CASE WHEN p.department CONTAINS "ack" THEN "infra" WHEN p.department CONTAINS "ront" THEN "client" ELSE "other" END AS category' --format rows
+```
+
+**Output:**
+
+```json
+[
+  { "name": "Alice", "department": "Backend", "category": "infra" },
+  { "name": "Bob", "department": "Frontend", "category": "client" },
+  { "name": "Charlie", "department": "Design", "category": "other" },
+  { "name": "Diana", "department": "Backend", "category": "infra" },
+  { "name": "Eve", "department": "Backend", "category": "infra" },
+  { "name": "Frank", "department": "Design", "category": "other" }
+]
+```
+
+### 37. Nested CASE
+
+Combine conditions with nested CASE:
+
+```bash
+gcyphrq -g examples/team.json -e 'MATCH (p:Person) RETURN p.name, CASE WHEN p.role = "Engineer" THEN CASE WHEN p.age >= 30 THEN "senior engineer" ELSE "junior engineer" END ELSE "not engineer" END AS title' --format rows
+```
+
+**Output:**
+
+```json
+[
+  { "name": "Alice", "title": "senior engineer" },
+  { "name": "Bob", "title": "junior engineer" },
+  { "name": "Charlie", "title": "not engineer" },
+  { "name": "Diana", "title": "not engineer" },
+  { "name": "Eve", "title": "junior engineer" },
+  { "name": "Frank", "title": "not engineer" }
+]
+```
+
+### 38. CASE in SET
+
+Assign computed properties:
+
+```bash
+gcyphrq -g examples/team.json -e 'MATCH (p:Person) SET p.tier = CASE WHEN p.age >= 35 THEN "senior" WHEN p.age >= 25 THEN "mid" ELSE "junior" END RETURN p.name, p.tier' --format rows
+```
+
+**Output:**
+
+```json
+[
+  { "name": "Alice", "tier": "mid" },
+  { "name": "Bob", "tier": "mid" },
+  { "name": "Charlie", "tier": "senior" },
+  { "name": "Diana", "tier": "senior" },
+  { "name": "Eve", "tier": "mid" },
+  { "name": "Frank", "tier": "mid" }
+]
+```
+
+### 39. REMOVE
 
 Remove a label or property from a node. The node and its relationships remain in the graph:
 

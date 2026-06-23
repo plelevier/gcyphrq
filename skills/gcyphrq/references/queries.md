@@ -112,6 +112,31 @@ MATCH (s:Service) WHERE NOT s.type = "Worker" RETURN s
 MATCH (s:Service) WHERE s.name CONTAINS "Gateway" RETURN s
 ```
 
+## "Classify nodes with CASE"
+
+```cypher
+# General CASE: WHEN cond THEN result
+MATCH (s:Service) RETURN s.name,
+  CASE WHEN s.type = "RPC" THEN "svc" WHEN s.type = "Database" THEN "db" ELSE "other" END AS category
+
+# Simple CASE: CASE expr WHEN val THEN result
+MATCH (n) RETURN n.name, CASE n.label WHEN "Service" THEN "svc" ELSE "other" END AS kind
+
+# CASE with IS NULL
+MATCH (s:Service) RETURN s.name, CASE WHEN s.region IS NULL THEN "global" ELSE s.region END AS region
+
+# CASE in ORDER BY
+MATCH (s:Service) RETURN s.name ORDER BY CASE s.type WHEN "RPC" THEN 0 ELSE 1 END
+
+# CASE in SET
+MATCH (s:Service) SET s.cat = CASE WHEN s.type = "RPC" THEN "svc" ELSE "other" END RETURN s.name, s.cat
+
+# Nested CASE
+MATCH (s:Service) RETURN s.name, CASE WHEN s.type = "RPC" THEN CASE WHEN s.region = "us-east-1" THEN "us-rpc" ELSE "other" END ELSE "no" END AS tier
+```
+
+> CASE supports all WHERE operators (`=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `IS NULL`, `AND`/`OR`/`NOT`). Works in RETURN, WHERE, WITH, ORDER BY, SET. Nested CASE supported.
+
 ## "Summarize the graph"
 
 ```cypher

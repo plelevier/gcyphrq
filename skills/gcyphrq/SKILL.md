@@ -35,7 +35,8 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 
 - **Matching:** `MATCH`, `OPTIONAL MATCH`, labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges
-- **Filtering:** `WHERE` with `=`, `<>`, `>`, `<`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `IS NULL`, `AND`/`OR`/`NOT`, map comparison
+- **Filtering:** `WHERE` with `=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `IS NULL`, `AND`/`OR`/`NOT`, map comparison
+- **CASE:** `CASE WHEN cond THEN result` and `CASE expr WHEN val THEN result`. Nested. In RETURN/WHERE/WITH/ORDER BY/SET
 - **Pipelining:** `WITH`, `count()`, `sum()`, `avg()`, `min()`, `max()`, `DISTINCT` aggregations
 - **UNION/UNION ALL:** combine results from multiple branches (each ending with `RETURN`), ORDER BY/SKIP/LIMIT on combined result
 - **Scalar functions:** 25+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `labelsOf`, etc.)
@@ -74,6 +75,9 @@ Service dependencies, blast radius, path tracing, infrastructure topology, monit
 | MERGE | `MERGE (n:User {name: "Alice"}) ON CREATE SET n.createdAt = 0 RETURN n` |
 | UNION ALL | `MATCH (u:User) RETURN u.name UNION ALL MATCH (u:Admin) RETURN u.name` |
 | Arithmetic | `MATCH (n) RETURN n.price * n.qty AS total, n.price * 2 + n.shipping AS cost` |
+| CASE | `MATCH (n) RETURN n.name, CASE WHEN n.type = "RPC" THEN "svc" ELSE "other" END AS cat` |
+| CASE simple | `MATCH (n) RETURN n.name, CASE n.type WHEN "RPC" THEN "svc" ELSE "other" END AS cat` |
+| CASE in ORDER BY | `MATCH (n) RETURN n.name ORDER BY CASE n.type WHEN "RPC" THEN 0 ELSE 1 END` |
 
 See `references/queries.md` for more patterns.
 
