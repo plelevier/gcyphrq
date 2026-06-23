@@ -253,6 +253,117 @@ MATCH (u:User) RETURN toInteger(u.age) AS age
 
 ---
 
+## CASE Expressions
+
+Conditional expressions that return different values based on conditions. Work in `RETURN`, `WHERE`, `WITH`, `ORDER BY`, and `SET` clauses.
+
+### General CASE
+
+`CASE WHEN condition THEN result` evaluates boolean conditions in order and returns the first matching result:
+
+```cypher
+// Simple equality
+MATCH (u:User) RETURN u.name, CASE WHEN u.name = 'Alice' THEN 'first' ELSE 'other' END AS position
+
+// Multiple conditions
+MATCH (u:User) RETURN u.name,
+  CASE
+    WHEN u.age >= 35 THEN 'senior'
+    WHEN u.age >= 25 THEN 'mid'
+    ELSE 'junior'
+  END AS tier
+
+// Comparison operators
+MATCH (u:User) RETURN u.name,
+  CASE
+    WHEN u.name STARTS WITH 'A' THEN 'A-group'
+    WHEN u.name CONTAINS 'ob' THEN 'B-group'
+    ELSE 'other'
+  END AS group
+
+// Logical operators (AND, OR, NOT)
+MATCH (u:User) RETURN u.name,
+  CASE
+    WHEN u.age > 25 AND u.name = 'Alice' THEN 'match'
+    ELSE 'no match'
+  END AS result
+
+// IS NULL / IS NOT NULL
+MATCH (u:User) RETURN u.name,
+  CASE
+    WHEN u.email IS NULL THEN 'no email'
+    ELSE 'has email'
+  END AS status
+
+// No ELSE clause returns null when no condition matches
+MATCH (u:User) RETURN u.name,
+  CASE WHEN u.name = 'Alice' THEN 1 END AS flag
+```
+
+### Simple CASE
+
+`CASE expr WHEN value THEN result` compares a subject expression for equality against each WHEN value:
+
+```cypher
+MATCH (u:User) RETURN u.name,
+  CASE u.role
+    WHEN 'Engineer' THEN 'eng'
+    WHEN 'Manager' THEN 'mgmt'
+    ELSE 'other'
+  END AS dept
+
+// Numeric subject
+MATCH (u:User) RETURN u.name,
+  CASE u.age
+    WHEN 30 THEN 'thirty'
+    WHEN 25 THEN 'twenty-five'
+    ELSE 'other'
+  END AS ageGroup
+```
+
+### Nested CASE
+
+CASE expressions can be nested within any expression position:
+
+```cypher
+MATCH (u:User) RETURN u.name,
+  CASE
+    WHEN u.name = 'Alice'
+      THEN CASE WHEN u.age >= 30 THEN 'mature Alice' ELSE 'young Alice' END
+    ELSE 'not Alice'
+  END AS desc
+```
+
+### CASE with other expressions
+
+CASE works with arithmetic, functions, and all value expressions:
+
+```cypher
+// Arithmetic in THEN
+MATCH (u:User) RETURN u.name,
+  CASE WHEN u.score > 90 THEN u.score * 2 ELSE u.score END AS adjusted
+
+// Functions in THEN
+MATCH (u:User) RETURN u.name,
+  CASE WHEN u.name = 'Alice' THEN toUpper(u.name) ELSE u.name END AS displayName
+
+// In ORDER BY
+MATCH (u:User) RETURN u.name
+  ORDER BY CASE u.role WHEN 'Manager' THEN 0 WHEN 'Engineer' THEN 1 ELSE 2 END
+
+// In SET
+MATCH (u:User) SET u.tier = CASE WHEN u.age >= 30 THEN 'senior' ELSE 'junior' END RETURN u.name, u.tier
+
+// In WITH
+MATCH (u:User)
+WITH u.name, CASE WHEN u.age >= 30 THEN 'senior' ELSE 'junior' END AS tier
+RETURN name, tier
+```
+
+> **Note:** General CASE conditions support all WHERE operators (`=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IS NULL`, `IS NOT NULL`) plus `AND`, `OR`, `NOT`. Simple CASE compares for equality only.
+
+---
+
 ## Arithmetic Expressions
 
 Perform numeric calculations using standard arithmetic operators. Work in `RETURN`, `WHERE`, `WITH`, `ORDER BY`, and `SET` clauses. Parentheses control precedence.
@@ -440,7 +551,9 @@ RETURN s.name, outDegree
 |---|---|
 | `=` | `WHERE count = 5` |
 | `>` | `WHERE count > 5` |
+| `>=` | `WHERE count >= 5` |
 | `<` | `WHERE count < 5` |
+| `<=` | `WHERE count <= 5` |
 | `<>` | `WHERE name <> "api"` |
 | `CONTAINS` | `WHERE name CONTAINS "api"` |
 | `STARTS WITH` | `WHERE name STARTS WITH "api"` |

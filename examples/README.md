@@ -49,7 +49,8 @@ See the [Examples page](https://plelevier.github.io/gcyphrq/examples/) for 30 re
 - Node and relationship matching with labels, properties, and variable-length paths
 - Aggregations (`count()`, `sum()`, `avg()`, `min()`, `max()`, `count(DISTINCT)`, `sum(DISTINCT)`)
 - Filtering with `WHERE` (`AND`, `OR`, `NOT`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `IS NULL`)
-- String comparisons (`<`, `>`)
+- Comparison operators (`=`, `<>`, `>`, `>=`, `<`, `<=`)
+- `CASE ... WHEN ... END` expressions (general and simple forms, nested, in RETURN/WHERE/WITH/ORDER BY/SET)
 - `RETURN DISTINCT` and `UNWIND` for deduplication and list expansion
 - Sorting with `ORDER BY` and pagination with `SKIP` / `LIMIT`
 - Blast radius analysis, dependency chains, and infrastructure topology queries

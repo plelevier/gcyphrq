@@ -39,6 +39,10 @@ description: A Cypher graph query engine for in-memory graphs built on Grapholog
     <p>Calculate with <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code>, <code>^</code> and unary <code>-</code>/<code>+</code>. Parentheses for grouping. Null propagation and safe division.</p>
   </div>
   <div class="feature-card">
+    <h3>🔀 CASE Expressions</h3>
+    <p>Conditional logic with <code>CASE WHEN ... THEN ...</code> and <code>CASE expr WHEN val THEN ...</code>. Nested CASE, works in <code>RETURN</code>, <code>WHERE</code>, <code>WITH</code>, <code>ORDER BY</code>, and <code>SET</code>.</p>
+  </div>
+  <div class="feature-card">
     <h3>📋 List Operations</h3>
     <p>List functions <code>head()</code>, <code>tail()</code>, <code>last()</code>, <code>reverse()</code>, <code>size()</code> and slicing <code>[start..end]</code> with negative index support.</p>
   </div>
@@ -90,11 +94,12 @@ const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 | List literals `['a', 'b']` | <span class="badge badge-success">✅</span> |
 | List slicing `[start..end]`, `[..end]`, `[start..]`, `[index]` with negative indices | <span class="badge badge-success">✅</span> |
 | `WHERE` (on `MATCH` and `WITH`) | <span class="badge badge-success">✅</span> |
-| `WHERE` operators: `>`, `<`, `=`, `<>`, `CONTAINS` | <span class="badge badge-success">✅</span> |
+| `WHERE` operators: `=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS` | <span class="badge badge-success">✅</span> |
 | `WHERE` logical operators: `AND`, `OR`, `NOT` | <span class="badge badge-success">✅</span> |
 | `WHERE` IS NULL / IS NOT NULL | <span class="badge badge-success">✅</span> |
 | `CREATE`, `SET`, `DELETE`, `REMOVE` mutations | <span class="badge badge-success">✅</span> |
 | `FOREACH` (SET, CREATE, DELETE, REMOVE on nodes and edges) | <span class="badge badge-success">✅</span> |
+| `CASE ... WHEN ... END` (general and simple forms, nested) | <span class="badge badge-success">✅</span> |
 | `ORDER BY` (single/multi-column) | <span class="badge badge-success">✅</span> |
 | `SKIP` / `LIMIT` | <span class="badge badge-success">✅</span> |
 | Subqueries, `CALL`, APOC | <span class="badge badge-danger">❌</span> |

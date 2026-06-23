@@ -112,6 +112,56 @@ MATCH (s:Service) WHERE NOT s.type = "Worker" RETURN s
 MATCH (s:Service) WHERE s.name CONTAINS "Gateway" RETURN s
 ```
 
+## "Classify nodes with CASE"
+
+```cypher
+# General CASE: classify services by type
+MATCH (s:Service) RETURN s.name,
+  CASE
+    WHEN s.type = "RPC" THEN "service"
+    WHEN s.type = "Database" THEN "data"
+    WHEN s.type = "MessageQueue" THEN "queue"
+    ELSE "other"
+  END AS category
+
+# Simple CASE: map label to short code
+MATCH (n) RETURN n.name,
+  CASE n.label
+    WHEN "Service" THEN "svc"
+    WHEN "Database" THEN "db"
+    WHEN "Infrastructure" THEN "infra"
+    ELSE "other"
+  END AS kind
+
+# CASE with IS NULL
+MATCH (s:Service) RETURN s.name,
+  CASE
+    WHEN s.region IS NULL THEN "global"
+    ELSE s.region
+  END AS region
+
+# CASE in ORDER BY (custom sort priority)
+MATCH (s:Service) RETURN s.name, s.type
+  ORDER BY CASE s.type WHEN "RPC" THEN 0 WHEN "Worker" THEN 1 ELSE 2 END
+
+# CASE in SET (assign computed property)
+MATCH (s:Service)
+SET s.category = CASE
+  WHEN s.type = "RPC" THEN "service"
+  WHEN s.type = "Database" THEN "data"
+  ELSE "other"
+END
+RETURN s.name, s.category
+
+# Nested CASE
+MATCH (s:Service) RETURN s.name,
+  CASE
+    WHEN s.type = "RPC"
+      THEN CASE WHEN s.region = "us-east-1" THEN "us-rpc" ELSE "other-rpc" END
+    ELSE "not-rpc"
+  END AS tier
+```
+
 ## "Summarize the graph"
 
 ```cypher

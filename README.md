@@ -9,7 +9,8 @@ Available as a **CLI tool** and as a **library** for Node.js / TypeScript projec
 ## Features
 
 - **Cypher query engine** — supports `MATCH`, `OPTIONAL MATCH`, `WITH`, `RETURN`, `CREATE`, `SET`, `DELETE`
-- **WHERE on MATCH and WITH** — filter with `>`, `<`, `=`, `<>`, `CONTAINS` plus `AND`, `OR`, `NOT`
+- **WHERE on MATCH and WITH** — filter with `>`, `>=`, `<`, `<=`, `=`, `<>`, `CONTAINS` plus `AND`, `OR`, `NOT`
+- **CASE expressions** — conditional logic with `CASE WHEN ... THEN ...` and `CASE expr WHEN val THEN ...`
 - **Variable-length paths** — e.g. `-[r:FRIEND*1..3]->`
 - **Aggregations** — `count()`, `sum()`, `avg()`, `min()`, `max()` with implicit grouping via `WITH`
 - **Directional filtering** — `->`, `<-`, `-`
