@@ -3771,5 +3771,228 @@ describe('AdvancedCypherGraphologyEngine', () => {
         ]);
       });
     });
+
+    describe('additional CASE scenarios', () => {
+      it('works with NOT condition', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN NOT n.name = "Alice" THEN "not Alice" ELSE "Alice" END AS label');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', label: 'Alice' },
+          { name: 'Bob', label: 'not Alice' },
+          { name: 'Charlie', label: 'not Alice' },
+        ]);
+      });
+
+      it('works with ENDS WITH condition', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.name ENDS WITH "ie" THEN "ends-ie" ELSE "other" END AS tag');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', tag: 'other' },
+          { name: 'Bob', tag: 'other' },
+          { name: 'Charlie', tag: 'ends-ie' },
+        ]);
+      });
+
+      it('works with IN condition', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.name IN ["Alice", "Bob"] THEN "in-list" ELSE "not-in" END AS tag');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', tag: 'in-list' },
+          { name: 'Bob', tag: 'in-list' },
+          { name: 'Charlie', tag: 'not-in' },
+        ]);
+      });
+
+      it('works with string comparison in condition', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.name > "B" THEN "after-B" ELSE "before-or-B" END AS tag');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', tag: 'before-or-B' },
+          { name: 'Bob', tag: 'after-B' },
+          { name: 'Charlie', tag: 'after-B' },
+        ]);
+      });
+
+      it('supports multiple CASE in same RETURN', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE WHEN n.age > 30 THEN "old" ELSE "young" END AS ageCat, CASE WHEN n.score > 90 THEN "high" ELSE "low" END AS scoreCat');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', ageCat: 'young', scoreCat: 'high' },
+          { name: 'Bob', ageCat: 'young', scoreCat: 'low' },
+          { name: 'Charlie', ageCat: 'old', scoreCat: 'low' },
+        ]);
+      });
+
+      it('supports CASE with list literal in THEN', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN n.name, CASE WHEN n.age >= 30 THEN ["senior"] ELSE ["junior"] END AS tags');
+        const results = e.execute(ast);
+        expect(results).toEqual([{ name: 'Alice', tags: ['senior'] }]);
+      });
+
+      it('supports CASE with map literal in THEN', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN n.name, CASE WHEN n.score > 90 THEN {grade: "A"} ELSE {grade: "B"} END AS info');
+        const results = e.execute(ast);
+        expect(results).toEqual([{ name: 'Alice', info: { grade: 'A' } }]);
+      });
+
+      it('supports simple CASE with no ELSE', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) RETURN n.name, CASE n.name WHEN "Alice" THEN 1 END AS flag');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', flag: 1 },
+          { name: 'Bob', flag: null },
+          { name: 'Charlie', flag: null },
+        ]);
+      });
+
+      it('uses default alias when no AS provided', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN n.name, CASE WHEN n.age >= 30 THEN "yes" ELSE "no" END');
+        const results = e.execute(ast);
+        expect(results[0]).toHaveProperty('CASE');
+        expect(results[0].CASE).toBe('yes');
+      });
+
+      it('works with CASE in CREATE', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" CREATE (x:Tag {name: n.name, tier: CASE WHEN n.score > 90 THEN "high" ELSE "low" END}) RETURN x.name, x.tier');
+        const results = e.execute(ast);
+        expect(results).toEqual([{ name: 'Alice', tier: 'high' }]);
+      });
+
+      it('works with CASE in UNWIND', () => {
+        const g = buildTestGraph();
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('UNWIND [1, 2, 3] AS x RETURN x, CASE WHEN x > 2 THEN "big" ELSE "small" END AS label');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { x: 1, label: 'small' },
+          { x: 2, label: 'small' },
+          { x: 3, label: 'big' },
+        ]);
+      });
+
+      it('works with CASE containing aggregation in WITH', () => {
+        const g = new Graph();
+        g.addNode('a', { label: 'Person', name: 'Alice' });
+        g.addNode('b', { label: 'Person', name: 'Bob' });
+        g.addNode('c', { label: 'Person', name: 'Charlie' });
+        g.addEdge('a', 'b', { type: 'KNOWS' });
+        g.addEdge('a', 'c', { type: 'KNOWS' });
+        const e = new AdvancedCypherGraphologyEngine(g);
+        const ast = parseCypher('MATCH (p:Person)-[:KNOWS]->(f) WITH p.name AS name, count(f) AS friends RETURN name, CASE WHEN friends >= 2 THEN "popular" ELSE "quiet" END AS status');
+        const results = e.execute(ast);
+        expect(results).toEqual([
+          { name: 'Alice', status: 'popular' },
+        ]);
+      });
+
+    });
+  });
+
+  describe('>= and <= comparison operators', () => {
+    it('works in WHERE with >=', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', val: 10 });
+      g.addNode('b', { label: 'Item', val: 20 });
+      g.addNode('c', { label: 'Item', val: 30 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+      const ast = parseCypher('MATCH (n) WHERE n.val >= 20 RETURN n.val ORDER BY n.val ASC');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.val)).toEqual([20, 30]);
+    });
+
+    it('works in WHERE with <=', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', val: 10 });
+      g.addNode('b', { label: 'Item', val: 20 });
+      g.addNode('c', { label: 'Item', val: 30 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+      const ast = parseCypher('MATCH (n) WHERE n.val <= 20 RETURN n.val ORDER BY n.val ASC');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.val)).toEqual([10, 20]);
+    });
+
+    it('works in WHERE with >= on strings', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', name: 'Alice' });
+      g.addNode('b', { label: 'Item', name: 'Bob' });
+      g.addNode('c', { label: 'Item', name: 'Charlie' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+      const ast = parseCypher('MATCH (n) WHERE n.name >= "Bob" RETURN n.name ORDER BY n.name ASC');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Bob', 'Charlie']);
+    });
+
+    it('works in WHERE with <= on strings', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', name: 'Alice' });
+      g.addNode('b', { label: 'Item', name: 'Bob' });
+      g.addNode('c', { label: 'Item', name: 'Charlie' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+      const ast = parseCypher('MATCH (n) WHERE n.name <= "Bob" RETURN n.name ORDER BY n.name ASC');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.name)).toEqual(['Alice', 'Bob']);
+    });
+
+    it('works in WHERE with AND combining >= and <=', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', val: 5 });
+      g.addNode('b', { label: 'Item', val: 15 });
+      g.addNode('c', { label: 'Item', val: 25 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+      const ast = parseCypher('MATCH (n) WHERE n.val >= 10 AND n.val <= 20 RETURN n.val');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.val)).toEqual([15]);
+    });
+
+    it('works in ORDER BY with >=', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', val: 10 });
+      g.addNode('b', { label: 'Item', val: 20 });
+      g.addNode('c', { label: 'Item', val: 30 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+      const ast = parseCypher('MATCH (n) WHERE n.val >= 20 RETURN n.val ORDER BY n.val ASC');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.val)).toEqual([20, 30]);
+    });
+
+    it('returns false for null operands with >=', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', val: 10 });
+      g.addNode('b', { label: 'Item' }); // no val
+      const e = new AdvancedCypherGraphologyEngine(g);
+      const ast = parseCypher('MATCH (n) WHERE n.val >= 5 RETURN n.val');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.val)).toEqual([10]);
+    });
+
+    it('returns false for null operands with <=', () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', val: 10 });
+      g.addNode('b', { label: 'Item' }); // no val
+      const e = new AdvancedCypherGraphologyEngine(g);
+      const ast = parseCypher('MATCH (n) WHERE n.val <= 15 RETURN n.val');
+      const results = e.execute(ast);
+      expect(results.map((r) => r.val)).toEqual([10]);
+    });
   });
 });
