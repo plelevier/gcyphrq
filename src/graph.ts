@@ -28,7 +28,10 @@ export interface GraphInstance {
   setNodeAttribute(id: string, attr: string, value: unknown): void;
   setEdgeAttribute(id: string, attr: string, value: unknown): void;
   hasNode(id: string): boolean;
+  hasEdge(id: string): boolean;
+  getEdgeEndpoints(id: string): { source: string; target: string };
   dropNode(id: string): void;
+  dropEdge(id: string): void;
   order: number;
 }
 
@@ -51,7 +54,12 @@ interface RawGraph {
   setNodeAttribute(id: string, attr: string, value: unknown): void;
   setEdgeAttribute(id: string, attr: string, value: unknown): void;
   hasNode(id: string): boolean;
+  hasEdge(source: string, target: string): boolean;
+  hasEdge(edge: string): boolean;
+  extremities(edge: string): [string, string];
   dropNode(id: string): void;
+  dropEdge(source: string, target: string): void;
+  dropEdge(edge: string): void;
   order: number;
 }
 
@@ -121,7 +129,13 @@ function wrapGraph(raw: RawGraph): GraphInstance {
     setNodeAttribute: raw.setNodeAttribute.bind(raw),
     setEdgeAttribute: raw.setEdgeAttribute.bind(raw),
     hasNode: raw.hasNode.bind(raw),
+    hasEdge: (id: string) => raw.hasEdge(id),
+    getEdgeEndpoints: (id: string) => {
+      const [source, target] = raw.extremities(id);
+      return { source, target };
+    },
     dropNode: raw.dropNode.bind(raw),
+    dropEdge: (id: string) => raw.dropEdge(id),
     get order() { return raw.order; },
   };
 }
@@ -176,7 +190,10 @@ export class Graph {
   setNodeAttribute(id: string, attr: string, value: unknown): void { this._instance.setNodeAttribute(id, attr, value); }
   setEdgeAttribute(id: string, attr: string, value: unknown): void { this._instance.setEdgeAttribute(id, attr, value); }
   hasNode(id: string): boolean { return this._instance.hasNode(id); }
+  hasEdge(id: string): boolean { return this._instance.hasEdge(id); }
+  getEdgeEndpoints(id: string): { source: string; target: string } { return this._instance.getEdgeEndpoints(id); }
   dropNode(id: string): void { this._instance.dropNode(id); }
+  dropEdge(id: string): void { this._instance.dropEdge(id); }
   get order(): number { return this._instance.order; }
 }
 
@@ -187,18 +204,15 @@ export class Graph {
  */
 export function wrapExternalGraph(raw: any): GraphInstance {
   const type = raw.type as GraphType;
-  if (type === 'directed') {
-    // Directed graphs already have the full interface
-    return raw as GraphInstance;
-  }
-  // For undirected/mixed graphs, create a new Graph of the same type and copy data
+  // Always copy into a new Graph so that our wrapper methods
+  // (hasEdge, getEdgeEndpoints, dropEdge) are available.
   const graph = new Graph({ type });
   const allNodes = raw.filterNodes(() => true);
   for (const id of allNodes) {
     graph.addNode(id, raw.getNodeAttributes(id));
   }
   raw.forEachEdge((edgeId: string, attrs: Record<string, unknown>, source: string, target: string) => {
-    graph.addEdge(source, target, attrs);
+    graph.addEdgeWithKey(edgeId, source, target, attrs);
   });
   return graph;
 }
@@ -222,7 +236,10 @@ function assertGraphApi(graph: GraphInstance): void {
     'setNodeAttribute',
     'setEdgeAttribute',
     'hasNode',
+    'hasEdge',
+    'getEdgeEndpoints',
     'dropNode',
+    'dropEdge',
   ];
 
   for (const method of requiredMethods) {

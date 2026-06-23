@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { createGraph, executeQuery, Graph, buildGraphIndexes, GraphEngine, parseCypher } from '../src/lib';
+import { createGraph, executeQuery, Graph, buildGraphIndexes, GraphEngine, parseCypher as _parseCypher } from '../src/lib';
+import type { AdvancedCypherAST } from '../src/types/cypher';
+
+const parseCypher = _parseCypher as (query: string) => AdvancedCypherAST;
 
 // ── Undirected graph tests ──────────────────────────────────────────────────
 

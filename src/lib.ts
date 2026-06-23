@@ -5,7 +5,7 @@ import { AdvancedCypherGraphologyEngine } from './engine/cypher-engine';
 import { buildGraphIndexesFromData, buildGraphIndexesFromGraph } from './indexes';
 import { Graph, wrapExternalGraph, type GraphInstance, type GraphType } from './graph';
 import { DEFAULT_CONFIG } from './types/cypher';
-import type { AdvancedCypherAST, ResultRow, GraphIndexes, GraphConfig } from './types/cypher';
+import type { CypherAST, UnionQueryAST, ResultRow, GraphIndexes, GraphConfig } from './types/cypher';
 
 // ── Graph file format types ──────────────────────────────────────────────────
 
@@ -443,7 +443,7 @@ export function buildGraphIndexes(
     // (data, graph) or (data, graph, opts)
     const data = dataOrGraph as GraphInput;
     const { normalized } = validateGraphData(data, opts);
-    return buildGraphIndexesFromData(normalized, graphOrOpts as GraphInstance, resolveConfig(opts), opts?.onWarning);
+    return buildGraphIndexesFromData(normalized, graphOrOpts as GraphInstance, resolveConfig(opts));
   }
 
   // graphOrOpts is IndexBuildOptions
@@ -452,14 +452,14 @@ export function buildGraphIndexes(
 
   if (isGraphInstance(dataOrGraph)) {
     // Two-argument form: (graph, opts)
-    return buildGraphIndexesFromGraph(dataOrGraph, resolvedConfig, buildOpts.onWarning);
+    return buildGraphIndexesFromGraph(dataOrGraph, resolvedConfig);
   }
 
   // Two-argument form: (data, opts) — build graph internally
   const data = dataOrGraph as GraphInput;
   const { normalized, graphType } = validateGraphData(data, buildOpts);
   const builtGraph = buildGraph(normalized, graphType);
-  return buildGraphIndexesFromGraph(builtGraph, resolvedConfig, buildOpts.onWarning);
+  return buildGraphIndexesFromGraph(builtGraph, resolvedConfig);
 }
 
 // ── Query execution ──────────────────────────────────────────────────────────
@@ -477,7 +477,7 @@ export function buildGraphIndexes(
  * const ast = parseCypher('MATCH (u:User) RETURN u');
  * ```
  */
-export function parseCypher(query: string): AdvancedCypherAST {
+export function parseCypher(query: string): CypherAST {
   return _parseCypher(query);
 }
 
@@ -522,9 +522,12 @@ export function executeQuery(graphOrData: GraphInstance | GraphInput, query: str
         return buildGraph(normalized, graphType);
       })();
   const config = resolveConfig(opts);
-  const indexes = buildGraphIndexesFromGraph(graph, config, opts?.onWarning);
-  const engine = new AdvancedCypherGraphologyEngine(graph, indexes);
+  const indexes = buildGraphIndexesFromGraph(graph, config);
+  const engine = new AdvancedCypherGraphologyEngine(graph, indexes, opts?.onWarning);
   const ast = _parseCypher(query);
+  if (ast.type === 'UnionQuery') {
+    return engine.executeUnion(ast);
+  }
   return engine.execute(ast);
 }
 
@@ -606,6 +609,9 @@ export type { GraphIndexes, GraphConfig } from './types/cypher';
 // Re-export all AST, expression, and result types from types/cypher.ts
 export type {
   AdvancedCypherAST,
+  UnionQueryAST,
+  UnionType,
+  CypherAST,
   Stage,
   MatchClause,
   MergeClause,
@@ -619,7 +625,9 @@ export type {
   SetClause,
   RemoveClause,
   UnwindClause,
+  ForeachClause,
   NodePattern,
+  LabelExpression,
   RelationPattern,
   Direction,
   Expression,

@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { parseCypher } from '../src/engine/cypher-parser';
-import type { MatchClause, MergeClause, WithClause, WriteClause, UnwindClause } from '../src/types/cypher';
+import { parseCypher as _parseCypher } from '../src/engine/cypher-parser';
+import type { AdvancedCypherAST, MatchClause, MergeClause, WithClause, WriteClause, UnwindClause } from '../src/types/cypher';
+
+// Cast parseCypher to return AdvancedCypherAST for test convenience
+const parseCypher = _parseCypher as (query: string) => AdvancedCypherAST;
 
 describe('parseCypher', () => {
   describe('MATCH clause', () => {
@@ -10,13 +13,64 @@ describe('parseCypher', () => {
       expect(ast.stages[0]?.type).toBe('MATCH');
       const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
       expect(clause.sourcePattern.variable).toBe('n');
-      expect(clause.sourcePattern.label).toBe('User');
+      expect(clause.sourcePattern.labels).toEqual({ labels: ['User'], orLabels: [], notLabels: [], orNotLabels: [] });
     });
 
     it('parses MATCH with a property filter', () => {
       const ast = parseCypher('MATCH (u:User {name: "Alice"}) RETURN u');
       const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
       expect(clause.sourcePattern.properties).toEqual({ name: 'Alice' });
+    });
+
+    it('parses MATCH with multiple labels', () => {
+      const ast = parseCypher('MATCH (n:Service:Infrastructure) RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.sourcePattern.labels).toEqual({ labels: ['Service', 'Infrastructure'], orLabels: [], notLabels: [], orNotLabels: [] });
+    });
+
+    it('parses MATCH with multiple labels and properties', () => {
+      const ast = parseCypher('MATCH (n:Service:Infrastructure {name: "X"}) RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.sourcePattern.labels).toEqual({ labels: ['Service', 'Infrastructure'], orLabels: [], notLabels: [], orNotLabels: [] });
+      expect(clause.sourcePattern.properties).toEqual({ name: 'X' });
+    });
+
+    it('parses CREATE with multiple labels', () => {
+      const ast = parseCypher('CREATE (n:A:B {name: "X"}) RETURN n');
+      const writeStage = ast.stages[0]! as { type: 'WRITE'; clause: WriteClause };
+      expect(writeStage.clause.type).toBe('CREATE');
+      if (writeStage.clause.type !== 'CREATE') return;
+      expect(writeStage.clause.labels).toEqual(['A', 'B']);
+    });
+
+    it('parses MATCH with label union (|)', () => {
+      const ast = parseCypher('MATCH (n:Movie|Person) RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.sourcePattern.labels).toEqual({ labels: ['Movie'], orLabels: ['Person'], notLabels: [], orNotLabels: [] });
+    });
+
+    it('parses MATCH with multiple label unions', () => {
+      const ast = parseCypher('MATCH (n:Movie|Person|Actor) RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.sourcePattern.labels).toEqual({ labels: ['Movie'], orLabels: ['Person', 'Actor'], notLabels: [], orNotLabels: [] });
+    });
+
+    it('parses MATCH with label negation (!)', () => {
+      const ast = parseCypher('MATCH (n:!Movie) RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.sourcePattern.labels).toEqual({ labels: [], orLabels: [], notLabels: ['Movie'], orNotLabels: [] });
+    });
+
+    it('parses MATCH with label union and negation', () => {
+      const ast = parseCypher('MATCH (n:Movie|!Person) RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.sourcePattern.labels).toEqual({ labels: ['Movie'], orLabels: [], notLabels: [], orNotLabels: ['Person'] });
+    });
+
+    it('parses MATCH with multiple label negations', () => {
+      const ast = parseCypher('MATCH (n:!Movie:!Person) RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      expect(clause.sourcePattern.labels).toEqual({ labels: [], orLabels: [], notLabels: ['Movie', 'Person'], orNotLabels: [] });
     });
 
     it('parses MATCH with a relationship pattern', () => {
@@ -190,7 +244,7 @@ describe('parseCypher', () => {
       const writeStage = ast.stages[0]! as { type: 'WRITE'; clause: WriteClause };
       expect(writeStage.clause.type).toBe('CREATE');
       if (writeStage.clause.type !== 'CREATE') return;
-      expect(writeStage.clause.label).toBe('User');
+      expect(writeStage.clause.labels).toEqual(['User']);
       expect(writeStage.clause.properties).toEqual({ name: 'Dave' });
     });
 
@@ -201,7 +255,8 @@ describe('parseCypher', () => {
       if (writeStage.clause.type !== 'SET') return;
       expect(writeStage.clause.variable).toBe('n');
       expect(writeStage.clause.property).toBe('age');
-      expect(writeStage.clause.value).toBe(30);
+      expect(writeStage.clause.value.type).toBe('Literal');
+      expect((writeStage.clause.value as { type: string; value: number }).value).toBe(30);
     });
 
     it('parses DELETE clause', () => {
@@ -219,7 +274,7 @@ describe('parseCypher', () => {
       if (writeStage.clause.type !== 'REMOVE') return;
       expect(writeStage.clause.items).toHaveLength(1);
       expect(writeStage.clause.items[0]!.variable).toBe('n');
-      expect(writeStage.clause.items[0]!.label).toBe('User');
+      expect(writeStage.clause.items[0]!.labels).toEqual(['User']);
       expect(writeStage.clause.items[0]!.property).toBeUndefined();
     });
 
@@ -231,7 +286,7 @@ describe('parseCypher', () => {
       expect(writeStage.clause.items).toHaveLength(1);
       expect(writeStage.clause.items[0]!.variable).toBe('n');
       expect(writeStage.clause.items[0]!.property).toBe('age');
-      expect(writeStage.clause.items[0]!.label).toBeUndefined();
+      expect(writeStage.clause.items[0]!.labels).toBeUndefined();
     });
 
     it('parses REMOVE clause with multiple items (property + label)', () => {
@@ -242,9 +297,9 @@ describe('parseCypher', () => {
       expect(writeStage.clause.items).toHaveLength(2);
       expect(writeStage.clause.items[0]!.variable).toBe('n');
       expect(writeStage.clause.items[0]!.property).toBe('age');
-      expect(writeStage.clause.items[0]!.label).toBeUndefined();
+      expect(writeStage.clause.items[0]!.labels).toBeUndefined();
       expect(writeStage.clause.items[1]!.variable).toBe('n');
-      expect(writeStage.clause.items[1]!.label).toBe('User');
+      expect(writeStage.clause.items[1]!.labels).toEqual(['User']);
       expect(writeStage.clause.items[1]!.property).toBeUndefined();
     });
   });
@@ -430,13 +485,13 @@ describe('parseCypher', () => {
       expect(ast.stages[0]?.type).toBe('MATCH');
       const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
       expect(clause.sourcePattern.variable).toBe('u');
-      expect(clause.sourcePattern.label).toBe('User');
+      expect(clause.sourcePattern.labels).toEqual({ labels: ['User'], orLabels: [], notLabels: [], orNotLabels: [] });
       expect(clause.sourcePattern.properties).toEqual({ name: 'Alice' });
       expect(clause.relationPattern.type).toBe('FRIEND');
       expect(clause.relationPattern.minDepth).toBe(1);
       expect(clause.relationPattern.maxDepth).toBe(2);
       expect(clause.targetPattern.variable).toBe('f');
-      expect(clause.targetPattern.label).toBe('User');
+      expect(clause.targetPattern.labels).toEqual({ labels: ['User'], orLabels: [], notLabels: [], orNotLabels: [] });
       expect(ast.return!.projections.length).toBe(2);
     });
 
@@ -823,7 +878,7 @@ describe('parseCypher', () => {
       expect(where.left.variable).toBe('n');
       expect(where.left.property).toBe('name');
       expect(where.right.type).toBe('ListLiteral');
-      expect(where.right.values).toEqual(['Alice', 'Bob']);
+      expect(where.right.values).toEqual([{ type: 'Literal', value: 'Alice' }, { type: 'Literal', value: 'Bob' }]);
     });
 
     it('parses WHERE IN with numeric list', () => {
@@ -831,7 +886,7 @@ describe('parseCypher', () => {
       const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
       const where = clause.where! as { type: 'BinaryExpression'; right: { type: string; values?: unknown[] } };
       expect(where.right.type).toBe('ListLiteral');
-      expect(where.right.values).toEqual([25, 30, 35]);
+      expect(where.right.values).toEqual([{ type: 'Literal', value: 25 }, { type: 'Literal', value: 30 }, { type: 'Literal', value: 35 }]);
     });
 
     it('parses WHERE IN on WITH clause', () => {
@@ -976,14 +1031,14 @@ describe('parseCypher', () => {
       expect(clause.type).toBe('UNWIND');
       expect(clause.variable).toBe('x');
       expect(clause.expression.type).toBe('ListLiteral');
-      expect((clause.expression as { type: 'ListLiteral'; values: unknown[] }).values).toEqual([1, 2, 3]);
+      expect((clause.expression as { type: 'ListLiteral'; values: unknown[] }).values).toEqual([{ type: 'Literal', value: 1 }, { type: 'Literal', value: 2 }, { type: 'Literal', value: 3 }]);
     });
 
     it('parses UNWIND with a string list', () => {
       const ast = parseCypher('UNWIND ["Alice", "Bob", "Charlie"] AS name RETURN name');
       const clause = (ast.stages[0]! as { type: 'UNWIND'; clause: UnwindClause }).clause;
       expect(clause.variable).toBe('name');
-      expect((clause.expression as { type: 'ListLiteral'; values: unknown[] }).values).toEqual(['Alice', 'Bob', 'Charlie']);
+      expect((clause.expression as { type: 'ListLiteral'; values: unknown[] }).values).toEqual([{ type: 'Literal', value: 'Alice' }, { type: 'Literal', value: 'Bob' }, { type: 'Literal', value: 'Charlie' }]);
     });
 
     it('parses UNWIND followed by WITH and RETURN', () => {
@@ -1027,7 +1082,7 @@ describe('parseCypher', () => {
       expect(clause.type).toBe('MERGE');
       expect(clause.hasChains).toBe(false);
       expect(clause.sourcePattern.variable).toBe('n');
-      expect(clause.sourcePattern.label).toBe('User');
+      expect(clause.sourcePattern.labels).toEqual({ labels: ['User'], orLabels: [], notLabels: [], orNotLabels: [] });
       expect(clause.sourcePattern.properties).toEqual({ name: 'Alice' });
       expect(clause.onCreate).toBeUndefined();
       expect(clause.onMatch).toBeUndefined();
@@ -1042,7 +1097,7 @@ describe('parseCypher', () => {
       expect(clause.onCreate!.setActions[0]).toEqual({
         variable: 'n',
         property: 'createdAt',
-        value: 0,
+        value: { type: 'Literal', value: 0 },
       });
     });
 
@@ -1055,7 +1110,7 @@ describe('parseCypher', () => {
       expect(clause.onMatch!.setActions[0]).toEqual({
         variable: 'n',
         property: 'lastSeen',
-        value: 0,
+        value: { type: 'Literal', value: 0 },
       });
     });
 
@@ -1073,11 +1128,11 @@ describe('parseCypher', () => {
       const clause = (ast.stages[0]! as { type: 'MERGE'; clause: MergeClause }).clause;
       expect(clause.hasChains).toBe(true);
       expect(clause.sourcePattern.variable).toBe('a');
-      expect(clause.sourcePattern.label).toBe('User');
+      expect(clause.sourcePattern.labels).toEqual({ labels: ['User'], orLabels: [], notLabels: [], orNotLabels: [] });
       expect(clause.relationPattern.type).toBe('FRIEND');
       expect(clause.relationPattern.direction).toBe('OUT');
       expect(clause.targetPattern.variable).toBe('b');
-      expect(clause.targetPattern.label).toBe('User');
+      expect(clause.targetPattern.labels).toEqual({ labels: ['User'], orLabels: [], notLabels: [], orNotLabels: [] });
     });
 
     it('parses MERGE with relationship and ON CREATE/ON MATCH', () => {
@@ -1105,6 +1160,78 @@ describe('parseCypher', () => {
       expect(ast.stages.length).toBe(2);
       expect(ast.stages[0]?.type).toBe('MERGE');
       expect(ast.stages[1]?.type).toBe('MATCH');
+    });
+  });
+
+  describe('Map literals', () => {
+    it('parses map literal in RETURN', () => {
+      const ast = parseCypher('RETURN {name: "Alice", age: 30} AS m');
+      const projection = ast.return!.projections[0]!;
+      expect(projection.expression.type).toBe('MapLiteral');
+      const mapExpr = projection.expression as unknown as { type: 'MapLiteral'; entries: { key: string; value: { type: string; value?: unknown } }[] };
+      expect(mapExpr.entries).toHaveLength(2);
+      expect(mapExpr.entries[0]!.key).toBe('name');
+      expect(mapExpr.entries[0]!.value.type).toBe('Literal');
+      expect(mapExpr.entries[1]!.key).toBe('age');
+    });
+
+    it('parses map literal with property access in RETURN', () => {
+      const ast = parseCypher('MATCH (n) RETURN {name: n.name, upper: toUpper(n.name)} AS m');
+      const projection = ast.return!.projections[0]!;
+      expect(projection.expression.type).toBe('MapLiteral');
+      const mapExpr = projection.expression as { type: 'MapLiteral'; entries: { key: string; value: { type: string } }[] };
+      expect(mapExpr.entries).toHaveLength(2);
+      expect(mapExpr.entries[0]!.key).toBe('name');
+      expect(mapExpr.entries[0]!.value.type).toBe('PropertyAccess');
+      expect(mapExpr.entries[1]!.key).toBe('upper');
+      expect(mapExpr.entries[1]!.value.type).toBe('FunctionCall');
+    });
+
+    it('parses map literal in WHERE comparison', () => {
+      const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice"} RETURN n');
+      const clause = (ast.stages[0]! as { type: 'MATCH'; clause: MatchClause }).clause;
+      const where = clause.where! as { type: 'BinaryExpression'; left: { type: string }; right: { type: string; entries: { key: string; value: { type: string; value?: unknown } }[] } };
+      expect(where.left.type).toBe('PropertyAccess');
+      expect(where.right.type).toBe('MapLiteral');
+      expect(where.right.entries).toHaveLength(1);
+      expect(where.right.entries![0]!.key).toBe('name');
+    });
+
+    it('parses map literal in SET clause', () => {
+      const ast = parseCypher('MATCH (n) SET n.meta = {key: "val"} RETURN n');
+      const writeStage = ast.stages[1]! as { type: 'WRITE'; clause: WriteClause };
+      expect(writeStage.clause.type).toBe('SET');
+      if (writeStage.clause.type !== 'SET') return;
+      expect(writeStage.clause.value.type).toBe('MapLiteral');
+    });
+  });
+
+  describe('List literals with dynamic values', () => {
+    it('parses list literal with property access', () => {
+      const ast = parseCypher('MATCH (n) RETURN [n.name, "static"] AS info');
+      const projection = ast.return!.projections[0]!;
+      expect(projection.expression.type).toBe('ListLiteral');
+      const listExpr = projection.expression as { type: 'ListLiteral'; values: { type: string }[] };
+      expect(listExpr.values).toHaveLength(2);
+      expect(listExpr.values[0]!.type).toBe('PropertyAccess');
+      expect(listExpr.values[1]!.type).toBe('Literal');
+    });
+
+    it('parses list literal with function call', () => {
+      const ast = parseCypher('MATCH (n) RETURN [n.name, toUpper(n.name)] AS info');
+      const projection = ast.return!.projections[0]!;
+      const listExpr = projection.expression as { type: 'ListLiteral'; values: { type: string }[] };
+      expect(listExpr.values[0]!.type).toBe('PropertyAccess');
+      expect(listExpr.values[1]!.type).toBe('FunctionCall');
+    });
+
+    it('parses list literal with map literal inside', () => {
+      const ast = parseCypher('RETURN [{a: 1}, {a: 2}] AS list');
+      const projection = ast.return!.projections[0]!;
+      const listExpr = projection.expression as { type: 'ListLiteral'; values: { type: string }[] };
+      expect(listExpr.values).toHaveLength(2);
+      expect(listExpr.values[0]!.type).toBe('MapLiteral');
+      expect(listExpr.values[1]!.type).toBe('MapLiteral');
     });
   });
 });

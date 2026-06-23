@@ -66,6 +66,22 @@ MATCH (u:User {name: 'Alice'})<-[r:FRIEND]-(f:User) RETURN f
 MATCH (u:User {name: 'Alice'})-[r:FRIEND]-(f:User) RETURN f
 ```
 
+### Multiple labels
+
+A node can carry multiple labels. Use colon-separated labels for AND semantics (the node must have **all** specified labels):
+
+```cypher
+MATCH (n:Service:Infrastructure) RETURN n
+```
+
+In your graph file, store multiple labels as an array:
+
+```json
+{ "key": "api", "attributes": { "label": ["Service", "Infrastructure"], "name": "API" } }
+```
+
+A single label remains a plain string: `{ "label": "Service" }`.
+
 ### Nodes without labels
 
 Omit the label to match every node in the graph:
@@ -193,6 +209,207 @@ MATCH (u:User) RETURN avg(DISTINCT u.score) AS avgScore
 
 ---
 
+### Scalar functions
+
+Scalar functions operate on individual values and work in `RETURN`, `WHERE`, `WITH`, and `ORDER BY` clauses. Nested calls are supported.
+
+| Function | Description |
+|---|---|
+| `toLower(x)` | Convert string to lowercase |
+| `toUpper(x)` | Convert string to uppercase |
+| `substring(x, start, end)` | Extract substring (end is optional) |
+| `split(x, delimiter)` | Split string into list |
+| `repl(x, search, replacement)` | Replace occurrences (alias for `replace` — reserved keyword) |
+| `trim(x)` | Trim whitespace from both ends |
+| `ltrim(x)` | Trim whitespace from left |
+| `rtrim(x)` | Trim whitespace from right |
+| `length(x)` | String character count or list element count |
+| `head(x)` | First element of a list |
+| `last(x)` | Last element of a list |
+| `tail(x)` | All elements except the first |
+| `reverse(x)` | Reverse elements of a list |
+| `size(x)` | Number of elements in a list (or string length) |
+| `id(x)` | Node or edge ID |
+| `labelsOf(x)` | Node labels as list (alias for `labels` — reserved keyword) |
+| `reltype(x)` | Relationship type (alias for `type` — reserved keyword) |
+| `startnode(x)` | Source node ID of a relationship |
+| `endnode(x)` | Target node ID of a relationship |
+| `coalesce(x, y, ...)` | First non-null argument |
+| `toString(x)` | Convert value to string |
+| `toInteger(x)` | Convert value to integer |
+| `toFloat(x)` | Convert value to float |
+
+```cypher
+MATCH (u:User) RETURN toLower(u.name) AS lowerName
+MATCH (u:User) WHERE toUpper(u.email) CONTAINS "@EXAMPLE.COM" RETURN u
+MATCH (u:User) RETURN substring(u.name, 0, 3) AS initials
+MATCH (u:User) RETURN split(u.email, '@')[0] AS username
+MATCH (u:User) RETURN length(u.name) AS nameLen
+MATCH (u:User) RETURN coalesce(u.nick, u.name, 'Unknown') AS displayName
+MATCH (u:User) RETURN toInteger(u.age) AS age
+```
+
+> **Note:** `repl` is used instead of `replace`, `labelsOf` instead of `labels`, and `reltype` instead of `type` because these are reserved keywords in the ANTLR4 Cypher grammar. `startnode()` and `endnode()` return string IDs, not node objects.
+
+---
+
+## Arithmetic Expressions
+
+Perform numeric calculations using standard arithmetic operators. Work in `RETURN`, `WHERE`, `WITH`, `ORDER BY`, and `SET` clauses. Parentheses control precedence.
+
+| Operator | Description | Example | Result |
+|---|---|---|---|
+| `+` | Addition | `n.price + n.tax` | Sum of two values |
+| `-` | Subtraction | `n.price - n.discount` | Difference |
+| `*` | Multiplication | `n.price * n.qty` | Product |
+| `/` | Division | `n.total / n.count` | Quotient (null if divisor is 0) |
+| `%` | Modulo | `n.value % 10` | Remainder (null if divisor is 0) |
+| `^` | Power | `n.value ^ 2` | Exponentiation |
+| `-x` | Unary minus | `-n.price` | Negation |
+| `+x` | Unary plus | `+n.price` | Identity |
+
+```cypher
+-- Basic arithmetic in RETURN
+MATCH (n:Product) RETURN n.name, n.price * n.qty AS total
+
+-- Multiple operators with precedence
+MATCH (n:Product) RETURN n.name, n.price * 2 + n.shipping AS cost
+
+-- Parentheses for grouping
+MATCH (n:Product) RETURN n.name, (n.price + n.tax) * 1.1 AS finalPrice
+
+-- Arithmetic in WHERE
+MATCH (n:Product) WHERE n.price * n.qty > 100 RETURN n.name
+
+-- Arithmetic in SET
+MATCH (n:Product) SET n.total = n.price * n.qty RETURN n.name, n.total
+
+-- Arithmetic in ORDER BY
+MATCH (n:Product) RETURN n.name ORDER BY n.price * n.qty DESC
+
+-- Chained operators
+MATCH (n:Product) RETURN n.name, n.price + n.tax + n.shipping AS total
+
+-- Double negation
+MATCH (n:Product) RETURN n.name, -(-n.price) AS positive
+
+-- Arithmetic with functions
+MATCH (n:Product) RETURN n.name, length(n.name) * 2 AS nameLenDoubled
+```
+
+> **Null propagation:** If any operand is `null` (missing property or explicit null), the result is `null`. Division and modulo by zero return `null`.
+
+---
+
+## List Literals
+
+Create inline list objects using `[val1, val2, ...]` syntax. List values can be static literals or dynamic expressions (property access, function calls, map literals).
+
+| Syntax | Description | Example |
+|---|---|---|
+| `[1, 2, 3]` | Static list literal | `RETURN [1, 2, 3] AS nums` |
+| `[n.name, "static"]` | Dynamic property access | `MATCH (n) RETURN [n.name, toUpper(n.name)] AS info` |
+| `[{a: 1}, {a: 2}]` | List of map literals | `UNWIND [{name: "Alice"}, {name: "Bob"}] AS x RETURN x` |
+
+```cypher
+-- Static list in RETURN
+RETURN [1, 2, 3] AS nums
+
+-- Dynamic list with property access and functions
+MATCH (n:User) WHERE n.name = 'Alice' RETURN [n.name, toUpper(n.name), n] AS info
+
+-- List in WHERE IN (dynamic values evaluated at runtime)
+MATCH (n:User) WHERE n.name IN [n.name] RETURN n
+
+-- List of map literals in UNWIND
+UNWIND [{name: "Alice"}, {name: "Bob"}] AS x RETURN x
+```
+
+---
+
+## List Slicing
+
+Extract portions of lists using bracket notation. Works on both list literals and property access.
+
+| Syntax | Description | Example | Result |
+|---|---|---|---|
+| `[start..end]` | Elements from `start` to `end-1` | `[1,2,3,4,5][1..3]` | `[2, 3]` |
+| `[..end]` | Elements from beginning to `end-1` | `[1,2,3,4,5][..3]` | `[1, 2, 3]` |
+| `[start..]` | Elements from `start` to end | `[1,2,3,4,5][2..]` | `[3, 4, 5]` |
+| `[index]` | Single element at `index` | `[1,2,3,4,5][2]` | `3` |
+| `[-1]` | Last element (negative index) | `[1,2,3,4,5][-1]` | `5` |
+| `[-2..-1]` | Negative range | `[1,2,3,4,5][-2..-1]` | `[4]` |
+
+```cypher
+-- Slice a property that is a list
+MATCH (n:User) RETURN n.tags[0..2] AS firstTags
+
+-- Negative indices
+RETURN [1,2,3,4,5][-3..] AS lastThree
+
+-- Combine with list functions
+RETURN size([1,2,3,4,5][1..3]) AS sliceSize
+RETURN head(reverse([1,2,3])) AS lastElement
+```
+
+---
+
+## Map Literals
+
+Create inline map (key-value) objects using `{key: value}` syntax. Map values can be static literals, property access, function calls, nodes, or lists.
+
+| Syntax | Description | Example |
+|---|---|---|
+| `{key: val}` | Static map literal | `RETURN {name: "Alice", age: 30} AS m` |
+| `{key: n.prop}` | Dynamic property access | `RETURN {name: n.name, upper: toUpper(n.name)} AS profile` |
+| `{key: split(...)}` | Function call value | `RETURN {name: n.name, tags: split(n.name, "")} AS m` |
+| `{key: n}` | Node reference value | `RETURN {name: n.name, node: n} AS m` |
+| `n = {key: val}` | WHERE map comparison (subset match) | `MATCH (n) WHERE n = {name: "Alice"} RETURN n` |
+| `n.meta = {key: val}` | WHERE nested map comparison | `MATCH (n) WHERE n.meta = {role: "admin"} RETURN n` |
+| `n <> {key: val}` | WHERE map non-equality | `MATCH (n) WHERE n <> {name: "Alice"} RETURN n` |
+
+```cypher
+-- Static map in RETURN
+MATCH (n:User) WHERE n.name = 'Alice' RETURN {name: "Alice", age: 30} AS m
+
+-- Dynamic map with property access and functions
+MATCH (n:User) WHERE n.name = 'Alice' RETURN {name: n.name, upper: toUpper(n.name)} AS profile
+
+-- Map with list value from function call
+MATCH (n:User) WHERE n.name = 'Alice' RETURN {name: n.name, tags: split(n.name, "")} AS m
+
+-- Map with node reference
+MATCH (n:User) WHERE n.name = 'Alice' RETURN {name: n.name, node: n} AS m
+
+-- Nested maps
+MATCH (n:User) WHERE n.name = 'Alice' RETURN {a: {b: {c: n.name}}} AS nested
+
+-- Map comparison in WHERE (matches nodes with all specified properties)
+MATCH (n:User) WHERE n = {name: "Alice"} RETURN n
+
+-- Nested map comparison (deep equality with subset matching)
+MATCH (n:User) WHERE n.meta = {role: "admin"} RETURN n
+
+-- Map with multiple property filters
+MATCH (n:User) WHERE n = {name: "Alice", age: 30} RETURN n
+
+-- Map in SET clause
+MATCH (n:User) SET n.meta = {key: "val", num: 42} RETURN n.meta
+
+-- Map in SET with dynamic values
+MATCH (n:User) SET n.profile = {displayName: toUpper(n.name)} RETURN n.profile
+
+-- Map in WITH clause
+MATCH (n:User) WITH {name: n.name, upper: toUpper(n.name)} AS p RETURN p
+
+-- Map inside list literal
+UNWIND [{name: "Alice"}, {name: "Bob"}] AS x RETURN x
+```
+
+> **Note:** Map comparison `n = {prop: val}` performs **subset matching** — the node must have all the map's keys with equal values. Extra properties on the node are ignored. Nested maps and lists are compared with deep equality. Empty map `n = {}` matches all objects.
+
+---
+
 ## WHERE
 
 Filter results in `MATCH` or `WITH` clauses.
@@ -253,10 +470,20 @@ MATCH (u:User) WHERE (u.age > 32 OR u.age < 26) AND u.name CONTAINS "a" RETURN u
 MATCH (u:User) WHERE u.email IS NULL RETURN u
 MATCH (u:User) WHERE u.email IS NOT NULL RETURN u
 
-// IN operator
+// IN operator with static list
 MATCH (u:User) WHERE u.name IN ["Alice", "Bob"] RETURN u
 MATCH (u:User) WHERE u.age IN [25, 30, 35] RETURN u
 MATCH (u:User) WHERE NOT (u.name IN ["Alice", "Bob"]) RETURN u
+
+// IN with dynamic list (property access)
+MATCH (u:User) WHERE u.name IN [u.name] RETURN u
+MATCH (u:User) WHERE u.role IN u.roles RETURN u
+
+// IN with function call (e.g., split)
+MATCH (u:User) WHERE u.name IN split("Alice,Bob,Charlie", ",") RETURN u
+
+// IN with list of maps (subset matching)
+MATCH (u:User) WHERE u IN [{name: "Alice"}, {name: "Bob"}] RETURN u
 
 // STARTS WITH / ENDS WITH
 MATCH (u:User) WHERE u.name STARTS WITH "Al" RETURN u
@@ -302,12 +529,14 @@ MATCH (u:User) RETURN u.name ORDER BY u.name ASC SKIP 10 LIMIT 10
 
 ```cypher
 CREATE (l:Log {timestamp: 12345}) RETURN l
+CREATE (t:Tag {values: ['a', 'b', 'c']}) RETURN t
 ```
 
 ### SET
 
 ```cypher
 MATCH (u:User {name: 'Alice'}) SET u.age = 31 RETURN u
+MATCH (u:User {name: 'Alice'}) SET u.tags = ['admin', 'verified'] RETURN u
 ```
 
 ### DELETE
@@ -327,6 +556,45 @@ MATCH (u:User {name: 'Alice'}) REMOVE u.age, u:User RETURN u
 ```
 
 Multiple items can be combined in a single REMOVE clause (property and/or label).
+
+### FOREACH
+
+Iterate over a list and execute a mutation (SET, CREATE, DELETE, REMOVE) for each element. Unlike UNWIND, FOREACH **does not expand rows** — the input row count is preserved.
+
+```cypher
+-- Set a property on each element of a list
+MATCH (u:User) FOREACH (x IN u.tags | SET x.processed = true) RETURN u.name
+
+-- Create a node for each element with a dynamic property
+MATCH (u:User) FOREACH (x IN u.tags | CREATE (t:Tag {name: x})) RETURN u.name
+
+-- Add a label to each element
+MATCH (u:User) FOREACH (x IN u.tags | SET x:Tagged) RETURN u.name
+
+-- Delete nodes referenced in a list
+MATCH (u:User) FOREACH (x IN u.todos | DELETE x) RETURN u.name
+
+-- Remove a property from each element
+MATCH (u:User) FOREACH (x IN u.items | REMOVE x.temp) RETURN u.name
+
+-- Multiple FOREACH stages
+MATCH (u:User)
+FOREACH (x IN u.tags | CREATE (t:Tag {name: x}))
+FOREACH (x IN u.roles | CREATE (r:Role {name: x}))
+RETURN u.name
+```
+
+FOREACH works with both node and relationship objects stored in lists. The loop variable must resolve to an object with an `id` field that matches a node or edge in the graph.
+
+```cypher
+-- Set property on relationships in a list
+MATCH (a:A) FOREACH (r IN a.rels | SET r.active = true) RETURN a.name
+
+-- Delete relationships in a list
+MATCH (a:A) FOREACH (r IN a.rels | DELETE r) RETURN a.name
+```
+
+> **Note:** FOREACH with CREATE supports dynamic property expressions (e.g., `{name: x}` where `x` is the loop variable). Static properties are evaluated at parse time; dynamic expressions are evaluated at runtime.
 
 ---
 
@@ -415,6 +683,70 @@ RETURN u, f
 
 ---
 
+## UNION / UNION ALL
+
+Combine results from multiple query branches. Each branch must be a complete query ending with a `RETURN` clause.
+
+### UNION ALL
+
+Concatenate results from all branches, preserving duplicates:
+
+```cypher
+MATCH (u:User {name: 'Alice'}) RETURN u.name
+UNION ALL
+MATCH (u:User {name: 'Bob'}) RETURN u.name
+```
+
+### UNION (deduplicated)
+
+Concatenate and deduplicate results across all branches:
+
+```cypher
+MATCH (u:User {name: 'Alice'}) RETURN u.name
+UNION
+MATCH (u:User {name: 'Alice'}) RETURN u.name
+```
+
+### Multiple branches
+
+Chain multiple `UNION` and `UNION ALL` clauses:
+
+```cypher
+MATCH (u:User) RETURN u.name
+UNION ALL
+MATCH (u:User) RETURN u.name
+UNION
+MATCH (u:User) RETURN u.name
+```
+
+### Column alignment
+
+Columns are aligned by name across branches. If a branch is missing a column, the value is `null`. Column order follows first appearance:
+
+```cypher
+MATCH (u:User {name: 'Alice'}) RETURN u.name AS n, 'A' AS grp
+UNION ALL
+MATCH (u:User {name: 'Bob'}) RETURN u.name AS n
+```
+Result: `[{n: 'Alice', grp: 'A'}, {n: 'Bob', grp: null}]`
+
+### ORDER BY / SKIP / LIMIT on combined result
+
+Place `ORDER BY`, `SKIP`, and `LIMIT` after the last branch's `RETURN` to sort and paginate the combined result:
+
+```cypher
+MATCH (u:User) RETURN u.name
+UNION ALL
+MATCH (u:Admin) RETURN u.name
+ORDER BY name DESC
+SKIP 1
+LIMIT 5
+```
+
+> **Note:** Each UNION branch must end with a `RETURN` clause. `WITH` is supported within branches but the final clause must be `RETURN`.
+
+---
+
 ## Unsupported Features
 
 The following Cypher features are **not** supported by the engine:
@@ -422,10 +754,9 @@ The following Cypher features are **not** supported by the engine:
 - **Subqueries** — `CALL {}` syntax
 - **APOC procedures** — `CALL apoc.*`
 - **Multiple MATCH in same stage** — use `WITH` to chain stages
-- **FOREACH** — not implemented; use multiple `SET` clauses with `MATCH` instead
-- **UNION** — not implemented; run separate queries and merge results externally (e.g. with `jq` or in your application code)
 - **MERGE with WHERE** — use property filters in the pattern instead
 - **MERGE with DELETE/REMOVE** — only SET is supported in ON CREATE/ON MATCH
+- **UNION without RETURN** — each branch must end with a `RETURN` clause
 
 
 ## Next Steps

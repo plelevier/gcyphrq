@@ -159,7 +159,7 @@ Parse a Cypher query string into an AST. The returned AST can be passed to `Grap
 |---|---|---|
 | `query` | `string` | A Cypher query string |
 
-**Returns:** `AdvancedCypherAST`
+**Returns:** `CypherAST` — either `AdvancedCypherAST` (single query) or `UnionQueryAST` (UNION query)
 
 **Throws:** `Error` if the query cannot be parsed
 
@@ -167,7 +167,10 @@ Parse a Cypher query string into an AST. The returned AST can be passed to `Grap
 import { parseCypher } from 'gcyphrq';
 
 const ast = parseCypher('MATCH (u:User) RETURN u');
-console.log(ast.stages[0].clause.sourcePattern.label); // 'User'
+// ast.type is 'Query' for single queries, 'UnionQuery' for UNION queries
+if (ast.type === 'Query') {
+  console.log(ast.stages[0].clause.sourcePattern.labels); // ['User']
+}
 ```
 
 ---
@@ -228,7 +231,8 @@ The Cypher query engine class. Accepts a `GraphInstance` and executes parsed AST
 
 | Method | Parameters | Returns | Description |
 |---|---|---|---|
-| `execute(ast)` | `ast: AdvancedCypherAST` | `ResultRow[]` | Execute a parsed AST against the graph |
+| `execute(ast)` | `ast: AdvancedCypherAST` | `ResultRow[]` | Execute a single parsed AST against the graph |
+| `executeUnion(ast)` | `ast: UnionQueryAST` | `ResultRow[]` | Execute a UNION/UNION ALL AST. Aligns columns by name and deduplicates for `UNION` |
 
 ```ts
 import { GraphEngine, buildGraphIndexes, parseCypher } from 'gcyphrq';
@@ -392,11 +396,28 @@ Use `parseCypher` to inspect or transform the query AST before execution:
 import { parseCypher } from 'gcyphrq';
 
 const ast = parseCypher('MATCH (u:User {name: "Alice"}) RETURN u');
-console.log(ast.stages[0].clause.sourcePattern.properties);
-// { name: 'Alice' }
+if (ast.type === 'Query') {
+  console.log(ast.stages[0].clause.sourcePattern.properties);
+  // { name: 'Alice' }
+}
 ```
 
-### Pattern 6: Mutation followed by query
+### Pattern 6: UNION / UNION ALL
+
+Combine results from multiple query branches:
+
+```ts
+import { executeQuery } from 'gcyphrq';
+
+const results = executeQuery(graphData,
+  'MATCH (u:User {name: "Alice"}) RETURN u.name UNION ALL MATCH (u:User {name: "Bob"}) RETURN u.name',
+);
+// [ { name: 'Alice' }, { name: 'Bob' } ]
+```
+
+Use `UNION` (without `ALL`) to deduplicate the combined result set.
+
+### Pattern 7: Mutation followed by query
 
 The engine supports `CREATE`, `SET`, `DELETE`, and `REMOVE` mutations within queries. Mutations modify the underlying graph in-place:
 
@@ -442,6 +463,9 @@ import type {
 
   // AST types
   AdvancedCypherAST,
+  UnionQueryAST,
+  UnionType,
+  CypherAST,
   Stage,
   MatchClause,
   WithClause,
@@ -568,6 +592,19 @@ type Stage =
   | { type: 'MATCH'; clause: MatchClause }
   | { type: 'WITH'; clause: WithClause }
   | { type: 'WRITE'; clause: WriteClause };
+
+interface UnionQueryAST {
+  type: 'UnionQuery';
+  branches: AdvancedCypherAST[];
+  unionTypes: (UnionType | null)[]; // null for first branch, then 'UNION' or 'UNION ALL'
+  orderBy: OrderByItem[] | undefined; // ORDER BY on combined result
+  skip: number | undefined;           // SKIP on combined result
+  limit: number | undefined;          // LIMIT on combined result
+}
+
+type UnionType = 'UNION' | 'UNION ALL';
+
+type CypherAST = AdvancedCypherAST | UnionQueryAST;
 ```
 
 ---

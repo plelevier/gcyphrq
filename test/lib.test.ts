@@ -3,12 +3,14 @@ import Graphology from 'graphology';
 import {
   executeQuery,
   createGraph,
-  parseCypher,
+  parseCypher as _parseCypher,
   GraphEngine,
   Graph,
   GraphError,
   buildGraphIndexes,
 } from '../src/lib';
+
+const parseCypher = _parseCypher as (query: string) => AdvancedCypherAST;
 import type {
   GraphologyFile,
   GraphologyNode,
@@ -131,7 +133,7 @@ describe('parseCypher', () => {
   it('parses MATCH with labels and properties', () => {
     const ast = parseCypher('MATCH (u:User {name: "Alice"}) RETURN u');
     const clause = ast.stages[0] as { type: 'MATCH'; clause: MatchClause };
-    expect(clause.clause.sourcePattern.label).toBe('User');
+    expect(clause.clause.sourcePattern.labels).toEqual({ labels: ['User'], orLabels: [], notLabels: [], orNotLabels: [] });
     expect(clause.clause.sourcePattern.properties).toEqual({ name: 'Alice' });
   });
 

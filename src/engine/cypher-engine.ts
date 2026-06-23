@@ -1,8 +1,13 @@
 import { randomUUID } from 'crypto';
+import { evaluateArithmeticCore } from '../arithmetic';
 import { DEFAULT_CONFIG } from '../types/cypher';
 import type {
   AdvancedCypherAST,
+  UnionQueryAST,
+  CypherAST,
   AggregationExpression,
+  ArithmeticExpression,
+  LabelExpression,
   MatchClause,
   MergeAction,
   MergeClause,
@@ -12,6 +17,7 @@ import type {
   WithClause,
   WriteClause,
   UnwindClause,
+  ForeachClause,
   Expression,
   BinaryExpression,
   WhereExpression,
@@ -90,11 +96,15 @@ export class AdvancedCypherGraphologyEngine {
   private graph: GraphInstance;
   private indexes: GraphIndexes | undefined;
   private config: GraphConfig;
+  private warnedNoLabels = false;
+  private warnedNoEdgeTypes = false;
+  private onWarning?: ((message: string) => void) | undefined;
 
-  constructor(graph: GraphInstance, indexes?: GraphIndexes) {
+  constructor(graph: GraphInstance, indexes?: GraphIndexes, onWarning?: (message: string) => void) {
     this.graph = graph;
     this.indexes = indexes;
     this.config = indexes?.config ?? DEFAULT_CONFIG;
+    this.onWarning = onWarning;
   }
 
   /**
@@ -115,6 +125,8 @@ export class AdvancedCypherGraphologyEngine {
         contexts = this.executeMerge(stage.clause, contexts);
       } else if (stage.type === 'UNWIND') {
         contexts = this.executeUnwind(stage.clause, contexts);
+      } else if (stage.type === 'FOREACH') {
+        contexts = this.executeForeach(stage.clause, contexts);
       }
     }
 
@@ -123,6 +135,116 @@ export class AdvancedCypherGraphologyEngine {
     }
 
     return [];
+  }
+
+  /**
+   * Invalidate pre-computed indexes so subsequent queries fall back to
+   * full-graph scan. Useful after external mutations (e.g., direct Graphology
+   * API calls) that bypass the engine's own mutation tracking.
+   */
+  public invalidateIndexes(): void {
+    this.indexes = undefined;
+  }
+
+  /**
+   * Execute a UNION / UNION ALL query.
+   *
+   * Runs each branch independently, aligns columns by name (first-appearance
+   * order), concatenates results, and optionally deduplicates for UNION (not ALL).
+   * Applies ORDER BY / SKIP / LIMIT to the combined result if present.
+   */
+  public executeUnion(ast: UnionQueryAST): ResultRow[] {
+    const allRows: ResultRow[] = [];
+    const allColumnNames: string[] = []; // in order of first appearance
+    const seenColumns = new Set<string>();
+
+    // Execute each branch independently
+    for (const branch of ast.branches) {
+      const branchResults = this.execute(branch);
+      for (const row of branchResults) {
+        // Collect column names in order of first appearance
+        for (const key of Object.keys(row)) {
+          if (!seenColumns.has(key)) {
+            seenColumns.add(key);
+            allColumnNames.push(key);
+          }
+        }
+        allRows.push(row);
+      }
+    }
+
+    // Align all rows to the same column set (fill missing with null)
+    const alignedRows: ResultRow[] = allRows.map((row) => {
+      const aligned: ResultRow = {};
+      for (const col of allColumnNames) {
+        aligned[col] = row[col] ?? null;
+      }
+      return aligned;
+    });
+
+    // Determine if any branch is UNION (not ALL) — if so, deduplicate
+    let results: ResultRow[] = alignedRows;
+    const hasUnionNotAll = ast.unionTypes.some((t) => t === 'UNION');
+    if (hasUnionNotAll) {
+      const seen = new Set<string>();
+      const deduped: ResultRow[] = [];
+      for (const row of alignedRows) {
+        const key = allColumnNames
+          .map((col) => JSON.stringify([col, row[col]]))
+          .join('\0');
+        if (!seen.has(key)) {
+          seen.add(key);
+          deduped.push(row);
+        }
+      }
+      results = deduped;
+    }
+
+    // Apply ORDER BY to the combined result
+    if (ast.orderBy && ast.orderBy.length > 0) {
+      results = this.applyOrderByToRows(results, ast.orderBy);
+    }
+
+    // Apply SKIP
+    if (ast.skip !== undefined && ast.skip !== null) {
+      results = results.slice(ast.skip);
+    }
+
+    // Apply LIMIT
+    if (ast.limit !== undefined && ast.limit !== null) {
+      results = results.slice(0, ast.limit);
+    }
+
+    return results;
+  }
+
+  /**
+   * Sort result rows by ORDER BY items. Evaluates expressions against
+   * the row data by building a synthetic context from column aliases.
+   */
+  private applyOrderByToRows(rows: ResultRow[], orderBy: OrderByItem[]): ResultRow[] {
+    const keyed = rows.map((row) => {
+      // Build a synthetic context: column alias → value
+      const ctx: QueryContext = {};
+      for (const [key, val] of Object.entries(row)) {
+        ctx[key] = val;
+      }
+      return {
+        row,
+        keys: orderBy.map((item) => this.evaluateExpression(item.expression, ctx)),
+      };
+    });
+
+    keyed.sort((a, b) => {
+      for (let i = 0; i < orderBy.length; i++) {
+        const cmp = this.compareValues(a.keys[i], b.keys[i]);
+        const item = orderBy[i];
+        if (cmp !== 0 && item) return item.direction === 'DESC' ? -cmp : cmp;
+      }
+      return 0;
+    });
+
+    return keyed.map((k) => k.row);
   }
 
   // ── Index-based node lookup (optimisation #2, #3) ─────────────────────────
@@ -141,54 +263,170 @@ export class AdvancedCypherGraphologyEngine {
     }
 
     const { labelIndex, propertyIndex } = indexes;
-    const label = pattern.label;
+    const labelExpr = pattern.labels;
     const props = pattern.properties;
     const propKeys = props ? Object.keys(props) : [];
-    const hasLabel = label !== undefined;
     const hasProps = propKeys.length > 0;
+    const hasAndLabels = labelExpr?.labels.length ?? 0 > 0;
+    const hasOrLabels = labelExpr?.orLabels.length ?? 0 > 0;
+    const hasAndNotLabels = labelExpr?.notLabels.length ?? 0 > 0;
+    const hasOrNotLabels = labelExpr?.orNotLabels.length ?? 0 > 0;
+    const hasAnyLabels = hasAndLabels || hasOrLabels || hasAndNotLabels || hasOrNotLabels;
 
-    if (hasLabel && hasProps && props) {
-      // Intersect label index with property index
-      const labelSet = labelIndex.get(label);
-      if (!labelSet || labelSet.size === 0) return [];
+    // Warn once if label-based matching is used but no nodes have labels
+    if (hasAnyLabels && !this.warnedNoLabels && labelIndex.size === 0) {
+      this.warnedNoLabels = true;
+      const warn = this.onWarning ?? console.warn;
+      warn(`No nodes have a "${this.config.labelProperty}" property. Label-based matching (e.g. MATCH (n:Label)) will return no results.`);
+    }
 
+    // Build candidate set from label indexes.
+    // 1. `labels` (AND semantics): intersect all label sets from the first expression.
+    // 2. `notLabels` (AND NOT): subtract from AND candidates.
+    // 3. `orLabels` (OR semantics): union all label sets from | alternatives.
+    // 4. `orNotLabels` (OR NOT): all nodes minus those with the negated label.
+    // 5. Combine: if both AND and OR exist, union the AND result with the OR result.
+    let labelCandidates: Set<string> | undefined;
+
+    // Step 1: AND labels (intersect)
+    let andCandidates: Set<string> | undefined;
+    if (hasAndLabels && labelExpr) {
+      for (const label of labelExpr.labels) {
+        const labelSet = labelIndex.get(label);
+        if (!labelSet || labelSet.size === 0) {
+          andCandidates = new Set(); // label not found — no AND matches
+          break;
+        }
+        if (!andCandidates) {
+          andCandidates = new Set(labelSet);
+        } else {
+          // Intersect: keep only IDs present in both sets
+          const smaller = andCandidates.size < labelSet.size ? andCandidates : labelSet;
+          const larger = andCandidates.size < labelSet.size ? labelSet : andCandidates;
+          andCandidates = new Set([...smaller].filter((id) => larger.has(id)));
+          if (!andCandidates.size) break;
+        }
+      }
+    }
+
+    // Step 2: Apply AND NOT labels to AND candidates
+    if (hasAndNotLabels && labelExpr) {
+      const andNotIds = new Set<string>();
+      for (const label of labelExpr.notLabels) {
+        const labelSet = labelIndex.get(label);
+        if (labelSet) {
+          for (const id of labelSet) andNotIds.add(id);
+        }
+      }
+      if (andCandidates) {
+        for (const id of andNotIds) andCandidates.delete(id);
+      } else if (andNotIds.size > 0) {
+        // No AND labels but AND NOT labels — all nodes minus negated
+        andCandidates = new Set(this.graph.filterNodes((id) => !andNotIds.has(id)));
+      }
+    }
+
+    // Step 3: OR labels (union)
+    let orCandidates: Set<string> | undefined;
+    if (hasOrLabels && labelExpr) {
+      for (const label of labelExpr.orLabels) {
+        const labelSet = labelIndex.get(label);
+        if (!labelSet) continue;
+        if (!orCandidates) {
+          orCandidates = new Set(labelSet);
+        } else {
+          for (const id of labelSet) orCandidates.add(id);
+        }
+      }
+    }
+
+    // Step 4: OR NOT labels — all nodes minus those with the negated label
+    if (hasOrNotLabels && labelExpr) {
+      const orNotIds = new Set<string>();
+      for (const label of labelExpr.orNotLabels) {
+        const labelSet = labelIndex.get(label);
+        if (labelSet) {
+          for (const id of labelSet) orNotIds.add(id);
+        }
+      }
+      const allNotCandidates = new Set(this.graph.filterNodes((id) => !orNotIds.has(id)));
+      if (orCandidates) {
+        for (const id of allNotCandidates) orCandidates.add(id);
+      } else {
+        orCandidates = allNotCandidates;
+      }
+    }
+
+    // Step 5: Combine AND and OR results — union the AND result with the OR result
+    if (andCandidates && orCandidates) {
+      // Union: AND result ∪ OR result
+      labelCandidates = new Set(andCandidates);
+      for (const id of orCandidates) labelCandidates.add(id);
+    } else if (andCandidates) {
+      labelCandidates = andCandidates;
+    } else if (orCandidates) {
+      labelCandidates = orCandidates;
+    }
+
+    const hasLabels = hasAnyLabels && (labelCandidates?.size ?? 0) > 0;
+
+    if (hasLabels && hasProps && props && labelCandidates) {
+      // Intersect label candidates with property index.
+      // Skip index lookup if the first property value is an object (arrays are not indexed).
       const firstKey = propKeys[0];
       if (!firstKey) return [];
-      const firstVal = String(props[firstKey]);
-      const propSet = propertyIndex.get(firstKey)?.get(firstVal);
+      const firstVal = props[firstKey];
+      const useIndex = firstVal !== null && firstVal !== undefined && typeof firstVal !== 'object';
 
-      if (!propSet || propSet.size === 0) return [];
+      if (useIndex) {
+        const propSet = propertyIndex.get(firstKey)?.get(String(firstVal));
+        if (!propSet || propSet.size === 0) return [];
 
-      // Intersect the two sets, then filter remaining properties in JS
-      const candidates = propSet.size < labelSet.size
-        ? [...propSet].filter((id) => labelSet.has(id))
-        : [...labelSet].filter((id) => propSet.has(id));
+        const candidates = propSet.size < labelCandidates.size
+          ? [...propSet].filter((id) => labelCandidates.has(id))
+          : [...labelCandidates].filter((id) => propSet.has(id));
 
-      if (propKeys.length <= 1) return candidates;
+        if (propKeys.length <= 1) return candidates;
 
-      return candidates.filter((id) => {
+        return candidates.filter((id) => {
+          const attrs = this.graph.getNodeAttributes(id);
+          return propKeys.slice(1).every((k) => this.deepEquals(attrs[k], props[k]));
+        });
+      }
+
+      // Index not usable — filter label candidates by all properties
+      return [...labelCandidates].filter((id) => {
         const attrs = this.graph.getNodeAttributes(id);
-        return propKeys.slice(1).every((k) => attrs[k] === props[k]);
+        return propKeys.every((k) => this.deepEquals(attrs[k], props[k]));
       });
     }
 
-    if (hasLabel) {
-      const labelSet = labelIndex.get(label);
-      return labelSet ? [...labelSet] : [];
+    if (hasLabels && labelCandidates) {
+      return [...labelCandidates];
     }
 
     if (hasProps && props) {
       const firstKey = propKeys[0];
       if (!firstKey) return [];
-      const firstVal = String(props[firstKey]);
-      const propSet = propertyIndex.get(firstKey)?.get(firstVal);
-      if (!propSet) return [];
+      const firstVal = props[firstKey];
+      const useIndex = firstVal !== null && firstVal !== undefined && typeof firstVal !== 'object';
 
-      if (propKeys.length === 1) return [...propSet];
+      if (useIndex) {
+        const propSet = propertyIndex.get(firstKey)?.get(String(firstVal));
+        if (!propSet) return [];
 
-      return [...propSet].filter((id) => {
+        if (propKeys.length === 1) return [...propSet];
+
+        return [...propSet].filter((id) => {
+          const attrs = this.graph.getNodeAttributes(id);
+          return propKeys.slice(1).every((k) => this.deepEquals(attrs[k], props[k]));
+        });
+      }
+
+      // Index not usable — full-graph scan with deep equality
+      return this.graph.filterNodes((id) => {
         const attrs = this.graph.getNodeAttributes(id);
-        return propKeys.slice(1).every((k) => attrs[k] === props[k]);
+        return propKeys.every((k) => this.deepEquals(attrs[k], props[k]));
       });
     }
 
@@ -393,6 +631,16 @@ export class AdvancedCypherGraphologyEngine {
     const edgeType = relation.type;
     const hasIndex = indexes !== undefined && edgeType !== undefined;
 
+    // Warn once if edge-type matching is used but no edges have the type property
+    if (edgeType && indexes && !this.warnedNoEdgeTypes) {
+      const allKeys = [...indexes.edgeTypeIndex.out.keys()];
+      if (allKeys.length > 0 && allKeys.every((k) => k === '__UNTYPED__')) {
+        this.warnedNoEdgeTypes = true;
+        const warn = this.onWarning ?? console.warn;
+        warn(`No edges have a "${this.config.edgeTypeProperty}" property. Relationship-type matching (e.g. -[:TYPE]->) will not use the adjacency index and will scan all edges instead.`);
+      }
+    }
+
     if (hasIndex && edgeType && relation.direction === 'OUT') {
       const adj = indexes.edgeTypeIndex.out.get(edgeType);
       return (nodeId, cb) => {
@@ -492,17 +740,78 @@ export class AdvancedCypherGraphologyEngine {
     return outgoingContexts;
   }
 
+  // ── 1c. FOREACH STAGE ────────────────────────────────────────────────────
+  // Iterates over a list and executes an inner write clause for each element.
+  // Unlike UNWIND, FOREACH does NOT expand rows — the number of output rows
+  // equals the number of input rows. Graph mutations persist across iterations.
+  // If the list is null/undefined, the FOREACH is a no-op (matching Neo4j).
+
+  private executeForeach(
+    clause: ForeachClause,
+    contexts: (QueryContext | ContextChain)[],
+  ): (QueryContext | ContextChain)[] {
+    // Materialise all contexts so mutations from inner clauses are visible
+    // to subsequent stages (same pattern as executeWrite).
+    for (let i = 0; i < contexts.length; i++) {
+      const ctx = contexts[i];
+      if (ctx && isContextChain(ctx)) {
+        contexts[i] = materialiseChain(ctx);
+      }
+    }
+    const materialised = contexts as QueryContext[];
+
+    for (const context of materialised) {
+      const listValue = this.evaluateExpression(clause.expression, context);
+
+      // If the list is null/undefined, skip (Neo4j semantics — no-op)
+      if (listValue === null || listValue === undefined) continue;
+
+      // Must be an array
+      if (!Array.isArray(listValue)) continue;
+
+      // For each element, clone context, bind loop variable, execute inner clause
+      for (const element of listValue) {
+        const loopContext: QueryContext = { ...context, [clause.variable]: element };
+        this.executeWrite(clause.innerClause, [loopContext]);
+      }
+    }
+
+    // Invalidate indexes so subsequent stages see the updated graph
+    this.indexes = undefined;
+
+    // Return the (now materialised) contexts — same count, no row expansion
+    return contexts;
+  }
+
   // ── 2. WITH & IMPLICIT GROUPING AGGREGATIONS STAGE ─────────────────────────
   // Optimisations applied:
   //   #4  Context chains throughout, materialised only for grouping
   //   #5  Single-pass aggregation (all agg types computed in one row scan)
 
+  /** Check if an expression contains any aggregation (directly or nested). */
+  private containsAggregation(expr: Expression): boolean {
+    if (expr.type === 'Aggregation') return true;
+    if (expr.type === 'Arithmetic') {
+      if (expr.left && this.containsAggregation(expr.left)) return true;
+      return this.containsAggregation(expr.right);
+    }
+    if (expr.type === 'FunctionCall') return expr.arguments.some((a) => this.containsAggregation(a));
+    if (expr.type === 'ListLiteral') return expr.values.some((v) => this.containsAggregation(v));
+    if (expr.type === 'MapLiteral') return expr.entries.some((e) => this.containsAggregation(e.value));
+    if (expr.type === 'ListSlice') {
+      if (this.containsAggregation(expr.list)) return true;
+      if (this.containsAggregation(expr.start)) return true;
+      return this.containsAggregation(expr.end);
+    }
+    return false;
+  }
+
   private executeWith(
     clause: WithClause,
     contexts: (QueryContext | ContextChain)[],
   ): QueryContext[] {
-    const keysSimple = clause.projections.filter((p) => p.expression.type !== 'Aggregation');
-    const keysAggr = clause.projections.filter((p) => p.expression.type === 'Aggregation');
+    const keysSimple = clause.projections.filter((p) => !this.containsAggregation(p.expression));
+    const keysAggr = clause.projections.filter((p) => this.containsAggregation(p.expression));
 
     const groups = new Map<string, { simpleValues: QueryContext; rows: QueryContext[] }>();
 
@@ -554,6 +863,28 @@ export class AdvancedCypherGraphologyEngine {
   // Single-pass: compute COUNT, SUM, AVG, MIN, MAX for all aggregation
   // variables in one row scan. Used by both executeWith and executeReturn.
 
+  /** Collect all AggregationExpression nodes from an expression tree. */
+  private collectAggregations(expr: Expression): AggregationExpression[] {
+    const results: AggregationExpression[] = [];
+    if (expr.type === 'Aggregation') {
+      results.push(expr);
+    } else if (expr.type === 'Arithmetic') {
+      if (expr.left) results.push(...this.collectAggregations(expr.left));
+      results.push(...this.collectAggregations(expr.right));
+    } else if (expr.type === 'FunctionCall') {
+      expr.arguments.forEach((a) => results.push(...this.collectAggregations(a)));
+    } else if (expr.type === 'ListLiteral') {
+      expr.values.forEach((v) => results.push(...this.collectAggregations(v)));
+    } else if (expr.type === 'MapLiteral') {
+      expr.entries.forEach((e) => results.push(...this.collectAggregations(e.value)));
+    } else if (expr.type === 'ListSlice') {
+      results.push(...this.collectAggregations(expr.list));
+      results.push(...this.collectAggregations(expr.start));
+      results.push(...this.collectAggregations(expr.end));
+    }
+    return results;
+  }
+
   private computeAggregations(
     baseContext: QueryContext,
     rows: QueryContext[],
@@ -562,12 +893,14 @@ export class AdvancedCypherGraphologyEngine {
     const newContext = { ...baseContext };
 
     // Collect all unique aggregation variables for single-pass extraction
+    // Includes aggregations nested inside mixed expressions (e.g., count(n) * 2)
     const aggVars = new Map<string, AggregationExpression>();
     aggrProjections.forEach((p) => {
-      if (p.expression.type === 'Aggregation') {
-        const key = `${p.expression.variable}:${p.expression.property ?? ''}`;
-        aggVars.set(key, p.expression);
-      }
+      const aggs = this.collectAggregations(p.expression);
+      aggs.forEach((agg) => {
+        const key = `${agg.variable}:${agg.property ?? ''}`;
+        aggVars.set(key, agg);
+      });
     });
 
     // Single pass: extract numeric values for all aggregation variables
@@ -608,27 +941,50 @@ export class AdvancedCypherGraphologyEngine {
     }
 
     // Compute all aggregation results from cached values
+    // Collect ALL unique aggregation expressions (not just unique variable:property)
+    // because avg(u.age), min(u.age), max(u.age) share the same variable:property
+    const allAggExprs = new Map<string, AggregationExpression>();
     aggrProjections.forEach((p) => {
-      const expr = p.expression;
-      if (expr.type !== 'Aggregation') return;
+      const aggs = this.collectAggregations(p.expression);
+      aggs.forEach((agg) => {
+        const aggKey = `${agg.variable}:${agg.property ?? ''}:${agg.aggregationType}:${agg.distinct}`;
+        allAggExprs.set(aggKey, agg);
+      });
+    });
+
+    const aggResults = new Map<string, CypherValue>();
+    allAggExprs.forEach((expr, aggKey) => {
       const key = `${expr.variable}:${expr.property ?? ''}`;
       const numericValues = numericCache.get(key) ?? [];
       const nonNullCount = nonNullCache.get(key) ?? 0;
 
       if (expr.aggregationType === 'COUNT') {
-        newContext[p.alias] = expr.distinct
+        aggResults.set(aggKey, expr.distinct
           ? (distinctSeen.get(key)?.size ?? 0)
-          : nonNullCount;
+          : nonNullCount);
       } else if (expr.aggregationType === 'SUM') {
-        newContext[p.alias] = numericValues.reduce((a, b) => a + b, 0);
+        aggResults.set(aggKey, numericValues.reduce((a, b) => a + b, 0));
       } else if (expr.aggregationType === 'AVG') {
-        newContext[p.alias] = numericValues.length > 0
+        aggResults.set(aggKey, numericValues.length > 0
           ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length
-          : null;
+          : null);
       } else if (expr.aggregationType === 'MIN') {
-        newContext[p.alias] = numericValues.length > 0 ? Math.min(...numericValues) : null;
+        aggResults.set(aggKey, numericValues.length > 0 ? Math.min(...numericValues) : null);
       } else if (expr.aggregationType === 'MAX') {
-        newContext[p.alias] = numericValues.length > 0 ? Math.max(...numericValues) : null;
+        aggResults.set(aggKey, numericValues.length > 0 ? Math.max(...numericValues) : null);
+      }
+    });
+
+    // Assign results to projection aliases
+    // Pure aggregations: direct lookup; mixed expressions: evaluate with pre-computed values
+    aggrProjections.forEach((p) => {
+      if (p.expression.type === 'Aggregation') {
+        const key = `${p.expression.variable}:${p.expression.property ?? ''}`;
+        const aggKey = `${key}:${p.expression.aggregationType}:${p.expression.distinct}`;
+        newContext[p.alias] = aggResults.get(aggKey) ?? null;
+      } else {
+        // Mixed expression (e.g., count(n) * 2) — evaluate with pre-computed aggregations
+        newContext[p.alias] = this.evaluateExpressionWithAggregations(p.expression, newContext, aggResults);
       }
     });
 
@@ -656,54 +1012,136 @@ export class AdvancedCypherGraphologyEngine {
 
     // CREATE executes once per query; SET/DELETE execute per context row
     if (clause.type === 'CREATE') {
-      const newId = randomUUID();
-      this.graph.addNode(newId, { [this.config.labelProperty]: clause.label, ...clause.properties });
-      const newNode = { id: newId, [this.config.labelProperty]: clause.label, ...clause.properties } as CypherNode;
+      // For dynamic CREATE (inside FOREACH), evaluate properties in each context
       for (const context of materialised) {
+        const newId = randomUUID();
+        const labelValue = clause.labels && clause.labels.length > 0
+          ? (clause.labels.length === 1 ? clause.labels[0]! : clause.labels)
+          : undefined;
+
+        // Use dynamic propertiesExpr if available (FOREACH), otherwise static properties
+        let props: Record<string, CypherValue> = clause.properties ?? {};
+        if (clause.propertiesExpr) {
+          props = {};
+          for (const [key, expr] of Object.entries(clause.propertiesExpr)) {
+            props[key] = this.evaluateExpression(expr, context) as CypherValue;
+          }
+        }
+
+        this.graph.addNode(newId, { [this.config.labelProperty]: labelValue, ...props });
+        const newNode = { id: newId, [this.config.labelProperty]: labelValue, ...props } as CypherNode;
         context[clause.variable] = newNode;
       }
     } else if (clause.type === 'SET') {
-      const nodeIds = new Set<string>();
-      for (const context of materialised) {
-        const targetNode = context[clause.variable] as CypherNode | undefined;
-        if (targetNode && targetNode.id) nodeIds.add(targetNode.id);
+      // Handle label addition (SET n:Label or SET n:Label prop=val)
+      // Labels only apply to nodes, not relationships
+      if (clause.labels && clause.labels.length > 0) {
+        for (const context of materialised) {
+          const target = context[clause.variable] as CypherNode | undefined;
+          if (target && target.id && this.graph.hasNode(target.id)) {
+            const nodeId = target.id;
+            const attrs = this.graph.getNodeAttributes(nodeId);
+            const currentRaw = attrs[this.config.labelProperty];
+            const existingLabels = typeof currentRaw === 'string'
+              ? [currentRaw]
+              : Array.isArray(currentRaw)
+                ? currentRaw.filter((l: unknown): l is string => typeof l === 'string')
+                : [];
+            // Merge new labels (no duplicates)
+            const merged = [...new Set([...existingLabels, ...clause.labels])];
+            if (merged.length === 0) {
+              // no-op
+            } else if (merged.length === 1) {
+              this.graph.setNodeAttribute(nodeId, this.config.labelProperty, merged[0]);
+            } else {
+              this.graph.setNodeAttribute(nodeId, this.config.labelProperty, merged);
+            }
+          }
+        }
       }
-      for (const nodeId of nodeIds) {
-        this.graph.setNodeAttribute(nodeId, clause.property, clause.value);
+
+      // Handle property SET (SET n.prop = val or SET r.prop = val)
+      if (clause.property) {
+        const nodeIds = new Set<string>();
+        const edgeIds = new Set<string>();
+        for (const context of materialised) {
+          const target = context[clause.variable] as CypherNode | CypherEdge | undefined;
+          if (target && target.id) {
+            if (this.graph.hasNode(target.id)) nodeIds.add(target.id);
+            else if (this.graph.hasEdge(target.id)) edgeIds.add(target.id);
+          }
+        }
+        for (const nodeId of nodeIds) {
+          const ctx = materialised.find((c) => {
+            const t = c[clause.variable] as CypherNode | CypherEdge | undefined;
+            return t && t.id === nodeId;
+          });
+          const evaluatedValue = ctx ? this.evaluateExpression(clause.value, ctx) : undefined;
+          this.graph.setNodeAttribute(nodeId, clause.property, evaluatedValue);
+        }
+        for (const edgeId of edgeIds) {
+          const ctx = materialised.find((c) => {
+            const t = c[clause.variable] as CypherNode | CypherEdge | undefined;
+            return t && t.id === edgeId;
+          });
+          const evaluatedValue = ctx ? this.evaluateExpression(clause.value, ctx) : undefined;
+          this.graph.setEdgeAttribute(edgeId, clause.property, evaluatedValue);
+        }
       }
+      // Refresh all affected targets in context (nodes and edges)
       for (const context of materialised) {
-        const targetNode = context[clause.variable] as CypherNode | undefined;
-        if (targetNode && targetNode.id && nodeIds.has(targetNode.id)) {
-          const fresh = { id: targetNode.id, ...this.graph.getNodeAttributes(targetNode.id) } as CypherNode;
-          context[clause.variable] = fresh;
+        const target = context[clause.variable] as CypherNode | CypherEdge | undefined;
+        if (target && target.id) {
+          if (this.graph.hasNode(target.id)) {
+            context[clause.variable] = { id: target.id, ...this.graph.getNodeAttributes(target.id) } as CypherNode;
+          } else if (this.graph.hasEdge(target.id)) {
+            const edgeInfo = this.graph.getEdgeEndpoints(target.id);
+            context[clause.variable] = {
+              id: target.id,
+              source: edgeInfo.source,
+              target: edgeInfo.target,
+              ...this.graph.getEdgeAttributes(target.id),
+            } as CypherEdge;
+          }
         }
       }
     } else if (clause.type === 'DELETE') {
       const nodeIds = new Set<string>();
+      const edgeIds = new Set<string>();
       for (const context of materialised) {
-        const targetNode = context[clause.variable] as CypherNode | undefined;
-        if (targetNode && targetNode.id && this.graph.hasNode(targetNode.id)) {
-          nodeIds.add(targetNode.id);
+        const target = context[clause.variable] as CypherNode | CypherEdge | undefined;
+        if (target && target.id) {
+          if (this.graph.hasNode(target.id)) nodeIds.add(target.id);
+          else if (this.graph.hasEdge(target.id)) edgeIds.add(target.id);
         }
       }
       for (const nodeId of nodeIds) {
         this.graph.dropNode(nodeId);
       }
+      for (const edgeId of edgeIds) {
+        this.graph.dropEdge(edgeId);
+      }
       for (const context of materialised) {
-        const targetNode = context[clause.variable] as CypherNode | undefined;
-        if (targetNode && targetNode.id && nodeIds.has(targetNode.id)) {
+        const target = context[clause.variable] as CypherNode | CypherEdge | undefined;
+        if (target && target.id && (nodeIds.has(target.id) || edgeIds.has(target.id))) {
           context[clause.variable] = null;
         }
       }
     } else if (clause.type === 'REMOVE') {
-      // Collect all node IDs across all items (different variables possible)
+      // Collect all target IDs across all items (different variables possible)
       const nodeMap = new Map<string, Set<string>>();
+      const edgeMap = new Map<string, Set<string>>();
       for (const item of clause.items) {
         for (const context of materialised) {
-          const targetNode = context[item.variable] as CypherNode | undefined;
-          if (targetNode && targetNode.id && this.graph.hasNode(targetNode.id)) {
-            if (!nodeMap.has(item.variable)) nodeMap.set(item.variable, new Set());
-            nodeMap.get(item.variable)!.add(targetNode.id);
+          const target = context[item.variable] as CypherNode | CypherEdge | undefined;
+          if (target && target.id) {
+            if (this.graph.hasNode(target.id)) {
+              if (!nodeMap.has(item.variable)) nodeMap.set(item.variable, new Set());
+              nodeMap.get(item.variable)!.add(target.id);
+            } else if (this.graph.hasEdge(target.id)) {
+              if (!edgeMap.has(item.variable)) edgeMap.set(item.variable, new Set());
+              edgeMap.get(item.variable)!.add(target.id);
+            }
           }
         }
       }
@@ -711,30 +1149,64 @@ export class AdvancedCypherGraphologyEngine {
       // Apply each removal
       for (const item of clause.items) {
         const nodeIds = nodeMap.get(item.variable);
-        if (!nodeIds) continue;
+        const edgeIds = edgeMap.get(item.variable);
 
-        for (const nodeId of nodeIds) {
-          if (item.property) {
-            // Property removal
+        // Property removal on nodes
+        if (nodeIds && item.property) {
+          for (const nodeId of nodeIds) {
             this.graph.setNodeAttribute(nodeId, item.property, undefined);
-          } else {
-            // Label removal: only if the label matches
+          }
+        }
+        // Property removal on edges
+        if (edgeIds && item.property) {
+          for (const edgeId of edgeIds) {
+            this.graph.setEdgeAttribute(edgeId, item.property, undefined);
+          }
+        }
+        // Label removal: only applies to nodes
+        if (nodeIds && item.labels && item.labels.length > 0) {
+          const removeLabels = item.labels;
+          for (const nodeId of nodeIds) {
             const attrs = this.graph.getNodeAttributes(nodeId);
-            const currentLabel = attrs[this.config.labelProperty];
-            if (currentLabel === item.label) {
-              this.graph.setNodeAttribute(nodeId, this.config.labelProperty, undefined);
+            const currentRaw = attrs[this.config.labelProperty];
+            if (typeof currentRaw === 'string') {
+              if (removeLabels.some((l) => l === currentRaw)) {
+                this.graph.setNodeAttribute(nodeId, this.config.labelProperty, undefined);
+              }
+            } else if (Array.isArray(currentRaw)) {
+              const remaining = currentRaw.filter((l: string) => !removeLabels.includes(l));
+              if (remaining.length === 0) {
+                this.graph.setNodeAttribute(nodeId, this.config.labelProperty, undefined);
+              } else if (remaining.length === 1) {
+                this.graph.setNodeAttribute(nodeId, this.config.labelProperty, remaining[0]);
+              } else {
+                this.graph.setNodeAttribute(nodeId, this.config.labelProperty, remaining);
+              }
             }
           }
         }
       }
 
-      // Refresh all affected nodes in context
+      // Refresh all affected targets in context
       for (const [variable, nodeIds] of nodeMap) {
         for (const context of materialised) {
-          const targetNode = context[variable] as CypherNode | undefined;
-          if (targetNode && targetNode.id && nodeIds.has(targetNode.id)) {
-            const fresh = { id: targetNode.id, ...this.graph.getNodeAttributes(targetNode.id) } as CypherNode;
-            context[variable] = fresh;
+          const target = context[variable] as CypherNode | CypherEdge | undefined;
+          if (target && target.id && nodeIds.has(target.id)) {
+            context[variable] = { id: target.id, ...this.graph.getNodeAttributes(target.id) } as CypherNode;
+          }
+        }
+      }
+      for (const [variable, edgeIds] of edgeMap) {
+        for (const context of materialised) {
+          const target = context[variable] as CypherNode | CypherEdge | undefined;
+          if (target && target.id && edgeIds.has(target.id)) {
+            const edgeInfo = this.graph.getEdgeEndpoints(target.id);
+            context[variable] = {
+              id: target.id,
+              source: edgeInfo.source,
+              target: edgeInfo.target,
+              ...this.graph.getEdgeAttributes(target.id),
+            } as CypherEdge;
           }
         }
       }
@@ -814,8 +1286,12 @@ export class AdvancedCypherGraphologyEngine {
     // Create the node
     const newId = randomUUID();
     const attrs: Record<string, unknown> = { ...pattern.properties };
-    if (pattern.label) {
-      attrs[this.config.labelProperty] = pattern.label;
+    // Only AND labels (first expression) are used for creation
+    const andLabels = pattern.labels?.labels;
+    if (andLabels && andLabels.length > 0) {
+      attrs[this.config.labelProperty] = andLabels.length === 1
+        ? andLabels[0]!
+        : andLabels;
     }
     this.graph.addNode(newId, attrs);
     return { id: newId, created: true };
@@ -966,15 +1442,18 @@ export class AdvancedCypherGraphologyEngine {
     chain: ContextChain,
     relationVariable?: string,
   ): void {
+    const context = materialiseChain(chain);
     for (const action of actions) {
       const varName = action.variable;
+      const value = this.evaluateExpression(action.value, context);
+
       // Check if this is a relationship variable
       if (relationVariable && varName === relationVariable) {
         const edgeArray = chain[CHAIN_OVERRIDES][varName] as CypherEdge[] | undefined;
         if (edgeArray && edgeArray.length > 0) {
           const edge = edgeArray[0]!;
           if (edge.id) {
-            this.graph.setEdgeAttribute(edge.id, action.property, action.value);
+            this.graph.setEdgeAttribute(edge.id, action.property, value);
             // Update the in-context edge with fresh data
             const freshAttrs = this.graph.getEdgeAttributes(edge.id);
             edgeArray[0] = { id: edge.id, source: edge.source, target: edge.target, ...freshAttrs } as CypherEdge;
@@ -986,7 +1465,7 @@ export class AdvancedCypherGraphologyEngine {
       // Node variable
       const targetNode = chain[CHAIN_OVERRIDES][varName] as CypherNode | undefined;
       if (targetNode && targetNode.id) {
-        this.graph.setNodeAttribute(targetNode.id, action.property, action.value);
+        this.graph.setNodeAttribute(targetNode.id, action.property, value);
         // Update the in-context node with fresh data
         const fresh = { id: targetNode.id, ...this.graph.getNodeAttributes(targetNode.id) } as CypherNode;
         chain[CHAIN_OVERRIDES][varName] = fresh;
@@ -1003,8 +1482,8 @@ export class AdvancedCypherGraphologyEngine {
     clause: ReturnClause,
     contexts: (QueryContext | ContextChain)[],
   ): ResultRow[] {
-    const keysSimple = clause.projections.filter((p) => p.expression.type !== 'Aggregation');
-    const keysAggr = clause.projections.filter((p) => p.expression.type === 'Aggregation');
+    const keysSimple = clause.projections.filter((p) => !this.containsAggregation(p.expression));
+    const keysAggr = clause.projections.filter((p) => this.containsAggregation(p.expression));
 
     let results: ResultRow[];
 
@@ -1103,16 +1582,321 @@ export class AdvancedCypherGraphologyEngine {
       return obj as CypherValue;
     }
     if (expr.type === 'Literal') return expr.value;
-    if (expr.type === 'ListLiteral') return expr.values as CypherValue;
-    if (expr.type === 'MapLiteral') return expr.values as CypherValue;
+    if (expr.type === 'ListLiteral') {
+      const values: CypherValue[] = [];
+      for (const le of expr.values) {
+        const val = this.evaluateExpression(le, context);
+        values.push(val as CypherValue);
+      }
+      return values as CypherValue;
+    }
+    if (expr.type === 'MapLiteral') {
+      const values: Record<string, CypherValue> = {};
+      for (const entry of expr.entries) {
+        const val = this.evaluateExpression(entry.value, context);
+        values[entry.key] = val as CypherValue;
+      }
+      return values as CypherValue;
+    }
     if (expr.type === 'Aggregation') return undefined;
+    if (expr.type === 'FunctionCall') {
+      const args = expr.arguments.map((a) => this.evaluateExpression(a, context));
+      return this.evaluateStringFunction(expr.functionName, args);
+    }
+    if (expr.type === 'ListSlice') {
+      const list = this.evaluateExpression(expr.list, context);
+      if (!Array.isArray(list)) return null;
+      const startVal = this.evaluateExpression(expr.start, context);
+      const endVal = this.evaluateExpression(expr.end, context);
+      // If start and end are the same, return single element (single index access)
+      if (expr.start === expr.end) {
+        const idx = startVal != null ? Number(startVal) : 0;
+        const adjIdx = idx < 0 ? list.length + idx : idx;
+        if (adjIdx < 0 || adjIdx >= list.length) return null;
+        return list[adjIdx] as CypherValue;
+      }
+      const start = startVal != null ? Number(startVal) : 0;
+      const end = endVal != null ? Number(endVal) : list.length;
+      // Handle negative indices (Neo4j: -1 = last element)
+      const adjStart = start < 0 ? Math.max(0, list.length + start) : start;
+      const adjEnd = end < 0 ? list.length + end : Math.min(end, list.length);
+      return list.slice(adjStart, adjEnd) as unknown as CypherValue;
+    }
+    if (expr.type === 'Arithmetic') {
+      return this.evaluateArithmetic(expr, context);
+    }
     return undefined;
   }
 
-  /** Extract a flat array of CypherLiteral values from a ListLiteral expression or a single literal. */
-  private extractListValues(expr: Expression): CypherLiteral[] {
-    if (expr.type === 'ListLiteral') return expr.values.filter((v): v is CypherLiteral => typeof v !== 'object' || v === null);
+  /** Evaluate an arithmetic expression. Returns null for null operands (Neo4j semantics). */
+  private evaluateArithmetic(expr: Extract<Expression, { type: 'Arithmetic' }>, context: QueryContext): CypherValue {
+    return evaluateArithmeticCore(expr, (e) => this.evaluateExpression(e, context));
+  }
+
+  /** Evaluate arithmetic with a custom operand evaluator (e.g., aggregation-aware). */
+  private evaluateArithmeticWith(
+    expr: Extract<Expression, { type: 'Arithmetic' }>,
+    evalOperand: (e: Expression) => CypherValue | undefined,
+  ): CypherValue {
+    return evaluateArithmeticCore(expr, evalOperand);
+  }
+
+  /**
+   * Evaluate an expression that may contain aggregations, using pre-computed
+   * aggregation values. Used for mixed expressions like `count(n) * 2`.
+   */
+  private evaluateExpressionWithAggregations(
+    expr: Expression,
+    context: QueryContext,
+    aggResults: Map<string, CypherValue>,
+  ): CypherValue {
+    if (expr.type === 'Aggregation') {
+      const key = `${expr.variable}:${expr.property ?? ''}:${expr.aggregationType}:${expr.distinct}`;
+      return aggResults.get(key) ?? null;
+    }
+    if (expr.type === 'Arithmetic') {
+      return this.evaluateArithmeticWith(expr, (e) => this.evaluateExpressionWithAggregations(e, context, aggResults));
+    }
+    // For non-aggregation, non-arithmetic expressions, use normal evaluation
+    return this.evaluateExpression(expr, context) ?? null;
+  }
+
+  /** Evaluate a scalar string/number function. Returns null for null input (Neo4j semantics). */
+  private evaluateStringFunction(name: string, args: CypherValue[]): CypherValue {
+    switch (name) {
+      // ── Case conversion ────────────────────────────────────────────────
+      case 'tolower': {
+        const val = args[0];
+        return val == null ? null : String(val).toLowerCase();
+      }
+      case 'toupper': {
+        const val = args[0];
+        return val == null ? null : String(val).toUpperCase();
+      }
+
+      // ── Substring ──────────────────────────────────────────────────────
+      case 'substring': {
+        const val = args[0];
+        if (val == null) return null;
+        const str = String(val);
+        const start = args[1] != null ? Number(args[1]) : 0;
+        const end = args[2] != null ? Number(args[2]) : str.length;
+        return str.substring(start, end);
+      }
+
+      // ── Split ──────────────────────────────────────────────────────────
+      case 'split': {
+        const val = args[0];
+        const delimiter = args[1];
+        if (val == null || delimiter == null) return null;
+        return String(val).split(String(delimiter));
+      }
+
+      // ── Replace ────────────────────────────────────────────────────────
+      // NOTE: "replace" is a reserved keyword in the ANTLR4 Cypher grammar,
+      // so we use "repl" as the function name instead.
+      case 'repl': {
+        const val = args[0];
+        const search = args[1];
+        const replacement = args[2];
+        if (val == null || search == null) return null;
+        return String(val).split(String(search)).join(String(replacement ?? ''));
+      }
+
+      // ── Trim ───────────────────────────────────────────────────────────
+      case 'trim': {
+        const val = args[0];
+        return val == null ? null : String(val).trim();
+      }
+      case 'ltrim': {
+        const val = args[0];
+        return val == null ? null : String(val).trimStart();
+      }
+      case 'rtrim': {
+        const val = args[0];
+        return val == null ? null : String(val).trimEnd();
+      }
+
+      // ── Length ─────────────────────────────────────────────────────────
+      case 'length': {
+        const val = args[0];
+        if (val == null) return null;
+        if (Array.isArray(val)) return val.length;
+        return String(val).length;
+      }
+
+      // ── Head / Last / Tail ─────────────────────────────────────────────
+      case 'head': {
+        const val = args[0];
+        if (!Array.isArray(val)) return null;
+        return val.length > 0 ? val[0] : null;
+      }
+      case 'last': {
+        const val = args[0];
+        if (!Array.isArray(val)) return null;
+        return val.length > 0 ? val[val.length - 1] : null;
+      }
+      case 'tail': {
+        const val = args[0];
+        if (!Array.isArray(val)) return null;
+        return val.length > 1 ? val.slice(1) : [];
+      }
+
+      // ── ID ─────────────────────────────────────────────────────────────
+      case 'id': {
+        const val = args[0];
+        if (!val || typeof val !== 'object') return null;
+        return (val as { id?: string }).id ?? null;
+      }
+
+      // ── Labels (for nodes) ─────────────────────────────────────────────
+      // NOTE: "labels" is a reserved keyword in the ANTLR4 Cypher grammar,
+      // so we use "labelsOf" instead.
+      case 'labelsof': {
+        const val = args[0];
+        if (!val || typeof val !== 'object') return [];
+        const node = val as CypherNode;
+        const raw = node[this.config.labelProperty];
+        if (typeof raw === 'string') return [raw];
+        if (Array.isArray(raw)) return raw;
+        return [];
+      }
+
+      // ── Type (for relationships) ───────────────────────────────────────
+      // NOTE: "type" is a reserved keyword in the ANTLR4 Cypher grammar,
+      // so we use "reltype" instead.
+      case 'reltype': {
+        const val = args[0];
+        if (!val || typeof val !== 'object') return null;
+        // Handle both single edge and array of edges (from variable-length paths)
+        if (Array.isArray(val)) {
+          const edges = val as CypherEdge[];
+          // Single edge: return the type directly (matches Neo4j behavior)
+          if (edges.length === 1) return edges[0]![this.config.edgeTypeProperty] ?? null;
+          return edges.map((e) => e[this.config.edgeTypeProperty] ?? null);
+        }
+        const edge = val as CypherEdge;
+        return edge[this.config.edgeTypeProperty] ?? null;
+      }
+
+      // ── StartNode / EndNode (for relationships) ────────────────────────
+      case 'startnode': {
+        const val = args[0];
+        if (!val || typeof val !== 'object') return null;
+        const edge = val as CypherEdge;
+        return edge.source ?? null;
+      }
+      case 'endnode': {
+        const val = args[0];
+        if (!val || typeof val !== 'object') return null;
+        const edge = val as CypherEdge;
+        return edge.target ?? null;
+      }
+
+      // ── Reverse ────────────────────────────────────────────────────────
+      case 'reverse': {
+        const val = args[0];
+        if (!Array.isArray(val)) return null;
+        return [...val].reverse() as unknown as CypherValue;
+      }
+
+      // ── Size (alias for length, Neo4j standard) ────────────────────────
+      case 'size': {
+        const val = args[0];
+        if (val == null) return null;
+        if (Array.isArray(val)) return val.length;
+        return String(val).length;
+      }
+
+      // ── Coalesce (first non-null) ──────────────────────────────────────
+      case 'coalesce': {
+        for (const arg of args) {
+          if (arg != null) return arg;
+        }
+        return null;
+      }
+
+      // ── ToString ───────────────────────────────────────────────────────
+      case 'tostring': {
+        const val = args[0];
+        return val == null ? null : String(val);
+      }
+
+      // ── ToInteger / ToFloat ────────────────────────────────────────────
+      case 'tointeger': {
+        const val = args[0];
+        if (val == null) return null;
+        if (typeof val === 'number') return Math.trunc(val);
+        return parseInt(String(val), 10) ?? null;
+      }
+      case 'tofloat': {
+        const val = args[0];
+        if (val == null) return null;
+        if (typeof val === 'number') return val;
+        return parseFloat(String(val)) ?? null;
+      }
+
+      // ── Not supported ──────────────────────────────────────────────────
+      default:
+        throw new Error(`Function "${name}()" is not supported`);
+    }
+  }
+
+  /** Check if two values match for WHERE comparison, with deep equality for maps and lists.
+   * A map matches a node/object when the object has all the map's keys with equal values.
+   * Two maps match when they have the same keys with equal values.
+   * Two lists match when they have the same length and equal elements at each index. */
+  private mapsEqual(left: CypherValue, right: CypherValue): boolean {
+    // Handle lists
+    if (Array.isArray(left) && Array.isArray(right)) {
+      if (left.length !== right.length) return false;
+      for (let i = 0; i < left.length; i++) {
+        if (left[i] !== right[i]) {
+          if (!this.mapsEqual(left[i] as CypherValue, right[i] as CypherValue)) return false;
+        }
+      }
+      return true;
+    }
+    const leftMap = typeof left === 'object' && left !== null && !Array.isArray(left) ? left : undefined;
+    const rightMap = typeof right === 'object' && right !== null && !Array.isArray(right) ? right : undefined;
+    if (!leftMap || !rightMap) return false;
+    const rightKeys = Object.keys(rightMap);
+    if (rightKeys.length === 0) return true;
+    for (const key of rightKeys) {
+      const lv = (leftMap as Record<string, unknown>)[key];
+      const rv = (rightMap as Record<string, unknown>)[key];
+      if (lv === undefined) return false;
+      if (lv !== rv) {
+        // Recurse for nested maps and lists
+        if (!this.mapsEqual(lv as CypherValue, rv as CypherValue)) return false;
+      }
+    }
+    return true;
+  }
+
+  /** Extract a flat array of CypherValue values from a ListLiteral expression, a single literal, a property access, or a function call. */
+  private extractListValues(expr: Expression, context: QueryContext): CypherValue[] {
+    if (expr.type === 'ListLiteral') {
+      const values: CypherValue[] = [];
+      for (const le of expr.values) {
+        const val = this.evaluateExpression(le, context);
+        values.push(val as CypherValue);
+      }
+      return values;
+    }
     if (expr.type === 'Literal') return [expr.value];
+    if (expr.type === 'PropertyAccess') {
+      const val = this.evaluateExpression(expr, context);
+      if (Array.isArray(val)) return val;
+      if (val !== undefined && val !== null) return [val];
+      return [];
+    }
+    if (expr.type === 'FunctionCall') {
+      const val = this.evaluateExpression(expr, context);
+      if (Array.isArray(val)) return val;
+      if (val !== undefined && val !== null) return [val];
+      return [];
+    }
     return [];
   }
 
@@ -1140,6 +1924,11 @@ export class AdvancedCypherGraphologyEngine {
     const leftValue = this.evaluateExpression(whereNode.left, context);
     const rightValue = this.evaluateExpression(whereNode.right, context);
 
+    // Null comparisons return false (Neo4j semantics)
+    if (leftValue == null || rightValue == null) {
+      return false;
+    }
+
     switch (whereNode.operator) {
       case '>':
         if (typeof leftValue === 'number' && typeof rightValue === 'number') {
@@ -1158,9 +1947,11 @@ export class AdvancedCypherGraphologyEngine {
         }
         throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
       case '=':
-        return leftValue === rightValue;
+        if (leftValue === rightValue) return true;
+        return this.mapsEqual(leftValue, rightValue);
       case '<>':
-        return leftValue !== rightValue;
+        if (leftValue === rightValue) return false;
+        return !this.mapsEqual(leftValue, rightValue);
       case 'CONTAINS':
         return String(leftValue).includes(String(rightValue));
       case 'STARTS WITH':
@@ -1168,8 +1959,11 @@ export class AdvancedCypherGraphologyEngine {
       case 'ENDS WITH':
         return String(leftValue).endsWith(String(rightValue));
       case 'IN': {
-        const rightList = this.extractListValues(whereNode.right);
-        return rightList.includes(leftValue as CypherLiteral);
+        const rightList = this.extractListValues(whereNode.right, context);
+        for (const item of rightList) {
+          if (item === leftValue || this.mapsEqual(leftValue, item)) return true;
+        }
+        return false;
       }
 
       default:
@@ -1227,11 +2021,63 @@ export class AdvancedCypherGraphologyEngine {
   }
 
   private matchNodeCriteria(nodeAttr: Record<string, unknown>, pattern: NodePattern): boolean {
-    if (pattern.label !== undefined && nodeAttr[this.config.labelProperty] !== pattern.label) return false;
+    if (pattern.labels) {
+      const nodeLabels = this.getNodeLabels(nodeAttr);
+      const { labels, orLabels, notLabels, orNotLabels } = pattern.labels;
+
+      // Positive labels (AND + OR): node must match AND labels, or any OR label
+      const hasAndLabels = labels.length > 0;
+      const hasOrLabels = orLabels.length > 0;
+
+      let andMatch = true;
+      let orMatch = false;
+
+      if (hasAndLabels) {
+        // All AND labels must be present
+        andMatch = labels.every((l) => nodeLabels.has(l));
+        // AND NOT labels: node must not have any negated label
+        if (andMatch && notLabels.length > 0) {
+          andMatch = !notLabels.some((l) => nodeLabels.has(l));
+        }
+      } else if (notLabels.length > 0) {
+        // No AND labels but AND NOT labels: match if none of the negated labels are present
+        andMatch = !notLabels.some((l) => nodeLabels.has(l));
+      }
+
+      if (hasOrLabels) {
+        orMatch = orLabels.some((l) => nodeLabels.has(l));
+      }
+
+      // OR NOT labels: node matches if it doesn't have any of the OR NOT labels
+      if (orNotLabels.length > 0) {
+        orMatch = orMatch || !orNotLabels.some((l) => nodeLabels.has(l));
+      }
+
+      // Final: (AND match) OR (OR match)
+      if (!andMatch && !orMatch) return false;
+    }
     const props = pattern.properties;
     if (props) {
-      return Object.keys(props).every((k) => nodeAttr[k] === props[k]);
+      return Object.keys(props).every((k) => this.deepEquals(nodeAttr[k], props[k]));
     }
     return true;
+  }
+
+  /** Extract a Set of labels from a node's attributes (supports both string and string[]). */
+  private getNodeLabels(nodeAttr: Record<string, unknown>): Set<string> {
+    const raw = nodeAttr[this.config.labelProperty];
+    if (typeof raw === 'string') return new Set([raw]);
+    if (Array.isArray(raw)) return new Set(raw.filter((l): l is string => typeof l === 'string'));
+    return new Set();
+  }
+
+  /** Deep equality comparison for property matching. Uses === for primitives, deep compare for arrays. */
+  private deepEquals(a: unknown, b: unknown): boolean {
+    if (a === b) return true;
+    if (Array.isArray(a) && Array.isArray(b)) {
+      if (a.length !== b.length) return false;
+      return a.every((v, i) => this.deepEquals(v, b[i]));
+    }
+    return false;
   }
 }

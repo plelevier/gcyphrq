@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createGraph, buildGraphIndexes, GraphEngine, executeQuery, parseCypher } from '../src/lib';
-import type { GraphInput, IndexBuildOptions } from '../src/lib';
+import type { GraphInput, IndexBuildOptions, AdvancedCypherAST } from '../src/lib';
 
 // ── Test data with non-standard property names ───────────────────────────────
 
@@ -30,7 +30,7 @@ describe('custom label/edge-type properties', () => {
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (s:Service) RETURN s.name AS name');
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(2);
       const names = results.map((r) => r.name as string).sort();
@@ -42,7 +42,7 @@ describe('custom label/edge-type properties', () => {
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (a)-[r:CALLS]->(b) RETURN a.name AS from, b.name AS to');
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(1);
       expect(results[0]!.from).toBe('API');
@@ -56,7 +56,7 @@ describe('custom label/edge-type properties', () => {
       const ast = parseCypher(
         'MATCH (a)-[:CALLS]->(b) MATCH (b)-[:WRITES]->(c) RETURN a.name AS from, c.name AS to',
       );
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(1);
       expect(results[0]!.from).toBe('API');
@@ -70,7 +70,7 @@ describe('custom label/edge-type properties', () => {
       const ast = parseCypher(
         'MATCH (d:Database) OPTIONAL MATCH (d)<-[r:WRITES]-(s:Service) RETURN d.name AS db, s.name AS svc',
       );
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(1);
       expect(results[0]!.db).toBe('Postgres');
@@ -84,7 +84,7 @@ describe('custom label/edge-type properties', () => {
       const ast = parseCypher(
         'MATCH (a:Service)-[*1..2]->(c) RETURN a.name AS from, c.name AS to',
       );
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       // API -> Worker (CALLS), API -> Redis (PUBLISHES), API -> Worker (via Redis->Worker TRIGGERS)
       // Worker -> Postgres (WRITES)
@@ -96,7 +96,7 @@ describe('custom label/edge-type properties', () => {
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (s:Service) RETURN count(s) AS cnt');
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(1);
       expect(results[0]!.cnt).toBe(2);
@@ -107,7 +107,7 @@ describe('custom label/edge-type properties', () => {
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (n:Service {tier: "frontend"}) RETURN n.name AS name');
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(1);
       expect(results[0]!.name).toBe('API');
@@ -118,7 +118,7 @@ describe('custom label/edge-type properties', () => {
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('CREATE (n:Service {name: "NewService"}) RETURN n');
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(1);
       const node = results[0]!.n as Record<string, unknown>;
@@ -145,7 +145,7 @@ describe('custom label/edge-type properties', () => {
       // In undirected graphs, the edge is traversable both ways,
       // so MATCH (b)-[:LINKS]->(a) matches both (A->B) and (B->A)
       const ast = parseCypher('MATCH (b)-[:LINKS]->(a) RETURN a.name AS aName, b.name AS bName');
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(2);
       const pairs = results.map((r) => [r.aName as string, r.bName as string]).sort();
@@ -157,7 +157,7 @@ describe('custom label/edge-type properties', () => {
       const indexes = buildGraphIndexes(graphDataCustom, graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (b)<-[:CALLS]-(a) RETURN a.name AS from, b.name AS to');
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(1);
       expect(results[0]!.from).toBe('API');
@@ -177,7 +177,6 @@ describe('custom label/edge-type properties', () => {
     });
 
     it('works with partial config (only labelProperty)', () => {
-      // Suppress expected warning about missing edge type property
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const partialConfig = { config: { labelProperty: 'category' } };
       const results = executeQuery(
@@ -187,6 +186,19 @@ describe('custom label/edge-type properties', () => {
       );
       expect(results).toHaveLength(1);
       expect(results[0]!.cnt).toBe(2);
+      // No warning because query doesn't use edge-type matching
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('warns about missing edge type only when edge-type matching is used', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const partialConfig = { config: { labelProperty: 'category' } };
+      const results = executeQuery(
+        graphDataCustom,
+        'MATCH (s:Service)-[:LINK]->(t) RETURN count(t) AS cnt',
+        partialConfig,
+      );
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('No edges have a "type" property'));
       warnSpy.mockRestore();
     });
@@ -204,7 +216,7 @@ describe('custom label/edge-type properties', () => {
       const indexes = buildGraphIndexes(graph);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (u:User) RETURN u.name AS name');
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(1);
       expect(results[0]!.name).toBe('Alice');
@@ -221,7 +233,7 @@ describe('custom label/edge-type properties', () => {
       const graph = createGraph(standardData);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (u:User) RETURN u.name AS name');
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(1);
       expect(results[0]!.name).toBe('Alice');
@@ -232,7 +244,7 @@ describe('custom label/edge-type properties', () => {
       const indexes = buildGraphIndexes(graph, config);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (s:Service) RETURN count(s) AS cnt');
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(1);
       expect(results[0]!.cnt).toBe(2);
@@ -243,7 +255,7 @@ describe('custom label/edge-type properties', () => {
       const graph = createGraph(graphDataCustom);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (s:Service) RETURN count(s) AS cnt');
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(1);
       expect(results[0]!.cnt).toBe(2);
@@ -265,7 +277,7 @@ describe('custom label/edge-type properties', () => {
       const indexes = buildGraphIndexes(standardData, graph);
       const engine = new GraphEngine(graph, indexes);
       const ast = parseCypher('MATCH (u:User)-[:FRIEND]->(v:User) RETURN u.name AS uName, v.name AS vName');
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(1);
       expect(results[0]!.uName).toBe('Alice');
@@ -282,7 +294,7 @@ describe('custom label/edge-type properties', () => {
       const graph = createGraph(standardData);
       const engine = new GraphEngine(graph);
       const ast = parseCypher('MATCH (u:User) RETURN u.name AS name');
-      const results = engine.execute(ast);
+      const results = engine.execute(ast as AdvancedCypherAST);
 
       expect(results).toHaveLength(1);
       expect(results[0]!.name).toBe('Alice');
