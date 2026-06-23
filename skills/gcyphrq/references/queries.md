@@ -32,7 +32,7 @@ MATCH (caller)-[r*1..2]->(k {name: "Kafka Cluster"}) RETURN caller, r, k
 
 Use undirected edges to find everything reachable from X.
 
-```cyphr
+```cypher
 # 1-hop blast radius of Auth Service
 MATCH (root {name: "Auth Service"})-[r]-(affected) RETURN root, r, affected
 
@@ -54,6 +54,28 @@ MATCH (gw {name: "API Gateway"})-[r*1..4]->(db:Database) RETURN gw, r, db
 # Path from API Gateway to the worker (always use *min..max bounds)
 MATCH (gw {name: "API Gateway"})-[r*1..4]->(w {name: "Notification Worker"}) RETURN gw, r, w
 ```
+
+## "Capture full paths with path variables"
+
+Use `MATCH path = ...` to capture the entire path (nodes + relationships) in a single variable.
+
+```cypher
+# Capture a simple path
+MATCH path=(a:Service)-[:TCP]->(b:Database) RETURN path
+
+# Extract nodes from a path
+MATCH path=(a)-[r*1..3]->(b) RETURN nodes(path)
+
+# Extract relationships from a path
+MATCH path=(a)-[r*1..3]->(b) RETURN relationships(path)
+
+# Path with OPTIONAL MATCH (null when no match)
+MATCH (n:Service)
+OPTIONAL MATCH path=(n)-[:TCP]->(m:Database)
+RETURN n.name, path
+```
+
+> Note: `labels()`, `nodes()`, and `relationships()` do not support `AS` aliases (ANTLR4 grammar limitation). Use the auto-generated column name like `labels(n)` or `nodes(path)`.
 
 ## "Which services talk to the message queue?"
 

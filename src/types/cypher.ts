@@ -109,6 +109,8 @@ export interface MatchClause {
   relationPattern: RelationPattern;
   targetPattern: NodePattern;
   where: WhereExpression | undefined;
+  /** Path variable from `MATCH path = (a)-[r]->(b)` syntax. */
+  pathVariable: string | undefined;
 }
 
 export interface CreateClause {

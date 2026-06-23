@@ -569,8 +569,8 @@ describe('FOREACH edge cases', () => {
 
     // Check doubled values
     const doubledValues = numberNodes
-      .map((id) => graph.getNodeAttributes(id).doubled)
-      .sort((a: number, b: number) => a - b);
+      .map((id) => graph.getNodeAttributes(id).doubled as number)
+      .sort((a, b) => a - b);
     expect(doubledValues).toEqual([20, 40, 60]);
   });
 });

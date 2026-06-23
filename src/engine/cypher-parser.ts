@@ -60,6 +60,11 @@ const Ctx = {
   FunctionInvocation: 'FunctionInvocationContext',
   FunctionInvocationBody: 'FunctionInvocationBodyContext',
   FunctionName: 'FunctionNameContext',
+  Func: 'FuncContext',
+  ProcedureInvocation: 'ProcedureInvocationContext',
+  ProcedureInvocationBody: 'ProcedureInvocationBodyContext',
+  ProcedureName: 'ProcedureNameContext',
+  ProcedureArguments: 'ProcedureArgumentsContext',
   IntegerLiteral: 'IntegerLiteralContext',
   Keyword: 'KeywordContext',
   LabelName: 'LabelNameContext',
@@ -837,6 +842,45 @@ function extractLiteral(literalCtx: TreeNode): Expression | undefined {
   return undefined;
 }
 
+// ── Pseudo-procedure call extraction ─────────────────────────────────────────
+// ANTLR4 parses `labels(n)`, `nodes(p)`, `relationships(p)` as ProcedureInvocation
+// (because these are Cypher keywords), not as FunctionInvocation.
+// We extract them as FunctionCallExpression so the engine can handle them normally.
+
+/** Keywords that are parsed as procedures but should be treated as scalar functions. */
+const PSEUDO_PROCEDURE_NAMES = new Set(['labels', 'nodes', 'relationships']);
+
+function extractPseudoProcedureCall(procCtx: TreeNode): FunctionCallExpression | undefined {
+  if (!procCtx) return undefined;
+
+  const bodyCtx = findChild(procCtx, Ctx.ProcedureInvocationBody);
+  const procNameCtx = findChild(bodyCtx, Ctx.ProcedureName);
+  const procName = procNameCtx ? getSymbolicName(procNameCtx) : undefined;
+
+  if (!procName || !PSEUDO_PROCEDURE_NAMES.has(procName.toLowerCase())) return undefined;
+
+  // Find the Expression inside ProcedureArguments
+  // ANTLR4 structure: ProcedureInvocation > ProcedureArguments > Expression
+  const argExprs: Expression[] = [];
+  const procArgsCtx = findChild(procCtx, Ctx.ProcedureArguments);
+  if (procArgsCtx && procArgsCtx.children) {
+    for (const child of procArgsCtx.children) {
+      if (child.constructor.name === Ctx.Expression) {
+        const expr = evaluateExpression(child);
+        if (expr) argExprs.push(expr);
+      }
+    }
+  }
+
+  if (argExprs.length === 0) return undefined;
+
+  return {
+    type: 'FunctionCall' as const,
+    functionName: procName.toLowerCase(),
+    arguments: argExprs,
+  };
+}
+
 // ── Function call extraction ─────────────────────────────────────────────────
 
 /**
@@ -1304,12 +1348,43 @@ function extractMatchClause(clauseCtx: ParseTreeNode): MatchClause {
     targetPattern = extractNodePattern(nodePatterns[1]);
   }
 
+  // Extract path variable (if present): `MATCH path = (a)-[r]->(b)`
+  // The path variable appears as a VariableContext child of PatternPartContext,
+  // followed by a `=` terminal, then the AnonymousPatternPartContext.
+  let pathVariable: string | undefined;
+  if (patternPart) {
+    // Check if there's a VariableContext before the AnonymousPatternPart
+    // (indicating a path variable assignment)
+    const partChildren = patternPart.children;
+    if (partChildren) {
+      for (let i = 0; i < partChildren.length; i++) {
+        const child = partChildren[i];
+        if (child && child.constructor.name === Ctx.Variable) {
+          // Check if next non-whitespace child is `=`
+          for (let j = i + 1; j < partChildren.length; j++) {
+            const next = partChildren[j];
+            if (next?.constructor.name === Ctx.TerminalNode) {
+              if (next.symbol?.text === '=') {
+                pathVariable = getSymbolicName(child);
+              }
+              break; // stop at first terminal
+            }
+            if (next?.symbol?.text && next.symbol.text.trim() !== '') {
+              break; // non-whitespace, non-terminal — not a path var
+            }
+          }
+          break;
+        }
+      }
+    }
+  }
+
   // Extract WHERE clause (if present)
   const whereCtx = findChild(matchCtx, Ctx.Where);
   const whereExpr = findChild(whereCtx, Ctx.Expression);
   const where = whereExpr ? extractWhereExpression(whereExpr) : undefined;
 
-  return { optional: !!optional, hasChains, sourcePattern, relationPattern, targetPattern, where: where ?? undefined };
+  return { optional: !!optional, hasChains, sourcePattern, relationPattern, targetPattern, where: where ?? undefined, pathVariable };
 }
 
 function computeDefaultAlias(expr: Expression): string {
@@ -1358,13 +1433,37 @@ function extractReturnBody(returnBody: ParseTreeNode | null): Projection[] {
   const returnItems = findChild(returnBody, Ctx.ReturnItems);
   if (!returnItems) return [];
 
-  const items = findAllChildren(returnItems, Ctx.ReturnItem);
-
+  // ReturnItems can contain ReturnItemContext (regular expressions) and
+  // FuncContext (pseudo-procedures like labels/nodes/relationships).
+  // Collect all item-like children.
+  const allItems: ParseTreeNode[] = [];
+  if (returnItems.children) {
+    for (const child of returnItems.children) {
+      const cname = child.constructor.name;
+      if (cname === Ctx.ReturnItem || cname === Ctx.Func) {
+        allItems.push(child);
+      }
+    }
+  }
   // Single pass: parse each item once
   const parsedItems: ParsedItem[] = [];
-  for (const item of items) {
-    const exprCtx = findChild(item, Ctx.Expression);
-    const expr = evaluateExpression(exprCtx);
+  for (const item of allItems) {
+    // Check for "pseudo-procedure" calls (labels, nodes, relationships)
+    // which ANTLR4 parses as ProcedureInvocation, not FunctionInvocation.
+    const funcCtx = item.constructor.name === Ctx.Func ? item : findChild(item, Ctx.Func);
+    let expr: Expression | undefined;
+    if (funcCtx) {
+      const procCtx = findChild(funcCtx, Ctx.ProcedureInvocation);
+      if (procCtx) {
+        const procCall = extractPseudoProcedureCall(procCtx);
+        if (procCall) expr = procCall;
+      }
+    }
+    // Fall back to regular expression
+    if (!expr) {
+      const exprCtx = findChild(item, Ctx.Expression);
+      expr = evaluateExpression(exprCtx);
+    }
     if (!expr) continue;
 
     const hasAs = hasTerminal(item, 'AS');
@@ -2198,7 +2297,7 @@ function extractForeachClause(clauseCtx: ParseTreeNode): ForeachClause | undefin
   if (innerClauseCtxs.length === 0) {
     throw new Error('Failed to parse FOREACH: missing inner update clause.');
   }
-  const innerClauseCtx = innerClauseCtxs[innerClauseCtxs.length - 1]; // last Clause child
+  const innerClauseCtx = innerClauseCtxs[innerClauseCtxs.length - 1]!; // last Clause child
 
   const innerClause = extractWriteClause(innerClauseCtx);
   if (!innerClause) {
@@ -2396,7 +2495,7 @@ function extractWhereFromQuery(queryText: string): string | undefined {
   let start = queryText.indexOf('WHERE', whereIndex);
   if (start === -1) return undefined;
   start += 5; // Skip "WHERE"
-  while (start < queryText.length && /\s/.test(queryText[start])) start++;
+  while (start < queryText.length && /\s/.test(queryText.charAt(start))) start++;
 
   // Find the end of the WHERE expression by tracking parentheses, brackets, and strings
   let parenDepth = 0;
@@ -2406,10 +2505,10 @@ function extractWhereFromQuery(queryText: string): string | undefined {
   let end = start;
 
   while (end < queryText.length) {
-    const char = queryText[end];
+    const char = queryText.charAt(end);
 
     if (inString) {
-      if (char === stringChar && (end === 0 || queryText[end - 1] !== '\\')) {
+      if (char === stringChar && (end === 0 || queryText.charAt(end - 1) !== '\\')) {
         inString = false;
       }
     } else if (char === '"' || char === "'") {
@@ -2454,10 +2553,10 @@ function extractOnActionFromQuery(queryText: string, actionType: 'MATCH' | 'CREA
   let end = start;
 
   while (end < queryText.length) {
-    const char = queryText[end];
+    const char = queryText.charAt(end);
 
     if (inString) {
-      if (char === stringChar && (end === 0 || queryText[end - 1] !== '\\')) {
+      if (char === stringChar && (end === 0 || queryText.charAt(end - 1) !== '\\')) {
         inString = false;
       }
     } else if (char === '"' || char === "'") {
@@ -2547,7 +2646,7 @@ function extractMergeActionFromText(text: string, actionType: 'CREATE' | 'MATCH'
   // Extract SET actions: SET var.prop = expr [, var2.prop2 = expr2]
   const setMatch = text.match(/SET\s+(.+?)(?:\s+DELETE|\s+REMOVE|\s*$)/i);
   if (setMatch) {
-    const setText = setMatch[1].trim();
+    const setText = setMatch[1]!.trim();
     // Parse each SET assignment using bracket-aware split
     for (const assignment of splitRespectingBrackets(setText)) {
       const setPartMatch = assignment.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\.(\w+)\s*=\s*(.+)$/);
@@ -2595,7 +2694,7 @@ function extractMergeActionFromText(text: string, actionType: 'CREATE' | 'MATCH'
   // Extract DELETE variables: DELETE var1, var2
   const deleteMatch = text.match(/DELETE\s+(.+?)(?:\s+REMOVE|\s*$)/i);
   if (deleteMatch) {
-    const deleteText = deleteMatch[1].trim();
+    const deleteText = deleteMatch[1]!.trim();
     for (const varRef of deleteText.split(/,\s*/)) {
       const v = varRef.trim();
       if (v) deleteVariables.push(v);
@@ -2608,7 +2707,7 @@ function extractMergeActionFromText(text: string, actionType: 'CREATE' | 'MATCH'
   // all labels after the colon until we hit a dot-separated property or end of text.
   const removeMatch = text.match(/REMOVE\s+(.+?)(?:\s*$)/i);
   if (removeMatch) {
-    const removeText = removeMatch[1].trim();
+    const removeText = removeMatch[1]!.trim();
     // Use bracket-aware split to handle complex expressions
     for (const item of splitRespectingBrackets(removeText)) {
       const itemText = item.trim();
@@ -2681,7 +2780,7 @@ function extractSingleQuery(singleQuery: ParseTreeNode, rawQuery?: string): Adva
   const queryText = rawQuery ?? singleQuery.getText();
   for (let i = 0; i < stages.length - 1; i++) {
     if (stages[i]?.type !== 'MERGE') continue;
-    const mergeClause = stages[i].clause as MergeClause;
+    const mergeClause = stages[i]!.clause as MergeClause;
     const nextStage = stages[i + 1];
 
     // Check if next stage is a WRITE (DELETE/REMOVE) that should belong to the MERGE action
@@ -2799,7 +2898,7 @@ function extractSingleQuery(singleQuery: ParseTreeNode, rawQuery?: string): Adva
   if (!returnClause) {
     const returnMatch = queryText.match(/RETURN\s+(.+?)(?:\s*;|\s*$)/i);
     if (returnMatch) {
-      const returnText = returnMatch[1].trim();
+      const returnText = returnMatch[1]!.trim();
       const syntheticQuery = `MATCH (x) RETURN ${returnText}`;
       // Check cache first
       let cachedResult = syntheticParseCache.get(syntheticQuery);

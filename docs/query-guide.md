@@ -110,6 +110,34 @@ MATCH (start:Service {name: 'API Gateway'})-[r*1..3]-(reachable) RETURN start, r
 MATCH (start:Service {name: 'API Gateway'})-[r*2..2]->(reachable) RETURN start, r, reachable
 ```
 
+### Path variables
+
+Capture an entire path (nodes and relationships) in a single variable using `MATCH path = ...`:
+
+```cypher
+// Capture a simple path
+MATCH path=(a:User)-[:FRIEND]->(b:User)
+RETURN path
+
+// Path with variable-length edges
+MATCH path=(a:Service)-[*1..3]->(b:Database)
+RETURN path
+
+// Use with nodes() and relationships() functions
+MATCH path=(a)-[r]->(b) RETURN nodes(path)
+MATCH path=(a)-[r]->(b) RETURN relationships(path)
+```
+
+Path variables produce objects with `{ nodes: [...], relationships: [...] }` structure. Individual node and edge variables (`a`, `r`, `b`) are still bound independently alongside the path variable.
+
+On `OPTIONAL MATCH` miss, the path variable is set to `null`.
+
+```cypher
+MATCH (n)
+OPTIONAL MATCH path=(n)-[:FRIEND]->(m)
+RETURN n.name, path
+```
+
 ---
 
 ## OPTIONAL MATCH
@@ -230,7 +258,10 @@ Scalar functions operate on individual values and work in `RETURN`, `WHERE`, `WI
 | `reverse(x)` | Reverse elements of a list |
 | `size(x)` | Number of elements in a list (or string length) |
 | `id(x)` | Node or edge ID |
-| `labelsOf(x)` | Node labels as list (alias for `labels` — reserved keyword) |
+| `labels(x)` | Node labels as list |
+| `labelsOf(x)` | Node labels as list (alias for `labels`) |
+| `nodes(path)` | Nodes from a path variable |
+| `relationships(path)` | Relationships from a path variable |
 | `reltype(x)` | Relationship type (alias for `type` — reserved keyword) |
 | `startnode(x)` | Source node ID of a relationship |
 | `endnode(x)` | Target node ID of a relationship |
@@ -249,7 +280,7 @@ MATCH (u:User) RETURN coalesce(u.nick, u.name, 'Unknown') AS displayName
 MATCH (u:User) RETURN toInteger(u.age) AS age
 ```
 
-> **Note:** `repl` is used instead of `replace`, `labelsOf` instead of `labels`, and `reltype` instead of `type` because these are reserved keywords in the ANTLR4 Cypher grammar. `startnode()` and `endnode()` return string IDs, not node objects.
+> **Note:** `repl` is used instead of `replace`, and `reltype` instead of `type` because these are reserved keywords in the ANTLR4 Cypher grammar. `labels` is standard Cypher and works as the sole item in RETURN (e.g., `RETURN labels(n)`); use `labelsOf` in WHERE/WITH/ORDER BY or when combined with other RETURN items (ANTLR4 keyword limitation). `startnode()` and `endnode()` return string IDs, not node objects. `nodes(path)` and `relationships(path)` extract from path variables bound with `MATCH path = ...`. `labels()`, `nodes()`, and `relationships()` do not support `AS` aliases (ANTLR4 grammar limitation — use the auto-generated column name like `labels(n)` or `nodes(path)`).
 
 ---
 

@@ -447,8 +447,21 @@ export class AdvancedCypherGraphologyEngine {
     clause: MatchClause,
     incomingContexts: (QueryContext | ContextChain)[],
   ): (QueryContext | ContextChain)[] {
-    const { sourcePattern, relationPattern, targetPattern, optional, hasChains } = clause;
+    const { sourcePattern, relationPattern, targetPattern, optional, hasChains, pathVariable } = clause;
     const outgoingContexts: (QueryContext | ContextChain)[] = [];
+
+    // Helper: build path object from source node, edge history, and target node
+    const buildPath = (
+      source: CypherNode,
+      edges: CypherEdge[],
+    ): CypherValue => {
+      const pathNodes: CypherNode[] = [source];
+      for (const step of edges) {
+        const tAttr = this.graph.getNodeAttributes(step.target);
+        pathNodes.push({ id: step.target, ...tAttr } as CypherNode);
+      }
+      return { nodes: pathNodes, relationships: edges } as unknown as CypherValue;
+    };
 
     // Variable to null-fill on OPTIONAL MATCH miss:
     // source for simple patterns, target for chained patterns.
@@ -483,9 +496,13 @@ export class AdvancedCypherGraphologyEngine {
 
         if (!hasChains) {
           matchFoundForThisContext = true;
+          const overrides: QueryContext = { [sourcePattern.variable]: sourceNode };
+          if (pathVariable) {
+            overrides[pathVariable] = buildPath(sourceNode, []);
+          }
           outgoingContexts.push({
             [CHAIN_BASE]: context,
-            [CHAIN_OVERRIDES]: { [sourcePattern.variable]: sourceNode },
+            [CHAIN_OVERRIDES]: overrides,
           });
           return;
         }
@@ -518,22 +535,26 @@ export class AdvancedCypherGraphologyEngine {
             matchFoundForThisContext = true;
 
             const targetAttr = this.graph.getNodeAttributes(currentId);
-            const chain: ContextChain = {
-              [CHAIN_BASE]: context,
-              [CHAIN_OVERRIDES]: {
-                [sourcePattern.variable]: sourceNode,
-                [targetPattern.variable]: { id: currentId, ...targetAttr } as CypherNode,
-              },
-            };
+            const targetNode = { id: currentId, ...targetAttr } as CypherNode;
+            const edges = edgeHistory.map(
+              ({ edgeId, source, target }) => ({ id: edgeId, source, target, ...this.graph.getEdgeAttributes(edgeId) } as CypherEdge),
+            );
 
+            const matchOverrides: QueryContext = {
+              [sourcePattern.variable]: sourceNode,
+              [targetPattern.variable]: targetNode,
+            };
             if (relationPattern.variable) {
-              // Snapshot edge history only on match (optimisation #1)
-              chain[CHAIN_OVERRIDES][relationPattern.variable] = edgeHistory.map(
-                ({ edgeId, source, target }) => ({ id: edgeId, source, target, ...this.graph.getEdgeAttributes(edgeId) } as CypherEdge),
-              );
+              matchOverrides[relationPattern.variable] = edges;
+            }
+            if (pathVariable) {
+              matchOverrides[pathVariable] = buildPath(sourceNode, edges);
             }
 
-            outgoingContexts.push(chain);
+            outgoingContexts.push({
+              [CHAIN_BASE]: context,
+              [CHAIN_OVERRIDES]: matchOverrides,
+            });
           }
 
           // Stop exploring if max depth reached
@@ -549,19 +570,25 @@ export class AdvancedCypherGraphologyEngine {
               if (edgeHistory.length + 1 >= minDepth && eligibleTargetIds.has(currentId)) {
                 matchFoundForThisContext = true;
                 const targetAttr = this.graph.getNodeAttributes(currentId);
-                const chain: ContextChain = {
-                  [CHAIN_BASE]: context,
-                  [CHAIN_OVERRIDES]: {
-                    [sourcePattern.variable]: sourceNode,
-                    [targetPattern.variable]: { id: currentId, ...targetAttr } as CypherNode,
-                  },
+                const targetNode = { id: currentId, ...targetAttr } as CypherNode;
+                const allSteps = [...edgeHistory, { edgeId, source: currentId, target: currentId }];
+                const edges = allSteps.map(
+                  ({ edgeId: eid, source, target }) => ({ id: eid, source, target, ...this.graph.getEdgeAttributes(eid) } as CypherEdge),
+                );
+                const selfLoopOverrides: QueryContext = {
+                  [sourcePattern.variable]: sourceNode,
+                  [targetPattern.variable]: targetNode,
                 };
                 if (relationPattern.variable) {
-                  chain[CHAIN_OVERRIDES][relationPattern.variable] = [...edgeHistory, { edgeId, source: currentId, target: currentId }].map(
-                    ({ edgeId: eid, source, target }) => ({ id: eid, source, target, ...this.graph.getEdgeAttributes(eid) } as CypherEdge),
-                  );
+                  selfLoopOverrides[relationPattern.variable] = edges;
                 }
-                outgoingContexts.push(chain);
+                if (pathVariable) {
+                  selfLoopOverrides[pathVariable] = buildPath(sourceNode, edges);
+                }
+                outgoingContexts.push({
+                  [CHAIN_BASE]: context,
+                  [CHAIN_OVERRIDES]: selfLoopOverrides,
+                });
               }
               return;
             }
@@ -583,6 +610,7 @@ export class AdvancedCypherGraphologyEngine {
           [CHAIN_OVERRIDES]: { [nullVar]: null },
         };
         if (relationPattern.variable) nullChain[CHAIN_OVERRIDES][relationPattern.variable] = [];
+        if (pathVariable) nullChain[CHAIN_OVERRIDES][pathVariable] = null;
         outgoingContexts.push(nullChain);
       }
     }
@@ -611,6 +639,7 @@ export class AdvancedCypherGraphologyEngine {
               [CHAIN_OVERRIDES]: { [nullVar]: null },
             };
             if (relationPattern.variable) nullChain[CHAIN_OVERRIDES][relationPattern.variable] = [];
+            if (pathVariable) nullChain[CHAIN_OVERRIDES][pathVariable] = null;
             filtered.push(nullChain);
           }
         }
@@ -2038,8 +2067,8 @@ export class AdvancedCypherGraphologyEngine {
       }
 
       // ── Labels (for nodes) ─────────────────────────────────────────────
-      // NOTE: "labels" is a reserved keyword in the ANTLR4 Cypher grammar,
-      // so we use "labelsOf" instead.
+      // "labels" is standard Cypher; "labelsOf" is our alias (reserved keyword workaround).
+      case 'labels':
       case 'labelsof': {
         const val = args[0];
         if (!val || typeof val !== 'object') return [];
@@ -2094,6 +2123,32 @@ export class AdvancedCypherGraphologyEngine {
         if (val == null) return null;
         if (Array.isArray(val)) return val.length;
         return String(val).length;
+      }
+
+      // ── Nodes (from path variable or node) ──────────────────────────────
+      case 'nodes': {
+        const val = args[0];
+        if (!val || typeof val !== 'object') return [];
+        // Already an array — return as-is (e.g., nodes already extracted)
+        if (Array.isArray(val)) return val as unknown as CypherValue;
+        const obj = val as Record<string, unknown>;
+        if (Array.isArray(obj.nodes)) return obj.nodes as unknown as CypherValue;
+        // Fallback: single node treated as list
+        if ('id' in obj) return [obj as CypherNode] as unknown as CypherValue;
+        return [];
+      }
+
+      // ── Relationships (from path variable or edge) ──────────────────────
+      case 'relationships': {
+        const val = args[0];
+        if (!val || typeof val !== 'object') return [];
+        // Already an array — return as-is (e.g., variable-length edge list)
+        if (Array.isArray(val)) return val as unknown as CypherValue;
+        const obj = val as Record<string, unknown>;
+        if (Array.isArray(obj.relationships)) return obj.relationships as unknown as CypherValue;
+        // Fallback: single relationship treated as list
+        if ('source' in obj && 'target' in obj) return [obj as CypherEdge] as unknown as CypherValue;
+        return [];
       }
 
       // ── Coalesce (first non-null) ──────────────────────────────────────
