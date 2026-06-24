@@ -38,7 +38,9 @@ Graph file format (Graphology JSON):
   }
 
   Optional "options" field (type: "directed", "undirected", or "mixed"):
-    "options": { "type": "directed", "allowSelfLoops": false, "multi": false }
+    "options": { "type": "directed", "allowSelfLoops": true, "multi": false }
+
+  Note: "allowSelfLoops" must be true to create or load self-loop edges (source = target).
 
 Examples:
   gcyphrq -g examples/social-graph.json -e 'MATCH (u:User) RETURN u'

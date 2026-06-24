@@ -585,14 +585,19 @@ describe('Graphology JSON format', () => {
     expect(graph.order).toBe(2);
   });
 
-  it('throws for unsupported options.allowSelfLoops', () => {
-    expect(() =>
-      createGraph({
-        options: { type: 'directed', allowSelfLoops: true },
-        nodes: [{ key: 'a', attributes: { label: 'N' } }],
-        edges: [],
-      }),
-    ).toThrow(/Unsupported graph option:.*"allowSelfLoops"/);
+  it('supports options.allowSelfLoops', () => {
+    const graph = createGraph({
+      options: { type: 'directed', allowSelfLoops: true },
+      nodes: [{ key: 'a', attributes: { label: 'N' } }],
+      edges: [{ source: 'a', target: 'a', attributes: { type: 'SELF' } }],
+    });
+    expect(graph.order).toBe(1);
+    // Verify self-loop edge exists by iterating edges
+    let edgeCount = 0;
+    graph.forEachEdge((id, attrs, source, target) => {
+      if (source === 'a' && target === 'a') edgeCount++;
+    });
+    expect(edgeCount).toBe(1);
   });
 
   it('throws for unsupported options.multi', () => {

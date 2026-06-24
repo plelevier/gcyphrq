@@ -6,6 +6,7 @@ export type GraphType = 'directed' | 'undirected' | 'mixed';
 
 export interface GraphConstructorOptions {
   type?: GraphType;
+  allowSelfLoops?: boolean;
 }
 
 export interface GraphInstance {
@@ -66,14 +67,15 @@ interface RawGraph {
 const DirectedGraph = (GraphModule as any).DirectedGraph;
 const UndirectedGraph = (GraphModule as any).UndirectedGraph;
 
-function createRawGraph(type: GraphType): RawGraph {
+function createRawGraph(type: GraphType, allowSelfLoops = false): RawGraph {
+  const opts: Record<string, unknown> = { allowSelfLoops };
   switch (type) {
     case 'directed':
-      return new DirectedGraph() as unknown as RawGraph;
+      return new DirectedGraph(opts) as unknown as RawGraph;
     case 'undirected':
-      return new UndirectedGraph() as unknown as RawGraph;
+      return new UndirectedGraph(opts) as unknown as RawGraph;
     case 'mixed':
-      return new (GraphModule as new (opts: { type: 'mixed' }) => unknown)({ type: 'mixed' }) as unknown as RawGraph;
+      return new (GraphModule as new (opts: { type: 'mixed'; allowSelfLoops?: boolean }) => unknown)({ type: 'mixed', allowSelfLoops }) as unknown as RawGraph;
   }
 }
 
@@ -165,7 +167,7 @@ export class Graph {
 
   constructor(options?: GraphConstructorOptions) {
     const type = options?.type ?? 'directed';
-    const raw = createRawGraph(type);
+    const raw = createRawGraph(type, options?.allowSelfLoops);
     this._instance = wrapGraph(raw);
   }
 

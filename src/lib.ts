@@ -146,6 +146,7 @@ export interface IndexBuildOptions extends GraphOptions {
 interface ValidationResult {
   normalized: NormalizedGraphFile;
   graphType: GraphType;
+  allowSelfLoops: boolean;
   warnings: string[];
   errors: string[];
 }
@@ -198,6 +199,7 @@ function validateGraphData(data: unknown, opts?: GraphOptions): ValidationResult
 
   const options = g.options;
   let graphType: GraphType = 'directed';
+  let allowSelfLoops = false;
   if (options) {
     if (options.type !== undefined) {
       if (options.type !== 'directed' && options.type !== 'undirected' && options.type !== 'mixed') {
@@ -208,11 +210,10 @@ function validateGraphData(data: unknown, opts?: GraphOptions): ValidationResult
         graphType = options.type;
       }
     }
-    if (options.allowSelfLoops !== undefined && options.allowSelfLoops !== false) {
-      errors.push(
-        `Graphology option "allowSelfLoops" is set to ${options.allowSelfLoops} but is not supported.`,
-      );
+    if (options.allowSelfLoops) {
+      allowSelfLoops = true;
     }
+
     if (options.multi !== undefined && options.multi !== false) {
       errors.push(
         `Graphology option "multi" is set to ${options.multi} but is not supported.`,
@@ -309,7 +310,7 @@ function validateGraphData(data: unknown, opts?: GraphOptions): ValidationResult
     opts?.onWarning?.(`gcyphrq: ${w}`);
   }
 
-  return { normalized: { nodes: normalizedNodes, edges: normalizedEdges }, graphType, warnings, errors: [] };
+  return { normalized: { nodes: normalizedNodes, edges: normalizedEdges }, graphType, allowSelfLoops, warnings, errors: [] };
 }
 
 /**
@@ -337,13 +338,13 @@ function validateGraphData(data: unknown, opts?: GraphOptions): ValidationResult
  * @see https://graphology.github.io/
  */
 export function createGraph(data: GraphInput, opts?: GraphOptions): GraphInstance {
-  const { normalized, graphType } = validateGraphData(data, opts);
-  return buildGraph(normalized, graphType);
+  const { normalized, graphType, allowSelfLoops } = validateGraphData(data, opts);
+  return buildGraph(normalized, graphType, allowSelfLoops);
 }
 
 /** Build a Graphology graph from already-validated data (internal helper). */
-function buildGraph(validated: NormalizedGraphFile, graphType: GraphType): GraphInstance {
-  const graph = new Graph({ type: graphType });
+function buildGraph(validated: NormalizedGraphFile, graphType: GraphType, allowSelfLoops?: boolean): GraphInstance {
+  const graph = new Graph({ type: graphType, allowSelfLoops });
 
   for (const node of validated.nodes) {
     const { id, ...attrs } = node;
@@ -434,8 +435,8 @@ export function buildGraphIndexes(
     if (isGraphInstance(dataOrGraph)) {
       return buildGraphIndexesFromGraph(dataOrGraph, DEFAULT_CONFIG);
     }
-    const { normalized, graphType } = validateGraphData(dataOrGraph as GraphInput);
-    const builtGraph = buildGraph(normalized, graphType);
+    const { normalized, graphType, allowSelfLoops } = validateGraphData(dataOrGraph as GraphInput);
+    const builtGraph = buildGraph(normalized, graphType, allowSelfLoops);
     return buildGraphIndexesFromGraph(builtGraph, DEFAULT_CONFIG);
   }
 
@@ -457,8 +458,8 @@ export function buildGraphIndexes(
 
   // Two-argument form: (data, opts) — build graph internally
   const data = dataOrGraph as GraphInput;
-  const { normalized, graphType } = validateGraphData(data, buildOpts);
-  const builtGraph = buildGraph(normalized, graphType);
+  const { normalized, graphType, allowSelfLoops } = validateGraphData(data, buildOpts);
+  const builtGraph = buildGraph(normalized, graphType, allowSelfLoops);
   return buildGraphIndexesFromGraph(builtGraph, resolvedConfig);
 }
 
@@ -518,8 +519,8 @@ export function executeQuery(graphOrData: GraphInstance | GraphInput, query: str
   const graph = isGraphInstance(graphOrData)
     ? (graphOrData instanceof Graph ? graphOrData : wrapExternalGraph(graphOrData as any))
     : (() => {
-        const { normalized, graphType } = validateGraphData(graphOrData as GraphInput);
-        return buildGraph(normalized, graphType);
+        const { normalized, graphType, allowSelfLoops } = validateGraphData(graphOrData as GraphInput);
+        return buildGraph(normalized, graphType, allowSelfLoops);
       })();
   const config = resolveConfig(opts);
   const indexes = buildGraphIndexesFromGraph(graph, config);
