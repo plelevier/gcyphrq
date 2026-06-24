@@ -6,6 +6,8 @@ export type GraphType = 'directed' | 'undirected' | 'mixed';
 
 export interface GraphConstructorOptions {
   type?: GraphType;
+  allowSelfLoops?: boolean;
+  multi?: boolean;
 }
 
 export interface GraphInstance {
@@ -65,15 +67,22 @@ interface RawGraph {
 
 const DirectedGraph = (GraphModule as any).DirectedGraph;
 const UndirectedGraph = (GraphModule as any).UndirectedGraph;
+const MultiDirectedGraph = (GraphModule as any).MultiDirectedGraph;
+const MultiUndirectedGraph = (GraphModule as any).MultiUndirectedGraph;
 
-function createRawGraph(type: GraphType): RawGraph {
+function createRawGraph(type: GraphType, allowSelfLoops = false, multi = false): RawGraph {
+  const opts: Record<string, unknown> = { allowSelfLoops };
   switch (type) {
     case 'directed':
-      return new DirectedGraph() as unknown as RawGraph;
+      return multi
+        ? new MultiDirectedGraph(opts) as unknown as RawGraph
+        : new DirectedGraph(opts) as unknown as RawGraph;
     case 'undirected':
-      return new UndirectedGraph() as unknown as RawGraph;
+      return multi
+        ? new MultiUndirectedGraph(opts) as unknown as RawGraph
+        : new UndirectedGraph(opts) as unknown as RawGraph;
     case 'mixed':
-      return new (GraphModule as new (opts: { type: 'mixed' }) => unknown)({ type: 'mixed' }) as unknown as RawGraph;
+      return new (GraphModule as new (opts: { type: 'mixed'; allowSelfLoops?: boolean; multi?: boolean }) => unknown)({ type: 'mixed', allowSelfLoops, ...(multi ? { multi: true } : {}) }) as unknown as RawGraph;
   }
 }
 
@@ -165,7 +174,7 @@ export class Graph {
 
   constructor(options?: GraphConstructorOptions) {
     const type = options?.type ?? 'directed';
-    const raw = createRawGraph(type);
+    const raw = createRawGraph(type, options?.allowSelfLoops, options?.multi);
     this._instance = wrapGraph(raw);
   }
 
@@ -204,9 +213,11 @@ export class Graph {
  */
 export function wrapExternalGraph(raw: any): GraphInstance {
   const type = raw.type as GraphType;
+  const multi = raw.multi === true;
+  const allowSelfLoops = raw.options?.allowSelfLoops === true;
   // Always copy into a new Graph so that our wrapper methods
   // (hasEdge, getEdgeEndpoints, dropEdge) are available.
-  const graph = new Graph({ type });
+  const graph = new Graph({ type, multi, allowSelfLoops });
   const allNodes = raw.filterNodes(() => true);
   for (const id of allNodes) {
     graph.addNode(id, raw.getNodeAttributes(id));

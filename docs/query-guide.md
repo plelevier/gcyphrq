@@ -18,9 +18,43 @@ This guide covers all supported Cypher syntax and query patterns available in th
 
 See the [Home page](index) for the full feature support table.
 
-<div class="callout">
-  <p><strong>Single MATCH per stage:</strong> The engine processes one MATCH clause at a time. Chained MATCHes within the same stage are not supported — use multiple stages separated by <code>WITH</code> instead.</p>
-</div>
+---
+
+## Graph Options
+
+The graph JSON file supports an optional `options` field to configure graph behavior:
+
+```json
+{
+  "options": {
+    "type": "directed",
+    "allowSelfLoops": true,
+    "multi": true
+  },
+  "nodes": [...],
+  "edges": [...]
+}
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `type` | `"directed"` | Graph directionality: `"directed"`, `"undirected"`, or `"mixed"` |
+| `allowSelfLoops` | `false` | Enable edges where `source` equals `target` |
+| `multi` | `false` | Enable parallel edges (multiple edges between the same nodes) |
+
+### Parallel edges (multi-graphs)
+
+When `multi: true`, the graph allows multiple edges between the same node pair. `MATCH` clauses return all parallel edges, and you can filter by relationship type to select specific ones:
+
+```cypher
+-- Return all edges between Alice and Bob (may be multiple)
+MATCH (a:Person {name: "Alice"})-[r]->(b:Person {name: "Bob"}) RETURN r
+
+-- Filter to a specific relationship type
+MATCH (a:Person {name: "Alice"})-[r:KNOWS]->(b:Person {name: "Bob"}) RETURN r
+```
+
+When `multi: false` (default), duplicate edges between the same nodes are rejected during graph loading.
 
 ---
 
@@ -137,6 +171,66 @@ MATCH (n)
 OPTIONAL MATCH path=(n)-[:FRIEND]->(m)
 RETURN n.name, path
 ```
+
+---
+
+## Chained MATCHes
+
+Multiple `MATCH` clauses can appear in the same query. Each `MATCH` is executed sequentially, producing a **cartesian product** of the previous stage's results with its own matches. This is equivalent to a `WITH`-separated pipeline but more concise.
+
+### Basic cartesian product
+
+```cypher
+MATCH (a) MATCH (b) RETURN a, b
+```
+
+Returns every combination of nodes `a` and `b` (N × M rows for N nodes and M nodes).
+
+### Cross-variable filtering
+
+Use `WHERE` on the second (or later) `MATCH` to filter across variables bound by earlier stages:
+
+```cypher
+MATCH (a:User) MATCH (b:User) WHERE a.name < b.name RETURN a.name, b.name
+```
+
+### Chained MATCH with relationships
+
+```cypher
+MATCH (a:Person {name: 'Alice'}) MATCH (a)-[r:FRIEND]->(b) RETURN a, r, b
+```
+
+When a variable from a prior `MATCH` is reused as the source of the next `MATCH`, the engine uses the already-bound node as the starting point.
+
+### Three or more MATCHes
+
+```cypher
+MATCH (a:User) MATCH (b:User) MATCH (c:User) WHERE a.name < b.name AND b.name < c.name
+RETURN a.name, b.name, c.name
+```
+
+### Mixed OPTIONAL MATCH
+
+`OPTIONAL MATCH` works alongside regular `MATCH`es in the same query:
+
+```cypher
+MATCH (a:User) OPTIONAL MATCH (a)-[r:FRIEND]->(b) MATCH (c:Admin) RETURN a, b, c
+```
+
+### Chained MATCH before WITH
+
+```cypher
+MATCH (a:User) MATCH (b:User) WHERE a.dept = b.dept
+WITH a, count(b) AS colleagues
+RETURN a.name, colleagues
+```
+
+### When to use WITH instead
+
+Use `WITH` when you need to:
+- Reduce the number of rows before the next `MATCH` (to avoid cartesian explosion)
+- Apply aggregation between `MATCH` stages
+- Rename or transform variables between stages
 
 ---
 
@@ -671,10 +765,30 @@ MATCH (u:User) RETURN u.name ORDER BY u.name ASC SKIP 10 LIMIT 10
 
 ### CREATE
 
+Create a single node:
+
 ```cypher
 CREATE (l:Log {timestamp: 12345}) RETURN l
 CREATE (t:Tag {values: ['a', 'b', 'c']}) RETURN t
 ```
+
+Create a relationship chain (edge between two nodes):
+
+```cypher
+-- Create both nodes and the edge from scratch
+CREATE (a:Person)-[r:KNOWS]->(b:Person) RETURN a, r, b
+
+-- Create edge between existing nodes
+MATCH (a:Person {name: 'Alice'}) MATCH (b:Person {name: 'Bob'}) CREATE (a)-[r:FRIEND]->(b) RETURN r
+
+-- Create edge with incoming direction
+MATCH (a:Person {name: 'Alice'}) MATCH (b:Person {name: 'Bob'}) CREATE (a)<-[r:KNOWS]-(b) RETURN r
+
+-- Create with inline properties on both nodes
+CREATE (a:Person {name: 'Alice'})-[r:KNOWS {since: 2020}]->(b:Person {name: 'Bob'}) RETURN a, b
+```
+
+When a variable is already bound (via a preceding MATCH), the existing node is reused. Unbound variables create new nodes.
 
 ### SET
 
@@ -687,6 +801,18 @@ MATCH (u:User {name: 'Alice'}) SET u.tags = ['admin', 'verified'] RETURN u
 
 ```cypher
 MATCH (f:User {name: 'Bob'}) DELETE f
+```
+
+### DETACH DELETE
+
+Delete a node and all its incident relationships in one operation. Unlike plain `DELETE`, which requires relationships to be removed separately, `DETACH DELETE` automatically removes all edges connected to the target node.
+
+```cypher
+-- Delete a node and all its connections
+MATCH (f:User {name: 'Bob'}) DETACH DELETE f
+
+-- Delete a node, then query remaining nodes
+MATCH (f:User {name: 'Bob'}) DETACH DELETE f MATCH (u:User) RETURN u.name
 ```
 
 ### REMOVE
@@ -703,7 +829,7 @@ Multiple items can be combined in a single REMOVE clause (property and/or label)
 
 ### FOREACH
 
-Iterate over a list and execute a mutation (SET, CREATE, DELETE, REMOVE) for each element. Unlike UNWIND, FOREACH **does not expand rows** — the input row count is preserved.
+Iterate over a list and execute a mutation (SET, CREATE, DELETE, DETACH DELETE, REMOVE) for each element. Unlike UNWIND, FOREACH **does not expand rows** — the input row count is preserved.
 
 ```cypher
 -- Set a property on each element of a list
@@ -717,6 +843,9 @@ MATCH (u:User) FOREACH (x IN u.tags | SET x:Tagged) RETURN u.name
 
 -- Delete nodes referenced in a list
 MATCH (u:User) FOREACH (x IN u.todos | DELETE x) RETURN u.name
+
+-- Detach delete nodes (also removes incident edges)
+MATCH (u:User) FOREACH (x IN u.todos | DETACH DELETE x) RETURN u.name
 
 -- Remove a property from each element
 MATCH (u:User) FOREACH (x IN u.items | REMOVE x.temp) RETURN u.name
@@ -815,6 +944,18 @@ MERGE (a:User)<-[:FRIEND]-(b:User)  -- inbound
 MERGE (a:User)-[:FRIEND]-(b:User)   -- undirected
 ```
 
+### MERGE with parallel edges
+
+In multi-graphs (`multi: true`), `MERGE` on a relationship matches the first existing edge of the given type between the two nodes. If at least one matching edge exists, MERGE binds that edge rather than creating a new one:
+
+```cypher
+-- If any :KNOWS edge already exists between a and b, it is matched
+MERGE (a:User {name: "Alice"})-[:KNOWS]->(b:User {name: "Bob"})
+RETURN a, b
+```
+
+To create additional parallel edges, use `CREATE` instead of `MERGE`.
+
 ### MERGE followed by MATCH
 
 Use MERGE to ensure data exists, then query it:
@@ -844,6 +985,14 @@ MERGE (u:User {name: "Alice"}) ON MATCH DELETE u RETURN u
 MERGE (a:User)-[r:FRIEND]->(b:User) ON MATCH DELETE r RETURN a, b
 ```
 
+### MERGE with DETACH DELETE in ON MATCH
+
+Delete a matched node and all its incident relationships:
+
+```cypher
+MERGE (u:User {name: "Alice"}) ON MATCH DETACH DELETE u RETURN u
+```
+
 ### MERGE with REMOVE in ON MATCH
 
 Remove labels or properties from matched nodes/relationships:
@@ -853,9 +1002,9 @@ MERGE (u:User {name: "Alice"}) ON MATCH REMOVE u:Admin RETURN u
 MERGE (u:User {name: "Alice"}) ON MATCH REMOVE u.status RETURN u
 ```
 
-### MERGE with combined SET / DELETE / REMOVE
+### MERGE with combined SET / DELETE / DETACH DELETE / REMOVE
 
-Combine SET, DELETE, and REMOVE in ON CREATE / ON MATCH:
+Combine SET, DELETE, DETACH DELETE, and REMOVE in ON CREATE / ON MATCH:
 
 ```cypher
 MERGE (u:User {name: "Alice"})
@@ -935,7 +1084,6 @@ The following Cypher features are **not** supported by the engine:
 
 - **Subqueries** — `CALL {}` syntax
 - **APOC procedures** — `CALL apoc.*`
-- **Multiple MATCH in same stage** — use `WITH` to chain stages
 - **UNION without RETURN** — each branch must end with a `RETURN` clause
 
 

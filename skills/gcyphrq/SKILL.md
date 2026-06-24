@@ -29,12 +29,14 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 - `attributes.label` → Cypher node label (`:Service`). Can be string or array of strings (`["Service","Infrastructure"]`). Customize with `-nl` flag.
 - `attributes.type` on edges → relationship type (`[:TCP]`). Customize with `-et` flag.
 - All other attributes → filterable properties (`{name: "X"}`, `{region: "us-east-1"}`)
+- Optional `options.allowSelfLoops: true` enables self-loop edges (`source = target`). Defaults to `false`.
+- Optional `options.multi: true` enables parallel edges (multiple edges between same nodes). Defaults to `false`.
 
 ## Supported Cypher
 
 See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 
-- **Matching:** `MATCH`, `OPTIONAL MATCH`, labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges
+- **Matching:** `MATCH`, `OPTIONAL MATCH`, chained `MATCH` (cartesian product), labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges
 - **Filtering:** `WHERE` with `=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `IS NULL`, `AND`/`OR`/`NOT`, map comparison
 - **CASE:** `CASE WHEN cond THEN result` and `CASE expr WHEN val THEN result`. Nested. In RETURN/WHERE/WITH/ORDER BY/SET
 - **Pipelining:** `WITH`, `count()`, `sum()`, `avg()`, `min()`, `max()`, `DISTINCT` aggregations
@@ -42,8 +44,8 @@ See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 - **Scalar functions:** 28+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `labels` (sole RETURN item only), `labelsOf` (everywhere), `nodes` (sole RETURN item only), `relationships` (sole RETURN item only), etc.)
 - **Arithmetic:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`, parentheses. Works in RETURN/WHERE/WITH/ORDER BY/SET. Null propagation (null operand → null), division by zero → null
 - **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices
-- **Mutations:** `CREATE`, `SET`, `DELETE`, `REMOVE`, `MERGE` (in-memory only). MERGE: supports WHERE filter, ON CREATE/ON MATCH with SET/DELETE/REMOVE
-- **Not supported:** chained `MATCH`, subqueries, `CALL`, APOC, regex in WHERE
+- **Mutations:** `CREATE` (single node or chain `(a)-[r:TYPE]->(b)`), `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `MERGE` (in-memory only). MERGE: supports WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE. CREATE chain: reuses bound nodes, creates unbound ones.
+- **Not supported:** subqueries, `CALL`, APOC, regex in WHERE
 - **Notes:** `startnode()`/`endnode()` return string IDs; `avg()`/`min()`/`max()` return null on empty sets
 
 ## When to Use
@@ -69,8 +71,10 @@ Service dependencies, blast radius, path tracing, infrastructure topology, monit
 | Out-degree | `MATCH (n)-[]->(t) WITH n, count(t) AS deg RETURN n, deg` |
 | Group by | `MATCH (n:Service) WITH n.type AS t, count(n) AS c RETURN t, c` |
 | CREATE | `CREATE (n:Service {name: "X", type: "RPC"}) RETURN n` |
+| CREATE chain | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) CREATE (a)-[r:DEPENDS_ON]->(b) RETURN r` |
 | SET | `MATCH (n {name: "X"}) SET n.status = "updated" RETURN n` |
 | DELETE | `MATCH (n {name: "X"}) DELETE n` |
+| DETACH DELETE | `MATCH (n {name: "X"}) DETACH DELETE n` |
 | REMOVE | `MATCH (n) REMOVE n:Label, n.prop RETURN n` |
 | MERGE | `MERGE (n:User {name: "Alice"}) ON CREATE SET n.createdAt = 0 RETURN n` |
 | UNION ALL | `MATCH (u:User) RETURN u.name UNION ALL MATCH (u:Admin) RETURN u.name` |

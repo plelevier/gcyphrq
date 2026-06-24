@@ -1058,7 +1058,7 @@ function extractCaseExpression(caseCtx: TreeNode): Expression | undefined {
 // ── Node pattern extraction ──────────────────────────────────────────────────
 
 function extractNodePattern(nodePatternCtx: TreeNode): NodePattern {
-  if (!nodePatternCtx) return { variable: '', labels: undefined, properties: undefined };
+  if (!nodePatternCtx) return { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
 
   const variable = getSymbolicName(findChild(nodePatternCtx, Ctx.Variable)) ?? '';
 
@@ -1067,8 +1067,9 @@ function extractNodePattern(nodePatternCtx: TreeNode): NodePattern {
   const propsCtx = findChild(nodePatternCtx, Ctx.Properties);
   const mapLitCtx = findChild(propsCtx, Ctx.MapLiteral);
   const properties = extractProperties(mapLitCtx);
+  const propertiesExpr = extractDynamicProperties(mapLitCtx);
 
-  return { variable, labels: labelExpr, properties };
+  return { variable, labels: labelExpr, properties, propertiesExpr };
 }
 
 /**
@@ -1324,10 +1325,10 @@ function extractMatchClause(clauseCtx: ParseTreeNode): MatchClause {
   const nodePatterns = findAllChildren(element, Ctx.NodePattern);
   const chains = findAllChildren(element, Ctx.PatternElementChain);
 
-  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined };
+  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
 
   let relationPattern: RelationPattern = { variable: undefined, type: undefined, minDepth: undefined, maxDepth: undefined, direction: 'UNDIRECTED' };
-  let targetPattern: NodePattern = { variable: '', labels: undefined, properties: undefined };
+  let targetPattern: NodePattern = { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
 
   const hasChains = chains.length > 0;
 
@@ -2232,21 +2233,66 @@ function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
     // Also extract dynamic property expressions (for FOREACH where values reference loop variables)
     const propertiesExpr = extractDynamicProperties(mapLitCtx);
 
-    return { type: 'CREATE' as const, variable, labels, properties, propertiesExpr };
+    // Check for relationship chain: CREATE (a)-[r:TYPE]->(b)
+    const chains = findAllChildren(element, Ctx.PatternElementChain);
+    const hasChain = chains.length > 0;
+
+    if (hasChain) {
+      if (chains.length > 1) {
+        throw new Error('Multi-hop CREATE patterns are not supported. Use multiple CREATE stages.');
+      }
+      const chain = chains[0];
+      const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
+      const relationPattern = extractRelationPattern(relPatternCtx);
+
+      // Extract edge properties from the relationship detail (inside [r:TYPE {props}])
+      const relDetailCtx = findChild(relPatternCtx, Ctx.RelationshipDetail);
+      const edgePropsCtx = relDetailCtx ? findChild(relDetailCtx, Ctx.Properties) : undefined;
+      const edgeMapLitCtx = findChild(edgePropsCtx, Ctx.MapLiteral);
+      const edgeProperties = extractProperties(edgeMapLitCtx);
+      const edgePropertiesExpr = extractDynamicProperties(edgeMapLitCtx);
+
+      const targetNodeCtx = findChild(chain, Ctx.NodePattern);
+      const targetPattern = targetNodeCtx ? extractNodePattern(targetNodeCtx) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
+
+      return {
+        type: 'CREATE' as const,
+        variable,
+        labels,
+        properties,
+        propertiesExpr,
+        hasChain: true,
+        relationPattern,
+        targetPattern,
+        edgeProperties,
+        edgePropertiesExpr,
+      };
+    }
+
+    // Single-node CREATE (backward compatible)
+    return { type: 'CREATE' as const, variable, labels, properties, propertiesExpr, hasChain: false };
   }
 
   // DELETE clause
   const deleteCtx = findChild(clauseCtx, Ctx.DeleteClause);
   if (deleteCtx) {
-    const exprCtx = findChild(deleteCtx, Ctx.Expression);
-    if (!exprCtx) throw new Error('Failed to parse DELETE: missing Expression node in AST.');
-    const atom = getAtom(exprCtx);
-    if (!atom) throw new Error('Failed to parse DELETE: missing Atom node in AST.');
-    const varCtx = findChild(atom, Ctx.Variable);
-    const variable = getSymbolicName(varCtx);
-    if (!variable) throw new Error('Failed to parse DELETE: missing variable name.');
+    // Check for DETACH keyword
+    const isDetach = hasTerminal(deleteCtx, 'DETACH');
 
-    return { type: 'DELETE' as const, variable };
+    // Extract all variables (DELETE n, r, m)
+    const exprCtxs = findAllChildren(deleteCtx, Ctx.Expression);
+    if (exprCtxs.length === 0) throw new Error('Failed to parse DELETE: missing Expression node in AST.');
+    const atoms = exprCtxs.map((e) => getAtom(e)).filter(Boolean);
+    if (atoms.length === 0) throw new Error('Failed to parse DELETE: missing Atom node in AST.');
+    const variables: string[] = [];
+    for (const atom of atoms) {
+      const varCtx = findChild(atom, Ctx.Variable);
+      const variable = getSymbolicName(varCtx);
+      if (!variable) throw new Error('Failed to parse DELETE: missing variable name.');
+      variables.push(variable);
+    }
+
+    return { type: 'DELETE' as const, variables, detach: isDetach };
   }
 
   // REMOVE clause
@@ -2348,17 +2394,22 @@ function extractMergeAction(actionCtx: TreeNode): MergeAction | undefined {
   const setCtx = findChild(actionCtx, Ctx.SetClause);
   const setActions = setCtx ? extractMergeSetActions(setCtx) : [];
 
-  // Extract DELETE variables from DeleteClause inside the action
+  // Extract DELETE/DETACH DELETE variables from DeleteClause inside the action
   const deleteCtx = findChild(actionCtx, Ctx.DeleteClause);
   const deleteVariables: string[] = [];
+  const detachDeleteVariables: string[] = [];
   if (deleteCtx) {
+    const isDetach = hasTerminal(deleteCtx, 'DETACH');
     const exprCtx = findChild(deleteCtx, Ctx.Expression);
     if (exprCtx) {
       const atom = getAtom(exprCtx);
       if (atom) {
         const varCtx = findChild(atom, Ctx.Variable);
         const variable = getSymbolicName(varCtx);
-        if (variable) deleteVariables.push(variable);
+        if (variable) {
+          if (isDetach) detachDeleteVariables.push(variable);
+          else deleteVariables.push(variable);
+        }
       }
     }
   }
@@ -2406,6 +2457,7 @@ function extractMergeAction(actionCtx: TreeNode): MergeAction | undefined {
     actionType: onCreate ? 'CREATE' : 'MATCH',
     setActions,
     deleteVariables,
+    detachDeleteVariables,
     removeItems,
   };
 }
@@ -2425,10 +2477,10 @@ function extractMergeClause(clauseCtx: ParseTreeNode): MergeClause {
   const nodePatterns = findAllChildren(element, Ctx.NodePattern);
   const chains = findAllChildren(element, Ctx.PatternElementChain);
 
-  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined };
+  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
 
   let relationPattern: RelationPattern = { variable: undefined, type: undefined, minDepth: undefined, maxDepth: undefined, direction: 'UNDIRECTED' };
-  let targetPattern: NodePattern = { variable: '', labels: undefined, properties: undefined };
+  let targetPattern: NodePattern = { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
 
   const hasChains = chains.length > 0;
 
@@ -2641,10 +2693,11 @@ function splitRespectingBrackets(text: string): string[] {
 function extractMergeActionFromText(text: string, actionType: 'CREATE' | 'MATCH'): MergeAction | undefined {
   const setActions: MergeSetAction[] = [];
   const deleteVariables: string[] = [];
+  const detachDeleteVariables: string[] = [];
   const removeItems: RemoveItem[] = [];
 
   // Extract SET actions: SET var.prop = expr [, var2.prop2 = expr2]
-  const setMatch = text.match(/SET\s+(.+?)(?:\s+DELETE|\s+REMOVE|\s*$)/i);
+  const setMatch = text.match(/SET\s+(.+?)(?:\s+DETACH\s+DELETE|\s+DELETE|\s+REMOVE|\s*$)/i);
   if (setMatch) {
     const setText = setMatch[1]!.trim();
     // Parse each SET assignment using bracket-aware split
@@ -2691,13 +2744,22 @@ function extractMergeActionFromText(text: string, actionType: 'CREATE' | 'MATCH'
     }
   }
 
-  // Extract DELETE variables: DELETE var1, var2
-  const deleteMatch = text.match(/DELETE\s+(.+?)(?:\s+REMOVE|\s*$)/i);
-  if (deleteMatch) {
-    const deleteText = deleteMatch[1]!.trim();
+  // Extract DELETE/DETACH DELETE variables: DELETE var1, var2 or DETACH DELETE var1, var2
+  const detachDeleteMatch = text.match(/DETACH\s+DELETE\s+(.+?)(?:\s+REMOVE|\s*$)/i);
+  if (detachDeleteMatch) {
+    const deleteText = detachDeleteMatch[1]!.trim();
     for (const varRef of deleteText.split(/,\s*/)) {
       const v = varRef.trim();
-      if (v) deleteVariables.push(v);
+      if (v) detachDeleteVariables.push(v);
+    }
+  } else {
+    const deleteMatch = text.match(/DELETE\s+(.+?)(?:\s+REMOVE|\s*$)/i);
+    if (deleteMatch) {
+      const deleteText = deleteMatch[1]!.trim();
+      for (const varRef of deleteText.split(/,\s*/)) {
+        const v = varRef.trim();
+        if (v) deleteVariables.push(v);
+      }
     }
   }
 
@@ -2725,11 +2787,11 @@ function extractMergeActionFromText(text: string, actionType: 'CREATE' | 'MATCH'
     }
   }
 
-  if (setActions.length === 0 && deleteVariables.length === 0 && removeItems.length === 0) {
+  if (setActions.length === 0 && deleteVariables.length === 0 && detachDeleteVariables.length === 0 && removeItems.length === 0) {
     return undefined;
   }
 
-  return { actionType, setActions, deleteVariables, removeItems };
+  return { actionType, setActions, deleteVariables, detachDeleteVariables, removeItems };
 }
 
 /**
@@ -2794,16 +2856,17 @@ function extractSingleQuery(singleQuery: ParseTreeNode, rawQuery?: string): Adva
         const hasOnMatch = /ON\s+MATCH\b/i.test(queryText);
         const hasOnCreate = /ON\s+CREATE\b/i.test(queryText);
         if (hasOnMatch) {
-          mergeClause.onMatch = { actionType: 'MATCH', setActions: [], deleteVariables: [], removeItems: [] };
+          mergeClause.onMatch = { actionType: 'MATCH', setActions: [], deleteVariables: [], detachDeleteVariables: [], removeItems: [] };
           targetAction = mergeClause.onMatch;
         } else if (hasOnCreate) {
-          mergeClause.onCreate = { actionType: 'CREATE', setActions: [], deleteVariables: [], removeItems: [] };
+          mergeClause.onCreate = { actionType: 'CREATE', setActions: [], deleteVariables: [], detachDeleteVariables: [], removeItems: [] };
           targetAction = mergeClause.onCreate;
         }
       }
       if (targetAction) {
         if (writeClause.type === 'DELETE') {
-          targetAction.deleteVariables.push(writeClause.variable);
+          if (writeClause.detach) targetAction.detachDeleteVariables.push(...writeClause.variables);
+          else targetAction.deleteVariables.push(...writeClause.variables);
           stages.splice(i + 1, 1);
           i--; // Adjust index after splice
         } else if (writeClause.type === 'REMOVE') {
@@ -2988,7 +3051,7 @@ export function parseCypher(query: string): CypherAST {
     const isMergeWhere = err.includes("mismatched input 'WHERE'") &&
       (err.includes("expecting {<EOF>") || err.includes("expecting {';'}"));
     // DELETE/REMOVE in ON CREATE/ON MATCH: ANTLR4 expects SET but we support DELETE/REMOVE too
-    const isMergeDeleteOrRemove = (err.includes("missing SET at 'DELETE'") || err.includes("missing SET at 'REMOVE'"));
+    const isMergeDeleteOrRemove = (err.includes("missing SET at 'DELETE'") || err.includes("missing SET at 'REMOVE'") || err.includes("missing SET at 'DETACH'"));
     if (isLabelUnionPipe || isLabelNegation || isLabelColon || isMergeWhere || isMergeDeleteOrRemove) return false;
     return true;
   });

@@ -310,6 +310,8 @@ export class AdvancedCypherGraphologyEngine {
         }
       }
     }
+    // Normalize: empty Set → undefined (no AND path candidates)
+    if (andCandidates?.size === 0) andCandidates = undefined;
 
     // Step 2: Apply AND NOT labels to AND candidates
     if (hasAndNotLabels && labelExpr) {
@@ -322,11 +324,14 @@ export class AdvancedCypherGraphologyEngine {
       }
       if (andCandidates) {
         for (const id of andNotIds) andCandidates.delete(id);
-      } else if (andNotIds.size > 0) {
+      } else {
         // No AND labels but AND NOT labels — all nodes minus negated
+        // (even if notIds is empty, the NOT filter was explicitly specified)
         andCandidates = new Set(this.graph.filterNodes((id) => !andNotIds.has(id)));
       }
     }
+    // Normalize: empty Set → undefined (no AND path candidates)
+    if (andCandidates?.size === 0) andCandidates = undefined;
 
     // Step 3: OR labels (union)
     let orCandidates: Set<string> | undefined;
@@ -341,6 +346,8 @@ export class AdvancedCypherGraphologyEngine {
         }
       }
     }
+    // Normalize: empty Set → undefined (no OR path candidates)
+    if (orCandidates?.size === 0) orCandidates = undefined;
 
     // Step 4: OR NOT labels — all nodes minus those with the negated label
     if (hasOrNotLabels && labelExpr) {
@@ -371,6 +378,11 @@ export class AdvancedCypherGraphologyEngine {
     }
 
     const hasLabels = hasAnyLabels && (labelCandidates?.size ?? 0) > 0;
+
+    // Labels specified but no candidates — return empty (don't fall through to full-graph scan)
+    if (hasAnyLabels && !hasLabels) {
+      return [];
+    }
 
     if (hasLabels && hasProps && props && labelCandidates) {
       // Intersect label candidates with property index.
@@ -1087,25 +1099,127 @@ export class AdvancedCypherGraphologyEngine {
 
     // CREATE executes once per query; SET/DELETE execute per context row
     if (clause.type === 'CREATE') {
-      // For dynamic CREATE (inside FOREACH), evaluate properties in each context
-      for (const context of materialised) {
-        const newId = randomUUID();
-        const labelValue = clause.labels && clause.labels.length > 0
-          ? (clause.labels.length === 1 ? clause.labels[0]! : clause.labels)
-          : undefined;
+      if (clause.hasChain && clause.relationPattern && clause.targetPattern) {
+        // ── CREATE with relationship chain: (a)-[r:TYPE]->(b) ──────────
+        for (const context of materialised) {
+          // Resolve source node: use bound variable or create new
+          let sourceNode: CypherNode;
+          const sourceWasBound = clause.variable in context &&
+            context[clause.variable] &&
+            (context[clause.variable] as CypherNode).id &&
+            this.graph.hasNode((context[clause.variable] as CypherNode).id);
+          if (sourceWasBound) {
+            sourceNode = { id: (context[clause.variable] as CypherNode).id, ...this.graph.getNodeAttributes((context[clause.variable] as CypherNode).id) } as CypherNode;
+          } else {
+            const newSourceId = randomUUID();
+            const labelValue = clause.labels && clause.labels.length > 0
+              ? (clause.labels.length === 1 ? clause.labels[0]! : clause.labels)
+              : undefined;
+            let props: Record<string, CypherValue> = clause.properties ?? {};
+            if (clause.propertiesExpr) {
+              props = {};
+              for (const [key, expr] of Object.entries(clause.propertiesExpr)) {
+                props[key] = this.evaluateExpression(expr, context) as CypherValue;
+              }
+            }
+            this.graph.addNode(newSourceId, { [this.config.labelProperty]: labelValue, ...props });
+            sourceNode = { id: newSourceId, [this.config.labelProperty]: labelValue, ...props } as CypherNode;
+            context[clause.variable] = sourceNode;
+          }
 
-        // Use dynamic propertiesExpr if available (FOREACH), otherwise static properties
-        let props: Record<string, CypherValue> = clause.properties ?? {};
-        if (clause.propertiesExpr) {
-          props = {};
-          for (const [key, expr] of Object.entries(clause.propertiesExpr)) {
-            props[key] = this.evaluateExpression(expr, context) as CypherValue;
+          // Resolve target node: use bound variable or create new
+          // If target variable equals source variable and source was not bound,
+          // we just created the source and bound it — treat target as unbound to avoid self-loops.
+          let targetNode: CypherNode;
+          const targetWasBound = clause.targetPattern.variable in context &&
+            context[clause.targetPattern.variable] &&
+            (context[clause.targetPattern.variable] as CypherNode).id &&
+            this.graph.hasNode((context[clause.targetPattern.variable] as CypherNode).id) &&
+            !(clause.targetPattern.variable === clause.variable && !sourceWasBound);
+          if (targetWasBound) {
+            targetNode = { id: (context[clause.targetPattern.variable] as CypherNode).id, ...this.graph.getNodeAttributes((context[clause.targetPattern.variable] as CypherNode).id) } as CypherNode;
+          } else {
+            const newTargetId = randomUUID();
+            const targetLabelValue = clause.targetPattern.labels && clause.targetPattern.labels.labels.length > 0
+              ? (clause.targetPattern.labels.labels.length === 1 ? clause.targetPattern.labels.labels[0]! : clause.targetPattern.labels.labels)
+              : undefined;
+            let targetProps: Record<string, CypherValue> = clause.targetPattern.properties ?? {};
+            if (clause.targetPattern.propertiesExpr) {
+              targetProps = {};
+              for (const [key, expr] of Object.entries(clause.targetPattern.propertiesExpr)) {
+                targetProps[key] = this.evaluateExpression(expr, context) as CypherValue;
+              }
+            }
+            this.graph.addNode(newTargetId, { [this.config.labelProperty]: targetLabelValue, ...targetProps });
+            targetNode = { id: newTargetId, [this.config.labelProperty]: targetLabelValue, ...targetProps } as CypherNode;
+            context[clause.targetPattern.variable] = targetNode;
+          }
+
+          // Determine edge direction and endpoints
+          let edgeSource: string;
+          let edgeTarget: string;
+          const direction = clause.relationPattern.direction;
+          if (direction === 'OUT') {
+            edgeSource = sourceNode.id;
+            edgeTarget = targetNode.id;
+          } else if (direction === 'IN') {
+            edgeSource = targetNode.id;
+            edgeTarget = sourceNode.id;
+          } else {
+            // UNDIRECTED: store as source → target
+            edgeSource = sourceNode.id;
+            edgeTarget = targetNode.id;
+          }
+
+          // Create the edge
+          const newEdgeId = randomUUID();
+          const edgeAttrs: Record<string, unknown> = {};
+          if (clause.relationPattern.type) {
+            edgeAttrs[this.config.edgeTypeProperty] = clause.relationPattern.type;
+          }
+          // Apply edge properties (static from parser, or dynamic from FOREACH)
+          let edgeProps: Record<string, CypherValue> = clause.edgeProperties ?? {};
+          if (clause.edgePropertiesExpr) {
+            edgeProps = {};
+            for (const [key, expr] of Object.entries(clause.edgePropertiesExpr)) {
+              edgeProps[key] = this.evaluateExpression(expr, context) as CypherValue;
+            }
+          }
+          Object.assign(edgeAttrs, edgeProps);
+          this.graph.addEdgeWithKey(newEdgeId, edgeSource, edgeTarget, edgeAttrs);
+          const edge: CypherEdge = {
+            id: newEdgeId,
+            source: edgeSource,
+            target: edgeTarget,
+            ...edgeAttrs,
+          } as CypherEdge;
+
+          // Bind edge variable (as array, matching MATCH semantics)
+          if (clause.relationPattern.variable) {
+            context[clause.relationPattern.variable] = [edge];
           }
         }
+      } else {
+        // ── Single-node CREATE (backward compatible) ────────────────────
+        for (const context of materialised) {
+          const newId = randomUUID();
+          const labelValue = clause.labels && clause.labels.length > 0
+            ? (clause.labels.length === 1 ? clause.labels[0]! : clause.labels)
+            : undefined;
 
-        this.graph.addNode(newId, { [this.config.labelProperty]: labelValue, ...props });
-        const newNode = { id: newId, [this.config.labelProperty]: labelValue, ...props } as CypherNode;
-        context[clause.variable] = newNode;
+          // Use dynamic propertiesExpr if available (FOREACH), otherwise static properties
+          let props: Record<string, CypherValue> = clause.properties ?? {};
+          if (clause.propertiesExpr) {
+            props = {};
+            for (const [key, expr] of Object.entries(clause.propertiesExpr)) {
+              props[key] = this.evaluateExpression(expr, context) as CypherValue;
+            }
+          }
+
+          this.graph.addNode(newId, { [this.config.labelProperty]: labelValue, ...props });
+          const newNode = { id: newId, [this.config.labelProperty]: labelValue, ...props } as CypherNode;
+          context[clause.variable] = newNode;
+        }
       }
     } else if (clause.type === 'SET') {
       // Handle label addition (SET n:Label or SET n:Label prop=val)
@@ -1183,23 +1297,52 @@ export class AdvancedCypherGraphologyEngine {
     } else if (clause.type === 'DELETE') {
       const nodeIds = new Set<string>();
       const edgeIds = new Set<string>();
-      for (const context of materialised) {
-        const target = context[clause.variable] as CypherNode | CypherEdge | undefined;
-        if (target && target.id) {
-          if (this.graph.hasNode(target.id)) nodeIds.add(target.id);
-          else if (this.graph.hasEdge(target.id)) edgeIds.add(target.id);
+      // Collect targets from all variables across all contexts
+      for (const varName of clause.variables) {
+        for (const context of materialised) {
+          const target = context[varName] as CypherNode | CypherEdge | (CypherNode | CypherEdge)[] | undefined;
+          if (Array.isArray(target)) {
+            for (const item of target) {
+              if (item.id) {
+                if (this.graph.hasNode(item.id)) nodeIds.add(item.id);
+                else if (this.graph.hasEdge(item.id)) edgeIds.add(item.id);
+              }
+            }
+          } else if (target && target.id) {
+            if (this.graph.hasNode(target.id)) nodeIds.add(target.id);
+            else if (this.graph.hasEdge(target.id)) edgeIds.add(target.id);
+          }
         }
+      }
+      // DETACH DELETE: also collect all incident edges for each node
+      if (clause.detach) {
+        for (const nodeId of nodeIds) {
+          this.graph.forEachEdge(nodeId, (edgeId) => { edgeIds.add(edgeId); });
+        }
+      }
+      // Drop edges first, then nodes
+      for (const edgeId of edgeIds) {
+        this.graph.dropEdge(edgeId);
       }
       for (const nodeId of nodeIds) {
         this.graph.dropNode(nodeId);
       }
-      for (const edgeId of edgeIds) {
-        this.graph.dropEdge(edgeId);
-      }
-      for (const context of materialised) {
-        const target = context[clause.variable] as CypherNode | CypherEdge | undefined;
-        if (target && target.id && (nodeIds.has(target.id) || edgeIds.has(target.id))) {
-          context[clause.variable] = null;
+      // Null-out deleted variables in context
+      for (const varName of clause.variables) {
+        for (const context of materialised) {
+          const target = context[varName] as CypherNode | CypherEdge | (CypherNode | CypherEdge)[] | undefined;
+          if (Array.isArray(target)) {
+            let anyDeleted = false;
+            for (const item of target) {
+              if (item.id && (nodeIds.has(item.id) || edgeIds.has(item.id))) {
+                anyDeleted = true;
+                break;
+              }
+            }
+            if (anyDeleted) context[varName] = null;
+          } else if (target && target.id && (nodeIds.has(target.id) || edgeIds.has(target.id))) {
+            context[varName] = null;
+          }
         }
       }
     } else if (clause.type === 'REMOVE') {
@@ -1208,8 +1351,15 @@ export class AdvancedCypherGraphologyEngine {
       const edgeMap = new Map<string, Set<string>>();
       for (const item of clause.items) {
         for (const context of materialised) {
-          const target = context[item.variable] as CypherNode | CypherEdge | undefined;
-          if (target && target.id) {
+          const target = context[item.variable] as CypherNode | CypherEdge | CypherEdge[] | undefined;
+          if (Array.isArray(target)) {
+            for (const edge of target) {
+              if (edge.id && this.graph.hasEdge(edge.id)) {
+                if (!edgeMap.has(item.variable)) edgeMap.set(item.variable, new Set());
+                edgeMap.get(item.variable)!.add(edge.id);
+              }
+            }
+          } else if (target && target.id) {
             if (this.graph.hasNode(target.id)) {
               if (!nodeMap.has(item.variable)) nodeMap.set(item.variable, new Set());
               nodeMap.get(item.variable)!.add(target.id);
@@ -1350,7 +1500,7 @@ export class AdvancedCypherGraphologyEngine {
 
       // Apply ON CREATE or ON MATCH actions (SET / DELETE / REMOVE)
       const action = isMatch ? onMatch : onCreate;
-      if (action && (action.setActions.length > 0 || action.deleteVariables.length > 0 || action.removeItems.length > 0)) {
+      if (action && (action.setActions.length > 0 || action.deleteVariables.length > 0 || action.detachDeleteVariables.length > 0 || action.removeItems.length > 0)) {
         this.applyMergeActions(action, chain, hasChains ? relationPattern.variable : undefined);
       }
 
@@ -1562,6 +1712,7 @@ export class AdvancedCypherGraphologyEngine {
     // ── DELETE actions ───────────────────────────────────────────────
     const nodeIds = new Set<string>();
     const edgeIds = new Set<string>();
+    const detachNodeIds = new Set<string>();
     for (const varName of action.deleteVariables) {
       const target = chain[CHAIN_OVERRIDES][varName];
       if (!target || typeof target !== 'object') continue;
@@ -1577,11 +1728,31 @@ export class AdvancedCypherGraphologyEngine {
         else if (this.graph.hasEdge(id)) edgeIds.add(id);
       }
     }
-    for (const nodeId of nodeIds) {
-      this.graph.dropNode(nodeId);
+    // DETACH DELETE: also collect incident edges for each detach-deleted node
+    for (const varName of action.detachDeleteVariables) {
+      const target = chain[CHAIN_OVERRIDES][varName];
+      if (!target || typeof target !== 'object') continue;
+
+      if (Array.isArray(target)) {
+        for (const edge of target as CypherEdge[]) {
+          if (edge.id && this.graph.hasEdge(edge.id)) edgeIds.add(edge.id);
+        }
+      } else if ('id' in target) {
+        const id = (target as CypherNode | CypherEdge).id;
+        if (this.graph.hasNode(id)) {
+          detachNodeIds.add(id);
+          this.graph.forEachEdge(id, (edgeId) => { edgeIds.add(edgeId); });
+        } else if (this.graph.hasEdge(id)) {
+          edgeIds.add(id);
+        }
+      }
     }
+    // Drop edges first, then nodes
     for (const edgeId of edgeIds) {
       this.graph.dropEdge(edgeId);
+    }
+    for (const nodeId of [...nodeIds, ...detachNodeIds]) {
+      this.graph.dropNode(nodeId);
     }
     // Null-out deleted variables in context
     for (const varName of action.deleteVariables) {
@@ -1596,6 +1767,22 @@ export class AdvancedCypherGraphologyEngine {
       } else if (target && typeof target === 'object' && 'id' in target) {
         const id = (target as CypherNode | CypherEdge).id;
         if (nodeIds.has(id) || edgeIds.has(id)) {
+          chain[CHAIN_OVERRIDES][varName] = null;
+        }
+      }
+    }
+    for (const varName of action.detachDeleteVariables) {
+      const target = chain[CHAIN_OVERRIDES][varName];
+      if (Array.isArray(target)) {
+        for (const edge of target as CypherEdge[]) {
+          if (edge.id && edgeIds.has(edge.id)) {
+            chain[CHAIN_OVERRIDES][varName] = null;
+            break;
+          }
+        }
+      } else if (target && typeof target === 'object' && 'id' in target) {
+        const id = (target as CypherNode | CypherEdge).id;
+        if (detachNodeIds.has(id) || edgeIds.has(id)) {
           chain[CHAIN_OVERRIDES][varName] = null;
         }
       }

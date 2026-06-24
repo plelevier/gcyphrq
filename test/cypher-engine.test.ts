@@ -887,7 +887,7 @@ describe('AdvancedCypherGraphologyEngine', () => {
 
   describe('execute - self-loops', () => {
     it('handles self-loop edges correctly', () => {
-      const g = new Graph();
+      const g = new Graph({ allowSelfLoops: true });
       g.addNode('a', { label: 'Node', name: 'A' });
       g.addEdge('a', 'a', { type: 'SELF' });
       const e = new AdvancedCypherGraphologyEngine(g);
@@ -900,7 +900,7 @@ describe('AdvancedCypherGraphologyEngine', () => {
     });
 
     it('handles self-loop with variable-length path (cycle guard prevents depth 2)', () => {
-      const g = new Graph();
+      const g = new Graph({ allowSelfLoops: true });
       g.addNode('a', { label: 'Node', name: 'A' });
       g.addEdge('a', 'a', { type: 'SELF' });
       const e = new AdvancedCypherGraphologyEngine(g);

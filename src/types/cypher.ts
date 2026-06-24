@@ -92,6 +92,8 @@ export interface NodePattern {
   variable: string;
   labels: LabelExpression | undefined;
   properties: Record<string, CypherValue> | undefined;
+  /** Dynamic property expressions evaluated at runtime (for CREATE inside FOREACH). */
+  propertiesExpr: Record<string, Expression> | undefined;
 }
 
 export interface RelationPattern {
@@ -121,11 +123,24 @@ export interface CreateClause {
   properties: Record<string, CypherValue> | undefined;
   /** Dynamic property expressions evaluated at runtime (for CREATE inside FOREACH). */
   propertiesExpr: Record<string, Expression> | undefined;
+  /** Whether the CREATE includes a relationship chain (source)-[rel]->(target). */
+  hasChain: boolean;
+  /** Relationship pattern (type, variable, direction) when hasChain is true. */
+  relationPattern?: RelationPattern;
+  /** Target node pattern when hasChain is true (includes properties/propertiesExpr). */
+  targetPattern?: NodePattern;
+  /** Static properties for the edge. */
+  edgeProperties?: Record<string, CypherValue> | undefined;
+  /** Dynamic property expressions for the edge. */
+  edgePropertiesExpr?: Record<string, Expression> | undefined;
 }
 
 export interface DeleteClause {
   type: 'DELETE';
-  variable: string;
+  /** Variables to delete (supports multiple: DELETE n, r, m). */
+  variables: string[];
+  /** Whether this is a DETACH DELETE (also removes all incident relationships). */
+  detach: boolean;
 }
 
 export interface SetClause {
@@ -165,6 +180,8 @@ export interface MergeAction {
   setActions: MergeSetAction[];
   /** Variables to DELETE (e.g., DELETE n, DELETE r) */
   deleteVariables: string[];
+  /** Variables to DETACH DELETE (e.g., DETACH DELETE n — also removes incident edges) */
+  detachDeleteVariables: string[];
   /** REMOVE items (labels or properties) */
   removeItems: RemoveItem[];
 }

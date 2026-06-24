@@ -289,7 +289,7 @@ describe('Undirected/mixed edge cases', () => {
 
   it('handles self-loops in undirected graphs', () => {
     const graph = createGraph({
-      options: { type: 'undirected' },
+      options: { type: 'undirected', allowSelfLoops: true },
       nodes: [
         { key: 'a', attributes: { label: 'N' } },
         { key: 'b', attributes: { label: 'N' } },

@@ -419,7 +419,7 @@ Use `UNION` (without `ALL`) to deduplicate the combined result set.
 
 ### Pattern 7: Mutation followed by query
 
-The engine supports `CREATE`, `SET`, `DELETE`, and `REMOVE` mutations within queries. Mutations modify the underlying graph in-place:
+The engine supports `CREATE`, `SET`, `DELETE`, `DETACH DELETE`, and `REMOVE` mutations within queries. Mutations modify the underlying graph in-place:
 
 ```ts
 import { createGraph, GraphEngine, parseCypher } from 'gcyphrq';
@@ -566,8 +566,8 @@ interface GraphologyEdge {
 
 interface GraphologyGraphOptions {
   type?: 'directed' | 'undirected' | 'mixed'; // all three are supported
-  allowSelfLoops?: boolean;                    // true will cause an error
-  multi?: boolean;                             // true will cause an error
+  allowSelfLoops?: boolean;                    // enables self-loop edges
+  multi?: boolean;                             // enables parallel edges between same nodes
 }
 ```
 

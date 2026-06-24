@@ -114,7 +114,7 @@ describe('FOREACH parser', () => {
     const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
     expect(clause.innerClause.type).toBe('DELETE');
     if (clause.innerClause.type === 'DELETE') {
-      expect(clause.innerClause.variable).toBe('x');
+      expect(clause.innerClause.variables).toEqual(['x']);
     }
   });
 
