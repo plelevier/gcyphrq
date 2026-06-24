@@ -109,7 +109,7 @@ describe('CREATE chain parser', () => {
     const create = ast.stages[0]! as { type: 'WRITE'; clause: any };
     expect(create.clause.hasChain).toBe(true);
     expect(create.clause.properties).toEqual({ name: 'Alice' });
-    expect(create.clause.targetProperties).toEqual({ name: 'Bob' });
+    expect(create.clause.targetPattern.properties).toEqual({ name: 'Bob' });
     expect(create.clause.edgeProperties).toEqual({ since: 2020 });
   });
 
@@ -267,15 +267,30 @@ describe('CREATE chain engine', () => {
 
   it('creates edge with dynamic properties via FOREACH', () => {
     graph.addNode('alice', { label: 'Person', name: 'Alice' });
-    graph.addNode('bob', { label: 'Person', name: 'Bob' });
     const engine = createEngine(graph);
     // Dynamic edge properties in FOREACH: the edgePropertiesExpr path
-    // is exercised when CREATE chain is inside FOREACH with loop variable refs
+    // is exercised when CREATE chain is inside FOREACH with loop variable refs.
+    // Note: variables bound inside FOREACH are not visible outside (Neo4j semantics),
+    // so we verify graph state instead of returning the edge variable.
     const ast = parseCypher(
-      'MATCH (a:Person {name: "Alice"}) UNWIND [{name: "Bob"}] AS bInfo FOREACH (dummy IN [1] | CREATE (a)-[r:KNOWS {target: bInfo.name}]->(b:Person {name: bInfo.name})) RETURN r',
+      'MATCH (a:Person {name: "Alice"}) UNWIND [{name: "Bob"}] AS bInfo FOREACH (dummy IN [1] | CREATE (a)-[r:KNOWS {target: bInfo.name}]->(b:Person {name: bInfo.name}))',
     );
-    // Note: this tests the parser + engine path for dynamic edge properties
-    // The FOREACH with CREATE chain exercises edgePropertiesExpr
+    engine.execute(ast);
+    // Verify edge was created with dynamic property
+    expect(countEdges(graph)).toBe(1);
+    let edgeId: string | undefined;
+    graph.forEachEdge((id) => { edgeId = id; });
+    expect(edgeId).toBeDefined();
+    const edgeAttrs = graph.getEdgeAttributes(edgeId!);
+    expect(edgeAttrs.type).toBe('KNOWS');
+    expect(edgeAttrs.target).toBe('Bob');
+    // Verify target node was created with dynamic property
+    expect(graph.order).toBe(2);
+    let targetName: string | undefined;
+    graph.filterNodes(() => true).forEach((id) => {
+      if (id !== 'alice') targetName = (graph.getNodeAttributes(id) as any).name;
+    });
+    expect(targetName).toBe('Bob');
   });
 
   it('creates self-loop edge when source and target are the same node', () => {

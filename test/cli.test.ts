@@ -25,7 +25,7 @@ function writeFile(dir: string, name: string, content: unknown): string {
 
 function runCli(args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((resolveResult) => {
-    execFile('npx', ['tsx', join('src', 'index.ts'), ...args], { cwd: PROJECT_ROOT }, (error, stdout, stderr) => {
+    execFile('npx', ['tsx', join('src', 'index.ts'), ...args], { cwd: PROJECT_ROOT, timeout: 10000 }, (error, stdout, stderr) => {
       resolveResult({
         stdout,
         stderr,

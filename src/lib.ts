@@ -341,12 +341,12 @@ function validateGraphData(data: unknown, opts?: GraphOptions): ValidationResult
  */
 export function createGraph(data: GraphInput, opts?: GraphOptions): GraphInstance {
   const { normalized, graphType, allowSelfLoops, multi } = validateGraphData(data, opts);
-  return buildGraph(normalized, graphType, allowSelfLoops, multi);
+  return buildGraph(normalized, graphType, allowSelfLoops || undefined, multi || undefined);
 }
 
 /** Build a Graphology graph from already-validated data (internal helper). */
 function buildGraph(validated: NormalizedGraphFile, graphType: GraphType, allowSelfLoops?: boolean, multi?: boolean): GraphInstance {
-  const graph = new Graph({ type: graphType, allowSelfLoops, multi });
+  const graph = new Graph({ type: graphType, ...(allowSelfLoops ? { allowSelfLoops } : {}), ...(multi ? { multi } : {}) });
 
   for (const node of validated.nodes) {
     const { id, ...attrs } = node;

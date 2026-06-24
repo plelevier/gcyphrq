@@ -47,6 +47,28 @@ gcyphrq -g examples/social-graph.json -e 'MATCH (u:User) RETURN u'
 cat my-graph.json | gcyphrq -g - -e 'MATCH (u:User) RETURN u'
 ```
 
+### Graph file options
+
+The JSON graph file supports an optional `options` field to configure graph behavior:
+
+```json
+{
+  "options": {
+    "type": "directed",
+    "allowSelfLoops": true,
+    "multi": true
+  },
+  "nodes": [...],
+  "edges": [...]
+}
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `type` | `"directed"` | Graph directionality: `"directed"`, `"undirected"`, or `"mixed"` |
+| `allowSelfLoops` | `false` | Enable edges where `source` equals `target` |
+| `multi` | `false` | Enable parallel edges (multiple edges between the same nodes) |
+
 ## Output Format
 
 The CLI outputs **raw JSON** with no prefixes, no markdown, and no extra text. Stdout is pipe-friendly for downstream tools like `jq`.

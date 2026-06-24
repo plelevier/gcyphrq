@@ -1058,7 +1058,7 @@ function extractCaseExpression(caseCtx: TreeNode): Expression | undefined {
 // ── Node pattern extraction ──────────────────────────────────────────────────
 
 function extractNodePattern(nodePatternCtx: TreeNode): NodePattern {
-  if (!nodePatternCtx) return { variable: '', labels: undefined, properties: undefined };
+  if (!nodePatternCtx) return { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
 
   const variable = getSymbolicName(findChild(nodePatternCtx, Ctx.Variable)) ?? '';
 
@@ -1067,8 +1067,9 @@ function extractNodePattern(nodePatternCtx: TreeNode): NodePattern {
   const propsCtx = findChild(nodePatternCtx, Ctx.Properties);
   const mapLitCtx = findChild(propsCtx, Ctx.MapLiteral);
   const properties = extractProperties(mapLitCtx);
+  const propertiesExpr = extractDynamicProperties(mapLitCtx);
 
-  return { variable, labels: labelExpr, properties };
+  return { variable, labels: labelExpr, properties, propertiesExpr };
 }
 
 /**
@@ -1324,10 +1325,10 @@ function extractMatchClause(clauseCtx: ParseTreeNode): MatchClause {
   const nodePatterns = findAllChildren(element, Ctx.NodePattern);
   const chains = findAllChildren(element, Ctx.PatternElementChain);
 
-  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined };
+  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
 
   let relationPattern: RelationPattern = { variable: undefined, type: undefined, minDepth: undefined, maxDepth: undefined, direction: 'UNDIRECTED' };
-  let targetPattern: NodePattern = { variable: '', labels: undefined, properties: undefined };
+  let targetPattern: NodePattern = { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
 
   const hasChains = chains.length > 0;
 
@@ -2252,7 +2253,11 @@ function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
       const edgePropertiesExpr = extractDynamicProperties(edgeMapLitCtx);
 
       const targetNodeCtx = findChild(chain, Ctx.NodePattern);
-      const targetPattern = targetNodeCtx ? extractNodePattern(targetNodeCtx) : { variable: '', labels: undefined, properties: undefined };
+      const targetPropsCtx = targetNodeCtx ? findChild(targetNodeCtx, Ctx.Properties) : undefined;
+      const targetMapLitCtx = targetPropsCtx ? findChild(targetPropsCtx, Ctx.MapLiteral) : undefined;
+      const targetPattern = targetNodeCtx ? extractNodePattern(targetNodeCtx) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
+      // Populate dynamic property expressions on the target pattern
+      targetPattern.propertiesExpr = extractDynamicProperties(targetMapLitCtx);
 
       return {
         type: 'CREATE' as const,
@@ -2263,8 +2268,6 @@ function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
         hasChain: true,
         relationPattern,
         targetPattern,
-        targetProperties: targetPattern.properties,
-        targetPropertiesExpr: undefined, // target dynamic props not yet supported in chains
         edgeProperties,
         edgePropertiesExpr,
       };
@@ -2464,10 +2467,10 @@ function extractMergeClause(clauseCtx: ParseTreeNode): MergeClause {
   const nodePatterns = findAllChildren(element, Ctx.NodePattern);
   const chains = findAllChildren(element, Ctx.PatternElementChain);
 
-  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined };
+  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
 
   let relationPattern: RelationPattern = { variable: undefined, type: undefined, minDepth: undefined, maxDepth: undefined, direction: 'UNDIRECTED' };
-  let targetPattern: NodePattern = { variable: '', labels: undefined, properties: undefined };
+  let targetPattern: NodePattern = { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
 
   const hasChains = chains.length > 0;
 

@@ -1122,10 +1122,8 @@ export class AdvancedCypherGraphologyEngine {
             const targetLabelValue = clause.targetPattern.labels && clause.targetPattern.labels.labels.length > 0
               ? (clause.targetPattern.labels.labels.length === 1 ? clause.targetPattern.labels.labels[0]! : clause.targetPattern.labels.labels)
               : undefined;
-            let targetProps: Record<string, CypherValue> = clause.targetProperties ?? {};
-            if (clause.targetPropertiesExpr) {
-              targetProps = {};
-              for (const [key, expr] of Object.entries(clause.targetPropertiesExpr)) {
+            let targetProps: Record<string, CypherValue> = clause.targetPattern.properties ?? {};            if (clause.targetPattern.propertiesExpr) {              targetProps = {};
+              for (const [key, expr] of Object.entries(clause.targetPattern.propertiesExpr)) {
                 targetProps[key] = this.evaluateExpression(expr, context) as CypherValue;
               }
             }
@@ -1312,8 +1310,15 @@ export class AdvancedCypherGraphologyEngine {
       const edgeMap = new Map<string, Set<string>>();
       for (const item of clause.items) {
         for (const context of materialised) {
-          const target = context[item.variable] as CypherNode | CypherEdge | undefined;
-          if (target && target.id) {
+          const target = context[item.variable] as CypherNode | CypherEdge | CypherEdge[] | undefined;
+          if (Array.isArray(target)) {
+            for (const edge of target) {
+              if (edge.id && this.graph.hasEdge(edge.id)) {
+                if (!edgeMap.has(item.variable)) edgeMap.set(item.variable, new Set());
+                edgeMap.get(item.variable)!.add(edge.id);
+              }
+            }
+          } else if (target && target.id) {
             if (this.graph.hasNode(target.id)) {
               if (!nodeMap.has(item.variable)) nodeMap.set(item.variable, new Set());
               nodeMap.get(item.variable)!.add(target.id);
