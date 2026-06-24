@@ -29,6 +29,8 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 - `attributes.label` → Cypher node label (`:Service`). Can be string or array of strings (`["Service","Infrastructure"]`). Customize with `-nl` flag.
 - `attributes.type` on edges → relationship type (`[:TCP]`). Customize with `-et` flag.
 - All other attributes → filterable properties (`{name: "X"}`, `{region: "us-east-1"}`)
+- Optional `options.allowSelfLoops: true` enables self-loop edges (`source = target`). Defaults to `false`.
+- Optional `options.allowSelfLoops: true` enables self-loop edges (`source = target`). Defaults to `false`.
 
 ## Supported Cypher
 
