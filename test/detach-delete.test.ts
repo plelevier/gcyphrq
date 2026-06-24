@@ -223,4 +223,25 @@ describe('FOREACH with DETACH DELETE', () => {
       expect(clause.innerClause.detach).toBe(true);
     }
   });
+
+  it('executes FOREACH with DETACH DELETE on list of nodes', () => {
+    const result = executeQuery(
+      {
+        nodes: [
+          { key: 'a', attributes: { label: 'Person', name: 'Alice' } },
+          { key: 'b', attributes: { label: 'Person', name: 'Bob' } },
+          { key: 'c', attributes: { label: 'Person', name: 'Charlie' } },
+        ],
+        edges: [
+          { source: 'a', target: 'b', attributes: { type: 'KNOWS' } },
+          { source: 'a', target: 'c', attributes: { type: 'LIKES' } },
+        ],
+      },
+      'MATCH (a:Person {name: "Alice"}) FOREACH (x IN [a] | DETACH DELETE x) MATCH (m:Person) RETURN m.name AS name ORDER BY name',
+    );
+    expect(result).toEqual([
+      { name: 'Bob' },
+      { name: 'Charlie' },
+    ]);
+  });
 });
