@@ -45,7 +45,8 @@ See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 - **Arithmetic:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`, parentheses. Works in RETURN/WHERE/WITH/ORDER BY/SET. Null propagation (null operand → null), division by zero → null
 - **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices
 - **Mutations:** `CREATE` (single node or chain `(a)-[r:TYPE]->(b)`), `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `MERGE` (in-memory only). MERGE: supports WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE. CREATE chain: reuses bound nodes, creates unbound ones.
-- **Not supported:** subqueries, `CALL`, APOC, regex in WHERE
+- **CALL { ... } subqueries:** inline (reference outer variables), YIELD filtering, nested, CREATE/SET/DELETE inside, ORDER BY inside. Stored procedures (`CALL db.xxx()`) not supported.
+- **Not supported:** stored procedures, APOC, regex in WHERE
 - **Notes:** `startnode()`/`endnode()` return string IDs; `avg()`/`min()`/`max()` return null on empty sets
 
 ## When to Use
@@ -86,6 +87,12 @@ Service dependencies, blast radius, path tracing, infrastructure topology, monit
 | Path nodes | `MATCH path=(a)-[r]->(b) RETURN nodes(path)` |
 | Path relationships | `MATCH path=(a)-[r]->(b) RETURN relationships(path)` |
 | labels function | `MATCH (n) RETURN labels(n)` |
+| CALL subquery | `CALL { MATCH (n:Person) RETURN n.name AS name }` |
+| CALL with outer var | `MATCH (a:Person) CALL { MATCH (a)-[:FRIEND]->(b) RETURN b.name AS friend } RETURN a.name, friend` |
+| CALL with YIELD | `CALL { MATCH (n:Person) RETURN n.name AS name, n.age AS age } YIELD name RETURN name` |
+| CALL with YIELD+WHERE | `CALL { MATCH (n:Person) RETURN n.name AS name } YIELD name WHERE name <> "Bob" RETURN name` |
+| CALL with WHERE | `CALL { MATCH (n:Person) RETURN n.age AS age } WHERE age > 28 RETURN age` |
+| Nested CALL | `CALL { CALL { MATCH (n:Person) RETURN n.name AS name } RETURN name }` |
 
 See `references/queries.md` for more patterns.
 

@@ -629,6 +629,7 @@ export type {
   RemoveClause,
   UnwindClause,
   ForeachClause,
+  CallClause,
   NodePattern,
   LabelExpression,
   RelationPattern,

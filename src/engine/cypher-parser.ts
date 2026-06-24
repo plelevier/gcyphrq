@@ -5,6 +5,7 @@ import type {
   UnionQueryAST,
   UnionType,
   CypherAST,
+  CallClause,
   FunctionCallExpression,
   LabelExpression,
   ListSliceExpression,
@@ -132,6 +133,7 @@ const Ctx = {
   ForeachClause: 'ForeachClauseContext',
   CaseExpression: 'CaseExpressionContext',
   CaseAlternatives: 'CaseAlternativesContext',
+  CallContext: 'CallContext',
 } as const;
 
 /**
@@ -2353,6 +2355,110 @@ function extractForeachClause(clauseCtx: ParseTreeNode): ForeachClause | undefin
   return { type: 'FOREACH' as const, variable, expression: expr, innerClause };
 }
 
+// ── CALL { ... } subquery clause extraction ──────────────────────────────────
+// ANTLR4 grammar doesn't support CALL { ... } subquery syntax.
+// We extract the inner query text synthetically (same pattern as MERGE WHERE).
+
+function extractCallBodyFromQuery(queryText: string, callIndex: number): string | undefined {
+  const afterCall = queryText.slice(callIndex + 4); // skip past "CALL"
+  const braceMatch = afterCall.match(/^\s*\{/);
+  if (!braceMatch) return undefined;
+
+  const openBraceIndex = callIndex + 4 + braceMatch.index! + braceMatch[0]!.length - 1;
+  // Find matching closing brace
+  let depth = 0;
+  let closeBraceIndex = -1;
+  let inStr = false;
+  let strChar = '';
+  for (let i = openBraceIndex; i < queryText.length; i++) {
+    const ch = queryText.charAt(i);
+    if (inStr) {
+      if (ch === strChar && (i === 0 || queryText.charAt(i - 1) !== '\\')) inStr = false;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { inStr = true; strChar = ch; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) { closeBraceIndex = i; break; }
+    }
+  }
+  if (closeBraceIndex === -1) return undefined;
+  return queryText.slice(openBraceIndex + 1, closeBraceIndex).trim() || undefined;
+}
+
+function extractYieldVariables(queryText: string, callIndex: number): string[] | undefined {
+  const afterCall = queryText.slice(callIndex + 4);
+  const braceMatch = afterCall.match(/^\s*\{/);
+  if (!braceMatch) return undefined;
+
+  const openBraceIndex = callIndex + 4 + braceMatch.index! + braceMatch[0]!.length - 1;
+  let depth = 0;
+  let closeBraceIndex = -1;
+  for (let i = openBraceIndex; i < queryText.length; i++) {
+    const ch = queryText.charAt(i);
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) { closeBraceIndex = i; break; }
+    }
+  }
+  if (closeBraceIndex === -1) return undefined;
+
+  // Look for YIELD after the closing brace
+  const afterBrace = queryText.slice(closeBraceIndex + 1);
+  const yieldMatch = afterBrace.match(/^\s*YIELD\s+(.+?)(?:\s*(?:RETURN|MATCH|MERGE|WITH|UNWIND|FOREACH|CALL|WHERE|;|ORDER|SKIP|LIMIT|$))/i);
+  if (!yieldMatch) return undefined;
+
+  const yieldText = yieldMatch[1]!.trim();
+  // Split by comma, trim each variable
+  const variables = yieldText.split(',').map((v) => v.trim()).filter(Boolean);
+  return variables.length > 0 ? variables : undefined;
+}
+
+function extractCallClause(clauseCtx: ParseTreeNode, rawQuery: string): CallClause | undefined {
+  const callCtx = findChild(clauseCtx, Ctx.CallContext);
+  if (!callCtx) return undefined;
+
+  // Find the CALL keyword position in the raw query
+  const callIndex = rawQuery.search(/\bCALL\b/i);
+  if (callIndex === -1) {
+    throw new Error('Failed to parse CALL: could not locate CALL keyword in query.');
+  }
+
+  // Check if there's a `{` after CALL — if so, it's a subquery (not a stored procedure).
+  // ANTLR4 creates a ProcedureInvocation as error recovery even for subqueries,
+  // so we must check the raw text to distinguish.
+  const afterCall = rawQuery.slice(callIndex + 4); // skip past "CALL"
+  const hasBrace = /\s*\{/.test(afterCall);
+
+  // Check for ProcedureInvocation — only throw if it's truly a stored procedure (no brace)
+  const procCtx = findChild(callCtx, Ctx.ProcedureInvocation);
+  if (procCtx && !hasBrace) {
+    throw new Error('Stored procedure calls (CALL db.xxx()) are not supported. Use CALL { ... } subqueries instead.');
+  }
+
+  // If no brace found, it's not a subquery — skip
+  if (!hasBrace) return undefined;
+
+  // Extract inner query text between { }
+  const innerText = extractCallBodyFromQuery(rawQuery, callIndex);
+  if (!innerText) {
+    throw new Error('Failed to parse CALL: could not extract subquery body between { }.');
+  }
+
+  // Parse the inner text synthetically
+  const innerAST = parseCypher(innerText) as AdvancedCypherAST;
+
+  // Extract YIELD variables if present
+  const yieldVariables = extractYieldVariables(rawQuery, callIndex);
+
+  // Determine if inline (default) or detached (CALL { ... } is always inline in our syntax)
+  const inline = true;
+
+  return { type: 'CALL' as const, innerQuery: innerAST, inline, yieldVariables };
+}
+
 // ── MERGE clause extraction ──────────────────────────────────────────────────
 
 function extractMergeSetActions(setCtx: TreeNode): MergeSetAction[] {
@@ -2804,7 +2910,64 @@ function extractSingleQuery(singleQuery: ParseTreeNode, rawQuery?: string): Adva
 
   const clauses = findAllChildren(singleQuery, Ctx.Clause);
 
+  // Pre-compute CALL subquery brace ranges so we can skip clauses inside { }.
+  // ANTLR4 extracts inner clauses (MATCH, RETURN, etc.) as separate ClauseContext
+  // children of SingleQuery, even though they belong inside the CALL body.
+  const callBraceRanges: Array<{ start: number; end: number }> = [];
+  const queryText = rawQuery ?? singleQuery.getText();
+  let searchFrom = 0;
+  while (searchFrom < queryText.length) {
+    const callMatch = queryText.slice(searchFrom).match(/\bCALL\b/i);
+    if (!callMatch) break;
+    const callIdx = searchFrom + callMatch.index!;
+    const afterCall = queryText.slice(callIdx + 4);
+    const braceMatch = afterCall.match(/^\s*\{/);
+    if (braceMatch) {
+      const braceStart = callIdx + 4 + braceMatch.index! + braceMatch[0]!.length - 1; // position of '{'
+      // Find matching closing brace
+      let depth = 0;
+      let braceEnd = -1;
+      let inStr = false;
+      let strChar = '';
+      for (let i = braceStart; i < queryText.length; i++) {
+        const ch = queryText.charAt(i);
+        if (inStr) {
+          if (ch === strChar && (i === 0 || queryText.charAt(i - 1) !== '\\')) inStr = false;
+          continue;
+        }
+        if (ch === '"' || ch === "'") { inStr = true; strChar = ch; continue; }
+        if (ch === '{') depth++;
+        else if (ch === '}') {
+          depth--;
+          if (depth === 0) { braceEnd = i; break; }
+        }
+      }
+      if (braceEnd !== -1) {
+        callBraceRanges.push({ start: braceStart, end: braceEnd });
+        // Skip past this brace range to avoid re-matching inner CALLs
+        searchFrom = braceEnd + 1;
+      } else {
+        searchFrom = callIdx + 4;
+      }
+    } else {
+      searchFrom = callIdx + 4;
+    }
+  }
+
+  // Helper: check if a clause's text position falls inside any CALL brace range
+  const isInsideCallBraces = (node: ParseTreeNode): boolean => {
+    const startIdx = node.start?.start ?? -1;
+    if (startIdx === -1) return false;
+    for (const range of callBraceRanges) {
+      if (startIdx > range.start && startIdx < range.end) return true;
+    }
+    return false;
+  };
+
   for (const clause of clauses) {
+    // Skip clauses that are inside a CALL { } subquery body
+    if (isInsideCallBraces(clause)) continue;
+
     if (findChild(clause, Ctx.MatchClause)) {
       stages.push({ type: 'MATCH', clause: extractMatchClause(clause) });
     } else if (findChild(clause, Ctx.ReturnClause)) {
@@ -2833,13 +2996,64 @@ function extractSingleQuery(singleQuery: ParseTreeNode, rawQuery?: string): Adva
     } else if (findChild(clause, Ctx.ForeachClause)) {
       const foreachClause = extractForeachClause(clause);
       if (foreachClause) stages.push({ type: 'FOREACH', clause: foreachClause });
+    } else if (findChild(clause, Ctx.CallContext)) {
+      const callClause = extractCallClause(clause, rawQuery ?? singleQuery.getText());
+      if (callClause) stages.push({ type: 'CALL', clause: callClause });
+    }
+  }
+
+  // ── Post-process: parse text after CALL } that ANTLR4 missed ──
+  // ANTLR4 treats '}' as a mismatch and doesn't parse subsequent clauses.
+  // If there's text after the closing brace, parse it recursively.
+  // Only process the outermost CALL (not nested ones).
+  if (callBraceRanges.length > 0) {
+    // Find the outermost CALL brace range (the one not contained in any other range)
+    let outermostRange = callBraceRanges[0]!;
+    for (const range of callBraceRanges) {
+      if (range.start <= outermostRange!.start && range.end >= outermostRange!.end) {
+        outermostRange = range;
+      }
+    }
+    let afterText = queryText.slice(outermostRange.end + 1).trim();
+
+    // Strip leading YIELD clause — it belongs to CALL, not as a standalone clause
+    const yieldMatch = afterText.match(/^\s*YIELD\s+(.+?)(?=\s+(?:RETURN|MATCH|WITH|UNWIND|MERGE|SET|DELETE|REMOVE|FOREACH|CALL|WHERE|ORDER|SKIP|LIMIT)\b|$)/is);
+    let yieldVars: string[] | undefined;
+    if (yieldMatch) {
+      yieldVars = yieldMatch[1]!.split(',').map((v) => {
+        const asMatch = v.trim().match(/\s+AS\s+(\w+)$/i);
+        return asMatch ? asMatch[1]! : v.trim().replace(/\s*\S+\s+AS\s+/i, '');
+      });
+      afterText = afterText.slice(yieldMatch[0]!.length).trim();
+    }
+
+    // Update the last CALL clause with YIELD if found
+    if (yieldVars && yieldVars.length > 0) {
+      const lastStage = stages[stages.length - 1];
+      if (lastStage?.type === 'CALL') {
+        (lastStage.clause as CallClause).yieldVariables = yieldVars;
+      }
+    }
+
+    // Strip leading WHERE — prepend "WITH *" to make it parseable
+    const whereMatch = afterText.match(/^\s*WHERE\s+(.+?)(?=\s+(?:RETURN|MATCH|WITH|UNWIND|MERGE|SET|DELETE|REMOVE|FOREACH|CALL|ORDER|SKIP|LIMIT)\b|$)/is);
+    if (whereMatch) {
+      afterText = `WITH * WHERE ${whereMatch[1]!.trim()} ${afterText.slice(whereMatch[0]!.length).trim()}`;
+    }
+
+    const afterTextClean = afterText.replace(/^;\s*$/, '');
+    if (afterTextClean) {
+      const afterAST = parseCypher(afterTextClean) as AdvancedCypherAST;
+      stages.push(...afterAST.stages);
+      if (afterAST.return && !returnClause) {
+        returnClause = afterAST.return;
+      }
     }
   }
 
   // ── Post-process: re-associate DELETE/REMOVE after MERGE ON MATCH/ON CREATE ──
   // ANTLR4 parses "ON MATCH DELETE n" as: MergeAction (empty) + separate DeleteClause.
   // We detect DELETE/REMOVE clauses that follow a MERGE and attach them to the MERGE action.
-  const queryText = rawQuery ?? singleQuery.getText();
   for (let i = 0; i < stages.length - 1; i++) {
     if (stages[i]?.type !== 'MERGE') continue;
     const mergeClause = stages[i]!.clause as MergeClause;
@@ -2958,59 +3172,64 @@ function extractSingleQuery(singleQuery: ParseTreeNode, rawQuery?: string): Adva
 
   // ── Post-process: extract RETURN from raw query when ANTLR4 dropped it ──
   // ANTLR4 drops RETURN after MERGE with WHERE, so extract from raw query.
+  // Skip if the RETURN is inside a CALL { } subquery (it belongs to the inner query).
   if (!returnClause) {
     const returnMatch = queryText.match(/RETURN\s+(.+?)(?:\s*;|\s*$)/i);
     if (returnMatch) {
-      const returnText = returnMatch[1]!.trim();
-      const syntheticQuery = `MATCH (x) RETURN ${returnText}`;
-      // Check cache first
-      let cachedResult = syntheticParseCache.get(syntheticQuery);
-      if (!cachedResult) {
-        try {
-          const syntheticChars = antlr4.CharStreams.fromString(syntheticQuery);
-          const syntheticLexer = new CypherLexer(syntheticChars);
-          const syntheticTokens = new antlr4.CommonTokenStream(syntheticLexer);
-          const syntheticParser = new CypherParser(syntheticTokens);
-          syntheticParser.removeErrorListeners();
-          syntheticParser.addErrorListener(new ErrorCollector());
-          const syntheticTree = syntheticParser.cypher();
+      const returnIdx = returnMatch.index ?? -1;
+      const returnInsideCall = callBraceRanges.some(r => returnIdx > r.start && returnIdx < r.end);
+      if (!returnInsideCall) {
+        const returnText = returnMatch[1]!.trim();
+        const syntheticQuery = `MATCH (x) RETURN ${returnText}`;
+        // Check cache first
+        let cachedResult = syntheticParseCache.get(syntheticQuery);
+        if (!cachedResult) {
+          try {
+            const syntheticChars = antlr4.CharStreams.fromString(syntheticQuery);
+            const syntheticLexer = new CypherLexer(syntheticChars);
+            const syntheticTokens = new antlr4.CommonTokenStream(syntheticLexer);
+            const syntheticParser = new CypherParser(syntheticTokens);
+            syntheticParser.removeErrorListeners();
+            syntheticParser.addErrorListener(new ErrorCollector());
+            const syntheticTree = syntheticParser.cypher();
 
-          const findReturn = (node: any): any => {
-            if (node.constructor.name === Ctx.ReturnClause) return node;
-            if (node.children) {
-              for (const child of node.children) {
-                const found = findReturn(child);
-                if (found) return found;
+            const findReturn = (node: any): any => {
+              if (node.constructor.name === Ctx.ReturnClause) return node;
+              if (node.children) {
+                for (const child of node.children) {
+                  const found = findReturn(child);
+                  if (found) return found;
+                }
               }
-            }
-            return null;
-          };
+              return null;
+            };
 
-          const returnCtx = findReturn(syntheticTree);
-          let extractedReturn: ReturnClause | undefined;
-          if (returnCtx) {
-            // Extract directly from ReturnClauseContext (extractReturnClause expects ClauseContext)
-            const returnBody = findChild(returnCtx, Ctx.ReturnBody);
-            let projections = extractReturnBody(returnBody);
-            const orderBy = extractOrderBy(returnBody);
-            const skip = extractSkip(returnBody);
-            const limit = extractLimit(returnBody);
-            const hasDistinct = hasTerminal(returnCtx, 'DISTINCT');
-            if (hasDistinct) {
-              projections = projections.map((p) => ({ ...p, distinct: true }));
+            const returnCtx = findReturn(syntheticTree);
+            let extractedReturn: ReturnClause | undefined;
+            if (returnCtx) {
+              // Extract directly from ReturnClauseContext (extractReturnClause expects ClauseContext)
+              const returnBody = findChild(returnCtx, Ctx.ReturnBody);
+              let projections = extractReturnBody(returnBody);
+              const orderBy = extractOrderBy(returnBody);
+              const skip = extractSkip(returnBody);
+              const limit = extractLimit(returnBody);
+              const hasDistinct = hasTerminal(returnCtx, 'DISTINCT');
+              if (hasDistinct) {
+                projections = projections.map((p) => ({ ...p, distinct: true }));
+              }
+              extractedReturn = { projections, orderBy, skip, limit };
             }
-            extractedReturn = { projections, orderBy, skip, limit };
+            cachedResult = { whereExpr: undefined, returnClause: extractedReturn };
+            syntheticParseCache.set(syntheticQuery, cachedResult);
+          } catch {
+            // If parsing fails, silently skip RETURN extraction
+            cachedResult = { whereExpr: undefined, returnClause: undefined };
+            syntheticParseCache.set(syntheticQuery, cachedResult);
           }
-          cachedResult = { whereExpr: undefined, returnClause: extractedReturn };
-          syntheticParseCache.set(syntheticQuery, cachedResult);
-        } catch {
-          // If parsing fails, silently skip RETURN extraction
-          cachedResult = { whereExpr: undefined, returnClause: undefined };
-          syntheticParseCache.set(syntheticQuery, cachedResult);
         }
-      }
-      if (cachedResult.returnClause) {
-        returnClause = cachedResult.returnClause;
+        if (cachedResult.returnClause) {
+          returnClause = cachedResult.returnClause;
+        }
       }
     }
   }
@@ -3052,7 +3271,9 @@ export function parseCypher(query: string): CypherAST {
       (err.includes("expecting {<EOF>") || err.includes("expecting {';'}"));
     // DELETE/REMOVE in ON CREATE/ON MATCH: ANTLR4 expects SET but we support DELETE/REMOVE too
     const isMergeDeleteOrRemove = (err.includes("missing SET at 'DELETE'") || err.includes("missing SET at 'REMOVE'") || err.includes("missing SET at 'DETACH'"));
-    if (isLabelUnionPipe || isLabelNegation || isLabelColon || isMergeWhere || isMergeDeleteOrRemove) return false;
+    // CALL { ... } subquery: ANTLR4 grammar doesn't support brace syntax
+    const isCallSubquery = (err.includes("mismatched input '{'") || err.includes("extraneous input '}'") || err.includes("mismatched input '}'"));
+    if (isLabelUnionPipe || isLabelNegation || isLabelColon || isMergeWhere || isMergeDeleteOrRemove || isCallSubquery) return false;
     return true;
   });
 

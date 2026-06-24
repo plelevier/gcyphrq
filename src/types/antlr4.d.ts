@@ -2,6 +2,10 @@ declare module 'antlr4' {
   export interface Token {
     text: string;
     type: number;
+    start: number;  // character offset of first character
+    stop: number;   // character offset of last character
+    line: number;
+    column: number;
   }
 
   export interface TerminalNode {
@@ -13,6 +17,8 @@ declare module 'antlr4' {
     constructor: { name: string };
     children: ParseTreeNode[] | undefined;
     symbol: Token | undefined;
+    start: Token | undefined;  // first token
+    stop: Token | undefined;   // last token
     getText(): string;
   }
 

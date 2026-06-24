@@ -54,6 +54,10 @@ description: A Cypher graph query engine for in-memory graphs built on Grapholog
     <h3>🔧 TypeScript</h3>
     <p>Full type declarations shipped with the package. Works seamlessly in TypeScript projects.</p>
   </div>
+  <div class="feature-card">
+    <h3>📞 CALL Subqueries</h3>
+    <p>Inline subqueries with <code>CALL { ... }</code> syntax. Reference outer variables, use <code>YIELD</code> to filter exposed columns, and nest subqueries.</p>
+  </div>
 </div>
 
 ---
@@ -102,7 +106,8 @@ const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 | `CASE ... WHEN ... END` (general and simple forms, nested) | <span class="badge badge-success">✅</span> |
 | `ORDER BY` (single/multi-column) | <span class="badge badge-success">✅</span> |
 | `SKIP` / `LIMIT` | <span class="badge badge-success">✅</span> |
-| Subqueries, `CALL`, APOC | <span class="badge badge-danger">❌</span> |
+| `CALL { ... }` subqueries (inline, YIELD, nested) | <span class="badge badge-success">✅</span> |
+| Stored procedures, APOC | <span class="badge badge-danger">❌</span> |
 
 ## Example Graphs
 

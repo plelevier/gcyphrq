@@ -16,7 +16,7 @@ This guide covers all supported Cypher syntax and query patterns available in th
 
 ## Supported Features
 
-See the [Home page](index) for the full feature support table.
+See the [Home page]({{ '/' | relative_url }}) for the full feature support table.
 
 ---
 
@@ -1078,11 +1078,123 @@ LIMIT 5
 
 ---
 
+## CALL { ... } Subqueries
+
+Execute a subquery as part of a larger query. The inner query runs for each outer row and expands results based on its output.
+
+### Basic CALL
+
+```cypher
+CALL { MATCH (n:Person) RETURN n.name AS name }
+```
+
+When there is no outer `RETURN`, the CALL results are returned directly.
+
+### CALL with outer scope variables (inline)
+
+The inner query can reference variables bound by preceding `MATCH` or `WITH` clauses:
+
+```cypher
+MATCH (a:Person {name: 'Alice'})
+CALL { MATCH (a)-[:FRIEND]->(b) RETURN b.name AS friend }
+RETURN a.name AS person, friend
+```
+
+### CALL with YIELD
+
+Restrict which inner variables are exposed to the outer scope:
+
+```cypher
+CALL { MATCH (n:Person) RETURN n.name AS name, n.age AS age } YIELD name
+RETURN name
+```
+
+Only `name` is available after the CALL; `age` is discarded.
+
+### CALL with YIELD + WHERE
+
+Combine YIELD with WHERE to filter results after the subquery:
+
+```cypher
+CALL { MATCH (n:Person) RETURN n.name AS name, n.age AS age }
+YIELD name
+WHERE name <> "Bob"
+RETURN name
+```
+
+The WHERE clause applies after YIELD filtering and before any outer RETURN.
+
+### CALL followed by other clauses
+
+CALL can be followed by `RETURN`, `MATCH`, `WITH`, `WHERE`, or other clauses:
+
+```cypher
+-- CALL followed by RETURN
+CALL { MATCH (n:Person) RETURN n.name AS name }
+RETURN name
+
+-- CALL followed by WHERE
+CALL { MATCH (n:Person) RETURN n.age AS age }
+WHERE age > 28
+RETURN age
+
+-- CALL followed by MATCH (cartesian product)
+CALL { MATCH (n:Person) RETURN n.name AS name }
+MATCH (m:Movie)
+RETURN name, m.title AS title
+```
+
+### Nested CALL
+
+CALL subqueries can be nested:
+
+```cypher
+CALL { CALL { MATCH (n:Person) RETURN n.name AS name } RETURN name }
+```
+
+### CALL with CREATE (mutations inside subquery)
+
+Create nodes inside the subquery:
+
+```cypher
+CALL { CREATE (t:Tag {name: 'new'}) RETURN t.name AS name }
+```
+
+### CALL with ORDER BY
+
+Order results inside the subquery:
+
+```cypher
+CALL { MATCH (n:Person) RETURN n.name AS name ORDER BY n.name }
+```
+
+### CALL with aggregation
+
+Use aggregations inside the subquery:
+
+```cypher
+CALL { MATCH (n:Person) RETURN count(n) AS total }
+```
+
+### CALL with row expansion
+
+When the inner query produces multiple rows per outer row, results expand:
+
+```cypher
+MATCH (a:Person)
+CALL { MATCH (a)-[:FRIEND]->(b) RETURN b.name AS friend }
+RETURN a.name AS person, friend
+```
+
+If an outer row produces zero inner rows, it is dropped (matching Neo4j semantics).
+
+---
+
 ## Unsupported Features
 
 The following Cypher features are **not** supported by the engine:
 
-- **Subqueries** — `CALL {}` syntax
+- **Stored procedures** — `CALL db.xxx()` (use `CALL { ... }` subqueries instead)
 - **APOC procedures** — `CALL apoc.*`
 - **UNION without RETURN** — each branch must end with a `RETURN` clause
 
