@@ -1087,25 +1087,109 @@ export class AdvancedCypherGraphologyEngine {
 
     // CREATE executes once per query; SET/DELETE execute per context row
     if (clause.type === 'CREATE') {
-      // For dynamic CREATE (inside FOREACH), evaluate properties in each context
-      for (const context of materialised) {
-        const newId = randomUUID();
-        const labelValue = clause.labels && clause.labels.length > 0
-          ? (clause.labels.length === 1 ? clause.labels[0]! : clause.labels)
-          : undefined;
+      if (clause.hasChain && clause.relationPattern && clause.targetPattern) {
+        // ── CREATE with relationship chain: (a)-[r:TYPE]->(b) ──────────
+        for (const context of materialised) {
+          // Resolve source node: use bound variable or create new
+          let sourceNode: CypherNode;
+          const boundSource = context[clause.variable] as CypherNode | undefined;
+          if (boundSource && boundSource.id && this.graph.hasNode(boundSource.id)) {
+            sourceNode = { id: boundSource.id, ...this.graph.getNodeAttributes(boundSource.id) } as CypherNode;
+          } else {
+            const newSourceId = randomUUID();
+            const labelValue = clause.labels && clause.labels.length > 0
+              ? (clause.labels.length === 1 ? clause.labels[0]! : clause.labels)
+              : undefined;
+            let props: Record<string, CypherValue> = clause.properties ?? {};
+            if (clause.propertiesExpr) {
+              props = {};
+              for (const [key, expr] of Object.entries(clause.propertiesExpr)) {
+                props[key] = this.evaluateExpression(expr, context) as CypherValue;
+              }
+            }
+            this.graph.addNode(newSourceId, { [this.config.labelProperty]: labelValue, ...props });
+            sourceNode = { id: newSourceId, [this.config.labelProperty]: labelValue, ...props } as CypherNode;
+            context[clause.variable] = sourceNode;
+          }
 
-        // Use dynamic propertiesExpr if available (FOREACH), otherwise static properties
-        let props: Record<string, CypherValue> = clause.properties ?? {};
-        if (clause.propertiesExpr) {
-          props = {};
-          for (const [key, expr] of Object.entries(clause.propertiesExpr)) {
-            props[key] = this.evaluateExpression(expr, context) as CypherValue;
+          // Resolve target node: use bound variable or create new
+          let targetNode: CypherNode;
+          const boundTarget = context[clause.targetPattern.variable] as CypherNode | undefined;
+          if (boundTarget && boundTarget.id && this.graph.hasNode(boundTarget.id)) {
+            targetNode = { id: boundTarget.id, ...this.graph.getNodeAttributes(boundTarget.id) } as CypherNode;
+          } else {
+            const newTargetId = randomUUID();
+            const targetLabelValue = clause.targetPattern.labels && clause.targetPattern.labels.labels.length > 0
+              ? (clause.targetPattern.labels.labels.length === 1 ? clause.targetPattern.labels.labels[0]! : clause.targetPattern.labels.labels)
+              : undefined;
+            let targetProps: Record<string, CypherValue> = clause.targetProperties ?? {};
+            if (clause.targetPropertiesExpr) {
+              targetProps = {};
+              for (const [key, expr] of Object.entries(clause.targetPropertiesExpr)) {
+                targetProps[key] = this.evaluateExpression(expr, context) as CypherValue;
+              }
+            }
+            this.graph.addNode(newTargetId, { [this.config.labelProperty]: targetLabelValue, ...targetProps });
+            targetNode = { id: newTargetId, [this.config.labelProperty]: targetLabelValue, ...targetProps } as CypherNode;
+            context[clause.targetPattern.variable] = targetNode;
+          }
+
+          // Determine edge direction and endpoints
+          let edgeSource: string;
+          let edgeTarget: string;
+          const direction = clause.relationPattern.direction;
+          if (direction === 'OUT') {
+            edgeSource = sourceNode.id;
+            edgeTarget = targetNode.id;
+          } else if (direction === 'IN') {
+            edgeSource = targetNode.id;
+            edgeTarget = sourceNode.id;
+          } else {
+            // UNDIRECTED: store as source → target
+            edgeSource = sourceNode.id;
+            edgeTarget = targetNode.id;
+          }
+
+          // Create the edge
+          const newEdgeId = randomUUID();
+          const edgeAttrs: Record<string, unknown> = {};
+          if (clause.relationPattern.type) {
+            edgeAttrs[this.config.edgeTypeProperty] = clause.relationPattern.type;
+          }
+          this.graph.addEdgeWithKey(newEdgeId, edgeSource, edgeTarget, edgeAttrs);
+          const edge: CypherEdge = {
+            id: newEdgeId,
+            source: edgeSource,
+            target: edgeTarget,
+            ...edgeAttrs,
+          } as CypherEdge;
+
+          // Bind edge variable (as array, matching MATCH semantics)
+          if (clause.relationPattern.variable) {
+            context[clause.relationPattern.variable] = [edge];
           }
         }
+      } else {
+        // ── Single-node CREATE (backward compatible) ────────────────────
+        for (const context of materialised) {
+          const newId = randomUUID();
+          const labelValue = clause.labels && clause.labels.length > 0
+            ? (clause.labels.length === 1 ? clause.labels[0]! : clause.labels)
+            : undefined;
 
-        this.graph.addNode(newId, { [this.config.labelProperty]: labelValue, ...props });
-        const newNode = { id: newId, [this.config.labelProperty]: labelValue, ...props } as CypherNode;
-        context[clause.variable] = newNode;
+          // Use dynamic propertiesExpr if available (FOREACH), otherwise static properties
+          let props: Record<string, CypherValue> = clause.properties ?? {};
+          if (clause.propertiesExpr) {
+            props = {};
+            for (const [key, expr] of Object.entries(clause.propertiesExpr)) {
+              props[key] = this.evaluateExpression(expr, context) as CypherValue;
+            }
+          }
+
+          this.graph.addNode(newId, { [this.config.labelProperty]: labelValue, ...props });
+          const newNode = { id: newId, [this.config.labelProperty]: labelValue, ...props } as CypherNode;
+          context[clause.variable] = newNode;
+        }
       }
     } else if (clause.type === 'SET') {
       // Handle label addition (SET n:Label or SET n:Label prop=val)

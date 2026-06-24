@@ -671,10 +671,30 @@ MATCH (u:User) RETURN u.name ORDER BY u.name ASC SKIP 10 LIMIT 10
 
 ### CREATE
 
+Create a single node:
+
 ```cypher
 CREATE (l:Log {timestamp: 12345}) RETURN l
 CREATE (t:Tag {values: ['a', 'b', 'c']}) RETURN t
 ```
+
+Create a relationship chain (edge between two nodes):
+
+```cypher
+-- Create both nodes and the edge from scratch
+CREATE (a:Person)-[r:KNOWS]->(b:Person) RETURN a, r, b
+
+-- Create edge between existing nodes
+MATCH (a:Person {name: 'Alice'}) MATCH (b:Person {name: 'Bob'}) CREATE (a)-[r:FRIEND]->(b) RETURN r
+
+-- Create edge with incoming direction
+MATCH (a:Person {name: 'Alice'}) MATCH (b:Person {name: 'Bob'}) CREATE (a)<-[r:KNOWS]-(b) RETURN r
+
+-- Create with inline properties on both nodes
+CREATE (a:Person {name: 'Alice'})-[r:KNOWS {since: 2020}]->(b:Person {name: 'Bob'}) RETURN a, b
+```
+
+When a variable is already bound (via a preceding MATCH), the existing node is reused. Unbound variables create new nodes.
 
 ### SET
 

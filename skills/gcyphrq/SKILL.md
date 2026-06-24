@@ -42,7 +42,7 @@ See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 - **Scalar functions:** 28+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `labels` (sole RETURN item only), `labelsOf` (everywhere), `nodes` (sole RETURN item only), `relationships` (sole RETURN item only), etc.)
 - **Arithmetic:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`, parentheses. Works in RETURN/WHERE/WITH/ORDER BY/SET. Null propagation (null operand → null), division by zero → null
 - **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices
-- **Mutations:** `CREATE`, `SET`, `DELETE`, `REMOVE`, `MERGE` (in-memory only). MERGE: supports WHERE filter, ON CREATE/ON MATCH with SET/DELETE/REMOVE
+- **Mutations:** `CREATE` (single node or chain `(a)-[r:TYPE]->(b)`), `SET`, `DELETE`, `REMOVE`, `MERGE` (in-memory only). MERGE: supports WHERE filter, ON CREATE/ON MATCH with SET/DELETE/REMOVE. CREATE chain: reuses bound nodes, creates unbound ones.
 - **Not supported:** chained `MATCH`, subqueries, `CALL`, APOC, regex in WHERE
 - **Notes:** `startnode()`/`endnode()` return string IDs; `avg()`/`min()`/`max()` return null on empty sets
 
@@ -69,6 +69,7 @@ Service dependencies, blast radius, path tracing, infrastructure topology, monit
 | Out-degree | `MATCH (n)-[]->(t) WITH n, count(t) AS deg RETURN n, deg` |
 | Group by | `MATCH (n:Service) WITH n.type AS t, count(n) AS c RETURN t, c` |
 | CREATE | `CREATE (n:Service {name: "X", type: "RPC"}) RETURN n` |
+| CREATE chain | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) CREATE (a)-[r:DEPENDS_ON]->(b) RETURN r` |
 | SET | `MATCH (n {name: "X"}) SET n.status = "updated" RETURN n` |
 | DELETE | `MATCH (n {name: "X"}) DELETE n` |
 | REMOVE | `MATCH (n) REMOVE n:Label, n.prop RETURN n` |

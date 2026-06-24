@@ -2232,7 +2232,44 @@ function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
     // Also extract dynamic property expressions (for FOREACH where values reference loop variables)
     const propertiesExpr = extractDynamicProperties(mapLitCtx);
 
-    return { type: 'CREATE' as const, variable, labels, properties, propertiesExpr };
+    // Check for relationship chain: CREATE (a)-[r:TYPE]->(b)
+    const nodePatterns = findAllChildren(element, Ctx.NodePattern);
+    const chains = findAllChildren(element, Ctx.PatternElementChain);
+    const hasChain = chains.length > 0;
+
+    if (hasChain) {
+      if (chains.length > 1) {
+        throw new Error('Multi-hop CREATE patterns are not supported. Use multiple CREATE stages.');
+      }
+      const chain = chains[0];
+      const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
+      const relationPattern = extractRelationPattern(relPatternCtx);
+
+      const targetNodeCtx = findChild(chain, Ctx.NodePattern);
+      const targetPattern = targetNodeCtx ? extractNodePattern(targetNodeCtx) : { variable: '', labels: undefined, properties: undefined };
+
+      // Extract target node properties separately
+      const targetPropsCtx = findChild(targetNodeCtx, Ctx.Properties);
+      const targetMapLitCtx = findChild(targetPropsCtx, Ctx.MapLiteral);
+      const targetProperties = extractProperties(targetMapLitCtx);
+      const targetPropertiesExpr = extractDynamicProperties(targetMapLitCtx);
+
+      return {
+        type: 'CREATE' as const,
+        variable,
+        labels,
+        properties,
+        propertiesExpr,
+        hasChain: true,
+        relationPattern,
+        targetPattern,
+        targetProperties,
+        targetPropertiesExpr,
+      };
+    }
+
+    // Single-node CREATE (backward compatible)
+    return { type: 'CREATE' as const, variable, labels, properties, propertiesExpr, hasChain: false };
   }
 
   // DELETE clause

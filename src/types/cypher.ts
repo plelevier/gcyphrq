@@ -121,6 +121,16 @@ export interface CreateClause {
   properties: Record<string, CypherValue> | undefined;
   /** Dynamic property expressions evaluated at runtime (for CREATE inside FOREACH). */
   propertiesExpr: Record<string, Expression> | undefined;
+  /** Whether the CREATE includes a relationship chain (source)-[rel]->(target). */
+  hasChain: boolean;
+  /** Relationship pattern (type, variable, direction) when hasChain is true. */
+  relationPattern?: RelationPattern;
+  /** Target node pattern when hasChain is true. */
+  targetPattern?: NodePattern;
+  /** Static properties for the target node. */
+  targetProperties?: Record<string, CypherValue> | undefined;
+  /** Dynamic property expressions for the target node. */
+  targetPropertiesExpr?: Record<string, Expression> | undefined;
 }
 
 export interface DeleteClause {
