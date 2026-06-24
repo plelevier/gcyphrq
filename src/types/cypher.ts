@@ -138,6 +138,8 @@ export interface CreateClause {
 export interface DeleteClause {
   type: 'DELETE';
   variable: string;
+  /** Whether this is a DETACH DELETE (also removes all incident relationships). */
+  detach: boolean;
 }
 
 export interface SetClause {
@@ -177,6 +179,8 @@ export interface MergeAction {
   setActions: MergeSetAction[];
   /** Variables to DELETE (e.g., DELETE n, DELETE r) */
   deleteVariables: string[];
+  /** Variables to DETACH DELETE (e.g., DETACH DELETE n — also removes incident edges) */
+  detachDeleteVariables: string[];
   /** REMOVE items (labels or properties) */
   removeItems: RemoveItem[];
 }

@@ -1296,11 +1296,18 @@ export class AdvancedCypherGraphologyEngine {
           else if (this.graph.hasEdge(target.id)) edgeIds.add(target.id);
         }
       }
-      for (const nodeId of nodeIds) {
-        this.graph.dropNode(nodeId);
+      // DETACH DELETE: also collect all incident edges for each node
+      if (clause.detach) {
+        for (const nodeId of nodeIds) {
+          this.graph.forEachEdge(nodeId, (edgeId) => { edgeIds.add(edgeId); });
+        }
       }
+      // Drop edges first, then nodes
       for (const edgeId of edgeIds) {
         this.graph.dropEdge(edgeId);
+      }
+      for (const nodeId of nodeIds) {
+        this.graph.dropNode(nodeId);
       }
       for (const context of materialised) {
         const target = context[clause.variable] as CypherNode | CypherEdge | CypherEdge[] | undefined;
@@ -1470,7 +1477,7 @@ export class AdvancedCypherGraphologyEngine {
 
       // Apply ON CREATE or ON MATCH actions (SET / DELETE / REMOVE)
       const action = isMatch ? onMatch : onCreate;
-      if (action && (action.setActions.length > 0 || action.deleteVariables.length > 0 || action.removeItems.length > 0)) {
+      if (action && (action.setActions.length > 0 || action.deleteVariables.length > 0 || action.detachDeleteVariables.length > 0 || action.removeItems.length > 0)) {
         this.applyMergeActions(action, chain, hasChains ? relationPattern.variable : undefined);
       }
 
@@ -1682,6 +1689,7 @@ export class AdvancedCypherGraphologyEngine {
     // ── DELETE actions ───────────────────────────────────────────────
     const nodeIds = new Set<string>();
     const edgeIds = new Set<string>();
+    const detachNodeIds = new Set<string>();
     for (const varName of action.deleteVariables) {
       const target = chain[CHAIN_OVERRIDES][varName];
       if (!target || typeof target !== 'object') continue;
@@ -1697,11 +1705,31 @@ export class AdvancedCypherGraphologyEngine {
         else if (this.graph.hasEdge(id)) edgeIds.add(id);
       }
     }
-    for (const nodeId of nodeIds) {
-      this.graph.dropNode(nodeId);
+    // DETACH DELETE: also collect incident edges for each detach-deleted node
+    for (const varName of action.detachDeleteVariables) {
+      const target = chain[CHAIN_OVERRIDES][varName];
+      if (!target || typeof target !== 'object') continue;
+
+      if (Array.isArray(target)) {
+        for (const edge of target as CypherEdge[]) {
+          if (edge.id && this.graph.hasEdge(edge.id)) edgeIds.add(edge.id);
+        }
+      } else if ('id' in target) {
+        const id = (target as CypherNode | CypherEdge).id;
+        if (this.graph.hasNode(id)) {
+          detachNodeIds.add(id);
+          this.graph.forEachEdge(id, (edgeId) => { edgeIds.add(edgeId); });
+        } else if (this.graph.hasEdge(id)) {
+          edgeIds.add(id);
+        }
+      }
     }
+    // Drop edges first, then nodes
     for (const edgeId of edgeIds) {
       this.graph.dropEdge(edgeId);
+    }
+    for (const nodeId of [...nodeIds, ...detachNodeIds]) {
+      this.graph.dropNode(nodeId);
     }
     // Null-out deleted variables in context
     for (const varName of action.deleteVariables) {
@@ -1716,6 +1744,22 @@ export class AdvancedCypherGraphologyEngine {
       } else if (target && typeof target === 'object' && 'id' in target) {
         const id = (target as CypherNode | CypherEdge).id;
         if (nodeIds.has(id) || edgeIds.has(id)) {
+          chain[CHAIN_OVERRIDES][varName] = null;
+        }
+      }
+    }
+    for (const varName of action.detachDeleteVariables) {
+      const target = chain[CHAIN_OVERRIDES][varName];
+      if (Array.isArray(target)) {
+        for (const edge of target as CypherEdge[]) {
+          if (edge.id && edgeIds.has(edge.id)) {
+            chain[CHAIN_OVERRIDES][varName] = null;
+            break;
+          }
+        }
+      } else if (target && typeof target === 'object' && 'id' in target) {
+        const id = (target as CypherNode | CypherEdge).id;
+        if (detachNodeIds.has(id) || edgeIds.has(id)) {
           chain[CHAIN_OVERRIDES][varName] = null;
         }
       }
