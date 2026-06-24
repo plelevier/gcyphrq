@@ -566,6 +566,50 @@ describe('Path expressions', () => {
       expect(path.nodes.length).toBe(4);
       expect(path.relationships.length).toBe(3);
     });
+
+    it('*2 (exact depth, no ..) returns 2-hop path', () => {
+      // Alice->Bob->Dave is 2 hops, so *2 should match
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (d:User {name: "Dave"}) RETURN shortestPath((a)-[*2]->(d)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      const path = results[0]!.path as { nodes: CypherNode[]; relationships: CypherEdge[] };
+      expect(path.nodes.length).toBe(3);
+      expect(path.relationships.length).toBe(2);
+    });
+
+    it('*3 (exact depth, no ..) returns null when shortest path is 2 hops', () => {
+      // Alice->Bob->Dave is 2 hops, so *3 (exactly 3) should not match
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (d:User {name: "Dave"}) RETURN shortestPath((a)-[*3]->(d)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.path).toBeNull();
+    });
+
+    it('*3 (exact depth, no ..) finds 3-hop path', () => {
+      // Alice->Bob->Dave->Eve is 3 hops, so *3 should match
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (e:User {name: "Eve"}) RETURN shortestPath((a)-[*3]->(e)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      const path = results[0]!.path as { nodes: CypherNode[]; relationships: CypherEdge[] };
+      expect(path.nodes.length).toBe(4);
+      expect(path.relationships.length).toBe(3);
+    });
+
+    it('MATCH with *2 (exact depth) returns only 2-hop pairs', () => {
+      const ast = parseCypher('MATCH (a:User)-[*2]->(b:User) RETURN a.name, b.name');
+      const results = engine.execute(ast);
+      expect(results.length).toBeGreaterThan(0);
+      // Alice->Dave is 2 hops, Alice->Eve is 3 hops, Bob->Eve is 2 hops
+      const pairs = results.map((r) => `${r['a.name']}->${r['b.name']}`);
+      expect(pairs).toContain('Alice->Dave');
+      expect(pairs).not.toContain('Alice->Eve');
+    });
   });
 
   describe('complex graph', () => {
