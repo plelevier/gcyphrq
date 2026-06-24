@@ -137,7 +137,8 @@ export interface CreateClause {
 
 export interface DeleteClause {
   type: 'DELETE';
-  variable: string;
+  /** Variables to delete (supports multiple: DELETE n, r, m). */
+  variables: string[];
   /** Whether this is a DETACH DELETE (also removes all incident relationships). */
   detach: boolean;
 }

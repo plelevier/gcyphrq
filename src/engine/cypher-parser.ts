@@ -2284,13 +2284,15 @@ function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
     if (exprCtxs.length === 0) throw new Error('Failed to parse DELETE: missing Expression node in AST.');
     const atoms = exprCtxs.map((e) => getAtom(e)).filter(Boolean);
     if (atoms.length === 0) throw new Error('Failed to parse DELETE: missing Atom node in AST.');
-    // Use first variable for the clause (matches existing single-variable semantics)
-    const atom = atoms[0]!;
-    const varCtx = findChild(atom, Ctx.Variable);
-    const variable = getSymbolicName(varCtx);
-    if (!variable) throw new Error('Failed to parse DELETE: missing variable name.');
+    const variables: string[] = [];
+    for (const atom of atoms) {
+      const varCtx = findChild(atom, Ctx.Variable);
+      const variable = getSymbolicName(varCtx);
+      if (!variable) throw new Error('Failed to parse DELETE: missing variable name.');
+      variables.push(variable);
+    }
 
-    return { type: 'DELETE' as const, variable, detach: isDetach };
+    return { type: 'DELETE' as const, variables, detach: isDetach };
   }
 
   // REMOVE clause
@@ -2863,8 +2865,8 @@ function extractSingleQuery(singleQuery: ParseTreeNode, rawQuery?: string): Adva
       }
       if (targetAction) {
         if (writeClause.type === 'DELETE') {
-          if (writeClause.detach) targetAction.detachDeleteVariables.push(writeClause.variable);
-          else targetAction.deleteVariables.push(writeClause.variable);
+          if (writeClause.detach) targetAction.detachDeleteVariables.push(...writeClause.variables);
+          else targetAction.deleteVariables.push(...writeClause.variables);
           stages.splice(i + 1, 1);
           i--; // Adjust index after splice
         } else if (writeClause.type === 'REMOVE') {

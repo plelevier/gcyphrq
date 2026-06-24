@@ -264,7 +264,7 @@ describe('parseCypher', () => {
       const writeStage = ast.stages[1]! as { type: 'WRITE'; clause: WriteClause };
       expect(writeStage.clause.type).toBe('DELETE');
       if (writeStage.clause.type !== 'DELETE') return;
-      expect(writeStage.clause.variable).toBe('n');
+      expect(writeStage.clause.variables).toEqual(['n']);
     });
 
     it('parses REMOVE clause with label', () => {

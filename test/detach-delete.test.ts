@@ -13,7 +13,7 @@ describe('DETACH DELETE parser', () => {
     if (!writeStage || writeStage.type !== 'WRITE') return;
     const clause = writeStage.clause as DeleteClause;
     expect(clause.type).toBe('DELETE');
-    expect(clause.variable).toBe('n');
+    expect(clause.variables).toEqual(['n']);
     expect(clause.detach).toBe(true);
   });
 
@@ -24,7 +24,7 @@ describe('DETACH DELETE parser', () => {
     if (!writeStage || writeStage.type !== 'WRITE') return;
     const clause = writeStage.clause as DeleteClause;
     expect(clause.type).toBe('DELETE');
-    expect(clause.variable).toBe('n');
+    expect(clause.variables).toEqual(['n']);
     expect(clause.detach).toBe(false);
   });
 
@@ -35,8 +35,19 @@ describe('DETACH DELETE parser', () => {
     if (!writeStage || writeStage.type !== 'WRITE') return;
     const clause = writeStage.clause as DeleteClause;
     expect(clause.type).toBe('DELETE');
-    expect(clause.variable).toBe('n');
+    expect(clause.variables).toEqual(['n', 'r']);
     expect(clause.detach).toBe(true);
+  });
+
+  it('parses plain DELETE with multiple variables', () => {
+    const ast = parseCypher('MATCH (n)-[r]->(m) DELETE n, r');
+    const writeStage = ast.stages.find((s) => s.type === 'WRITE');
+    expect(writeStage).toBeDefined();
+    if (!writeStage || writeStage.type !== 'WRITE') return;
+    const clause = writeStage.clause as DeleteClause;
+    expect(clause.type).toBe('DELETE');
+    expect(clause.variables).toEqual(['n', 'r']);
+    expect(clause.detach).toBe(false);
   });
 });
 
@@ -103,14 +114,17 @@ describe('DETACH DELETE engine', () => {
         nodes: [
           { key: 'a', attributes: { label: 'Person', name: 'Alice' } },
           { key: 'b', attributes: { label: 'Person', name: 'Bob' } },
+          { key: 'c', attributes: { label: 'Person', name: 'Charlie' } },
         ],
         edges: [
           { source: 'a', target: 'b', attributes: { type: 'KNOWS' } },
+          { source: 'a', target: 'c', attributes: { type: 'LIKES' } },
         ],
       },
-      'MATCH (a:Person)-[r:KNOWS]->(b:Person) DETACH DELETE r MATCH (x)-[e]->(y) RETURN reltype(e) AS relType',
+      'MATCH (a:Person)-[r:KNOWS]->(b:Person) DETACH DELETE r MATCH (x)-[e]->(y) RETURN reltype(e) AS relType ORDER BY relType',
     );
-    expect(result).toEqual([]);
+    // Only the LIKES edge should remain (KNOWS was deleted)
+    expect(result).toEqual([{ relType: 'LIKES' }]);
   });
 
   it('DETACH DELETE multiple nodes in sequence', () => {
@@ -137,6 +151,65 @@ describe('DETACH DELETE engine', () => {
       { name: 'Charlie' },
       { name: 'Diana' },
     ]);
+  });
+
+  it('DELETE with multiple variables deletes all listed targets', () => {
+    // Delete both Alice (node) and the KNOWS edge between Bob and Charlie
+    const result = executeQuery(
+      graphData,
+      'MATCH (n:Person {name: "Alice"}) MATCH (b:Person {name: "Bob"})-[r:KNOWS]->(c:Person {name: "Charlie"}) DELETE n, r MATCH (m:Person) RETURN m.name AS name ORDER BY name',
+    );
+    expect(result).toEqual([
+      { name: 'Bob' },
+      { name: 'Charlie' },
+      { name: 'Diana' },
+    ]);
+  });
+
+  it('DETACH DELETE with multiple variables deletes nodes and their incident edges', () => {
+    // DETACH DELETE Alice (removes a->b, a->c, d->a) and also delete the KNOWS edge
+    const result = executeQuery(
+      graphData,
+      'MATCH (n:Person {name: "Alice"}) MATCH (b:Person {name: "Bob"})-[r:KNOWS]->(c:Person {name: "Charlie"}) DETACH DELETE n, r MATCH (x)-[e]->(y) RETURN reltype(e) AS relType ORDER BY relType',
+    );
+    // All edges should be gone (DETACH DELETE n removed a->b, a->c, d->a; DELETE r removed b->c)
+    expect(result).toEqual([]);
+  });
+
+  it('DETACH DELETE on array of nodes collects incident edges for each', () => {
+    const result = executeQuery(
+      {
+        nodes: [
+          { key: 'a', attributes: { label: 'Person', name: 'Alice' } },
+          { key: 'b', attributes: { label: 'Person', name: 'Bob' } },
+          { key: 'c', attributes: { label: 'Person', name: 'Charlie' } },
+        ],
+        edges: [
+          { source: 'a', target: 'b', attributes: { type: 'KNOWS' } },
+          { source: 'b', target: 'c', attributes: { type: 'LIKES' } },
+        ],
+      },
+      'MATCH (a:Person {name: "Alice"}) MATCH (b:Person {name: "Bob"}) FOREACH (x IN [a, b] | DETACH DELETE x) MATCH (m:Person) RETURN m.name AS name ORDER BY name',
+    );
+    expect(result).toEqual([{ name: 'Charlie' }]);
+  });
+
+  it('DETACH DELETE on array of edges drops each edge', () => {
+    const result = executeQuery(
+      {
+        nodes: [
+          { key: 'a', attributes: { label: 'Person', name: 'Alice' } },
+          { key: 'b', attributes: { label: 'Person', name: 'Bob' } },
+          { key: 'c', attributes: { label: 'Person', name: 'Charlie' } },
+        ],
+        edges: [
+          { source: 'a', target: 'b', attributes: { type: 'KNOWS' } },
+          { source: 'b', target: 'c', attributes: { type: 'LIKES' } },
+        ],
+      },
+      'MATCH (a:Person)-[r1:KNOWS]->(b:Person) MATCH (b)-[r2:LIKES]->(c:Person) FOREACH (x IN [r1, r2] | DETACH DELETE x) MATCH (x)-[e]->(y) RETURN reltype(e) AS relType ORDER BY relType',
+    );
+    expect(result).toEqual([]);
   });
 });
 

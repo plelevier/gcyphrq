@@ -1285,15 +1285,21 @@ export class AdvancedCypherGraphologyEngine {
     } else if (clause.type === 'DELETE') {
       const nodeIds = new Set<string>();
       const edgeIds = new Set<string>();
-      for (const context of materialised) {
-        const target = context[clause.variable] as CypherNode | CypherEdge | CypherEdge[] | undefined;
-        if (Array.isArray(target)) {
-          for (const edge of target) {
-            if (edge.id && this.graph.hasEdge(edge.id)) edgeIds.add(edge.id);
+      // Collect targets from all variables across all contexts
+      for (const varName of clause.variables) {
+        for (const context of materialised) {
+          const target = context[varName] as CypherNode | CypherEdge | (CypherNode | CypherEdge)[] | undefined;
+          if (Array.isArray(target)) {
+            for (const item of target) {
+              if (item.id) {
+                if (this.graph.hasNode(item.id)) nodeIds.add(item.id);
+                else if (this.graph.hasEdge(item.id)) edgeIds.add(item.id);
+              }
+            }
+          } else if (target && target.id) {
+            if (this.graph.hasNode(target.id)) nodeIds.add(target.id);
+            else if (this.graph.hasEdge(target.id)) edgeIds.add(target.id);
           }
-        } else if (target && target.id) {
-          if (this.graph.hasNode(target.id)) nodeIds.add(target.id);
-          else if (this.graph.hasEdge(target.id)) edgeIds.add(target.id);
         }
       }
       // DETACH DELETE: also collect all incident edges for each node
@@ -1309,17 +1315,22 @@ export class AdvancedCypherGraphologyEngine {
       for (const nodeId of nodeIds) {
         this.graph.dropNode(nodeId);
       }
-      for (const context of materialised) {
-        const target = context[clause.variable] as CypherNode | CypherEdge | CypherEdge[] | undefined;
-        if (Array.isArray(target)) {
-          for (const edge of target) {
-            if (edge.id && edgeIds.has(edge.id)) {
-              context[clause.variable] = null;
-              break;
+      // Null-out deleted variables in context
+      for (const varName of clause.variables) {
+        for (const context of materialised) {
+          const target = context[varName] as CypherNode | CypherEdge | (CypherNode | CypherEdge)[] | undefined;
+          if (Array.isArray(target)) {
+            let anyDeleted = false;
+            for (const item of target) {
+              if (item.id && (nodeIds.has(item.id) || edgeIds.has(item.id))) {
+                anyDeleted = true;
+                break;
+              }
             }
+            if (anyDeleted) context[varName] = null;
+          } else if (target && target.id && (nodeIds.has(target.id) || edgeIds.has(target.id))) {
+            context[varName] = null;
           }
-        } else if (target && target.id && (nodeIds.has(target.id) || edgeIds.has(target.id))) {
-          context[clause.variable] = null;
         }
       }
     } else if (clause.type === 'REMOVE') {
