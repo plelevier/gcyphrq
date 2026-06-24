@@ -108,8 +108,9 @@ describe('CREATE chain parser', () => {
     const ast = parseCypher('CREATE (a:Person {name: "Alice"})-[r:KNOWS {since: 2020}]->(b:Person {name: "Bob"}) RETURN a, b');
     const create = ast.stages[0]! as { type: 'WRITE'; clause: any };
     expect(create.clause.hasChain).toBe(true);
-    expect(create.clause.properties).toBeDefined();
-    expect(create.clause.targetProperties).toBeDefined();
+    expect(create.clause.properties).toEqual({ name: 'Alice' });
+    expect(create.clause.targetProperties).toEqual({ name: 'Bob' });
+    expect(create.clause.edgeProperties).toEqual({ since: 2020 });
   });
 
   it('parses CREATE chain with MATCH prefix', () => {
@@ -233,5 +234,34 @@ describe('CREATE chain engine', () => {
     const edgeId = r[0]?.id;
     const edgeAttrs = graph.getEdgeAttributes(edgeId!);
     expect(edgeAttrs.type).toBeUndefined();
+  });
+
+  it('creates edge with inline properties', () => {
+    const engine = createEngine(graph);
+    const ast = parseCypher('CREATE (a:Person)-[r:KNOWS {since: 2020, strength: "strong"}]->(b:Person) RETURN r');
+    const results = engine.execute(ast);
+    expect(results.length).toBe(1);
+    const r = results[0]!.r as CypherEdge[];
+    expect(r).toHaveLength(1);
+    const edgeId = r[0]?.id;
+    const edgeAttrs = graph.getEdgeAttributes(edgeId!);
+    expect(edgeAttrs.type).toBe('KNOWS');
+    expect(edgeAttrs.since).toBe(2020);
+    expect(edgeAttrs.strength).toBe('strong');
+  });
+
+  it('creates undirected edge (a)-[r]-(b)', () => {
+    graph.addNode('alice', { label: 'Person', name: 'Alice' });
+    graph.addNode('bob', { label: 'Person', name: 'Bob' });
+    const engine = createEngine(graph);
+    const ast = parseCypher('MATCH (a:Person {name: "Alice"}) MATCH (b:Person {name: "Bob"}) CREATE (a)-[r:KNOWS]-(b) RETURN r');
+    const results = engine.execute(ast);
+    expect(results.length).toBe(1);
+    const r = results[0]!.r as CypherEdge[];
+    expect(r).toHaveLength(1);
+    // UNDIRECTED: stored as source (alice) → target (bob)
+    const endpoints = getEdgeEndpoints(graph, r[0]!.id);
+    expect(endpoints.source).toBe('alice');
+    expect(endpoints.target).toBe('bob');
   });
 });

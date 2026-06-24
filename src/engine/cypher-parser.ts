@@ -2233,7 +2233,6 @@ function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
     const propertiesExpr = extractDynamicProperties(mapLitCtx);
 
     // Check for relationship chain: CREATE (a)-[r:TYPE]->(b)
-    const nodePatterns = findAllChildren(element, Ctx.NodePattern);
     const chains = findAllChildren(element, Ctx.PatternElementChain);
     const hasChain = chains.length > 0;
 
@@ -2245,14 +2244,15 @@ function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
       const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
       const relationPattern = extractRelationPattern(relPatternCtx);
 
+      // Extract edge properties from the relationship detail (inside [r:TYPE {props}])
+      const relDetailCtx = findChild(relPatternCtx, Ctx.RelationshipDetail);
+      const edgePropsCtx = relDetailCtx ? findChild(relDetailCtx, Ctx.Properties) : undefined;
+      const edgeMapLitCtx = findChild(edgePropsCtx, Ctx.MapLiteral);
+      const edgeProperties = extractProperties(edgeMapLitCtx);
+      const edgePropertiesExpr = extractDynamicProperties(edgeMapLitCtx);
+
       const targetNodeCtx = findChild(chain, Ctx.NodePattern);
       const targetPattern = targetNodeCtx ? extractNodePattern(targetNodeCtx) : { variable: '', labels: undefined, properties: undefined };
-
-      // Extract target node properties separately
-      const targetPropsCtx = findChild(targetNodeCtx, Ctx.Properties);
-      const targetMapLitCtx = findChild(targetPropsCtx, Ctx.MapLiteral);
-      const targetProperties = extractProperties(targetMapLitCtx);
-      const targetPropertiesExpr = extractDynamicProperties(targetMapLitCtx);
 
       return {
         type: 'CREATE' as const,
@@ -2263,8 +2263,10 @@ function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
         hasChain: true,
         relationPattern,
         targetPattern,
-        targetProperties,
-        targetPropertiesExpr,
+        targetProperties: targetPattern.properties,
+        targetPropertiesExpr: undefined, // target dynamic props not yet supported in chains
+        edgeProperties,
+        edgePropertiesExpr,
       };
     }
 

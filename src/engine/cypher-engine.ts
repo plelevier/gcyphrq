@@ -1156,6 +1156,15 @@ export class AdvancedCypherGraphologyEngine {
           if (clause.relationPattern.type) {
             edgeAttrs[this.config.edgeTypeProperty] = clause.relationPattern.type;
           }
+          // Apply edge properties (static from parser, or dynamic from FOREACH)
+          let edgeProps: Record<string, CypherValue> = clause.edgeProperties ?? {};
+          if (clause.edgePropertiesExpr) {
+            edgeProps = {};
+            for (const [key, expr] of Object.entries(clause.edgePropertiesExpr)) {
+              edgeProps[key] = this.evaluateExpression(expr, context) as CypherValue;
+            }
+          }
+          Object.assign(edgeAttrs, edgeProps);
           this.graph.addEdgeWithKey(newEdgeId, edgeSource, edgeTarget, edgeAttrs);
           const edge: CypherEdge = {
             id: newEdgeId,

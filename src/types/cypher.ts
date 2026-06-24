@@ -131,6 +131,10 @@ export interface CreateClause {
   targetProperties?: Record<string, CypherValue> | undefined;
   /** Dynamic property expressions for the target node. */
   targetPropertiesExpr?: Record<string, Expression> | undefined;
+  /** Static properties for the edge. */
+  edgeProperties?: Record<string, CypherValue> | undefined;
+  /** Dynamic property expressions for the edge. */
+  edgePropertiesExpr?: Record<string, Expression> | undefined;
 }
 
 export interface DeleteClause {
