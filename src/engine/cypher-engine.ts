@@ -13,6 +13,7 @@ import type {
   MergeClause,
   MergeSetAction,
   OrderByItem,
+  PathExpression,
   RelationPattern,
   WithClause,
   WriteClause,
@@ -529,7 +530,11 @@ export class AdvancedCypherGraphologyEngine {
         }
 
         const minDepth = relationPattern.minDepth ?? 1;
-        const maxDepth = relationPattern.maxDepth ?? 1;
+        // When maxDepth is undefined:
+        //   - regular MATCH (no RangeLiteral): default to minDepth (1 hop)
+        //   - bare * or open-ended (*3.., *..5): treat as unbounded (large cap for DFS safety)
+        const maxDepth = relationPattern.maxDepth ??
+          (relationPattern.variableLength ? 100 : minDepth);
 
         // Build adjacency list from index (optimisation #3 extended)
         // or fall back to graph iteration
@@ -2180,6 +2185,9 @@ export class AdvancedCypherGraphologyEngine {
     if (expr.type === 'Case') {
       return this.evaluateCase(expr, context);
     }
+    if (expr.type === 'Path') {
+      return this.evaluatePathExpression(expr, context);
+    }
     return undefined;
   }
 
@@ -2757,5 +2765,280 @@ export class AdvancedCypherGraphologyEngine {
       return a.every((v, i) => this.deepEquals(v, b[i]));
     }
     return false;
+  }
+
+  // ── Path expression evaluation (shortestPath / allShortestPaths) ──────────
+
+  /**
+   * Evaluate a shortestPath or allShortestPaths expression.
+   *
+   * Resolves source/target node IDs from the query context and computes the
+   * shortest path(s) using BFS with on-the-fly edge filtering.
+   */
+  private evaluatePathExpression(expr: PathExpression, context: QueryContext): CypherValue {
+    const sourceVal = context[expr.sourcePattern.variable];
+    const sourceId = this.extractNodeId(sourceVal);
+    if (!sourceId) {
+      return expr.functionName === 'allShortestPaths' ? [] as unknown as CypherValue : null;
+    }
+
+    const targetVal = context[expr.targetPattern.variable];
+    const targetId = this.extractNodeId(targetVal);
+    if (!targetId) {
+      return expr.functionName === 'allShortestPaths' ? [] as unknown as CypherValue : null;
+    }
+
+    // Same node — return single-node path
+    if (sourceId === targetId) {
+      const sourceAttr = this.graph.getNodeAttributes(sourceId);
+      const node = { id: sourceId, ...sourceAttr } as CypherNode;
+      if (expr.functionName === 'shortestPath') {
+        return { nodes: [node], relationships: [] } as unknown as CypherValue;
+      }
+      return [{ nodes: [node], relationships: [] }] as unknown as CypherValue;
+    }
+
+    if (!this.graph.hasNode(sourceId) || !this.graph.hasNode(targetId)) {
+      return expr.functionName === 'allShortestPaths' ? [] as unknown as CypherValue : null;
+    }
+
+    const minDepth = expr.relationPattern.minDepth ?? 1;
+    const maxDepth = expr.relationPattern.maxDepth;
+    const relation = expr.relationPattern;
+
+    if (expr.functionName === 'shortestPath') {
+      // Fast path: single-predecessor BFS, stops on first target discovery
+      const path = this.findSingleShortestPath(sourceId, targetId, relation, minDepth, maxDepth);
+      if (!path) return null;
+      return this.buildPathResult(path);
+    }
+
+    // allShortestPaths: tracks all predecessors
+    const allPaths = this.findAllShortestPaths(sourceId, targetId, relation, minDepth, maxDepth);
+    if (!allPaths || allPaths.length === 0) {
+      return [] as unknown as CypherValue;
+    }
+    return allPaths.map((p) => this.buildPathResult(p)) as unknown as CypherValue;
+  }
+
+  /** Build a {nodes, relationships} result from a raw path. */
+  private buildPathResult(
+    path: { nodeIds: string[]; edgeIds: string[] },
+  ): CypherValue {
+    const nodes: CypherNode[] = path.nodeIds.map((id) => ({
+      id,
+      ...this.graph.getNodeAttributes(id),
+    }) as CypherNode);
+    const edges: CypherEdge[] = path.edgeIds.map((edgeId) => {
+      const endpoints = this.graph.getEdgeEndpoints(edgeId);
+      return {
+        id: edgeId,
+        source: endpoints.source,
+        target: endpoints.target,
+        ...this.graph.getEdgeAttributes(edgeId),
+      } as CypherEdge;
+    });
+    return { nodes, relationships: edges } as unknown as CypherValue;
+  }
+
+  /** Extract a node ID from a context value (CypherNode or similar object). */
+  private extractNodeId(value: CypherValue): string | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.id === 'string' && obj.id) return obj.id;
+    return null;
+  }
+
+  // ── Single shortest path (shortestPath) ──────────────────────────────────
+
+  /**
+   * Find a single shortest path using BFS with single-predecessor tracking.
+   * Stops as soon as the target is discovered. No predecessor arrays,
+   * no path reconstruction — just backtrace the single parent chain.
+   */
+  private findSingleShortestPath(
+    source: string,
+    target: string,
+    relation: RelationPattern,
+    minDepth: number,
+    maxDepth: number | undefined,
+  ): { nodeIds: string[]; edgeIds: string[] } | null {
+    const parent = new Map<string, string>();
+    const parentEdge = new Map<string, string>();
+    const distOf = new Map<string, number>();
+    distOf.set(source, 0);
+
+    const queue: string[] = [source];
+    let head = 0;
+    let targetDistance = -1;
+
+    while (head < queue.length) {
+      const current = queue[head++]!;
+      const currentDist = distOf.get(current)!;
+
+      if (targetDistance > 0 && currentDist > targetDistance) break;
+
+      this.forEachFilteredNeighbor(current, relation, (neighborId, edgeId) => {
+        const newDist = currentDist + 1;
+        if (maxDepth !== undefined && newDist > maxDepth) return;
+
+        if (!distOf.has(neighborId)) {
+          distOf.set(neighborId, newDist);
+          parent.set(neighborId, current);
+          parentEdge.set(neighborId, edgeId);
+
+          if (neighborId === target) {
+            targetDistance = newDist;
+          }
+
+          if (newDist < targetDistance || targetDistance === -1) {
+            queue.push(neighborId);
+          }
+        }
+      });
+    }
+
+    if (targetDistance === -1 || targetDistance < minDepth) return null;
+
+    // Backtrace from target to source
+    const nodeIds: string[] = [target];
+    const edgeIds: string[] = [];
+    let cur = target;
+    while (cur !== source) {
+      const e = parentEdge.get(cur);
+      if (!e) return null;
+      edgeIds.push(e);
+      cur = parent.get(cur)!;
+      nodeIds.push(cur);
+    }
+    nodeIds.reverse();
+    edgeIds.reverse();
+
+    return { nodeIds, edgeIds };
+  }
+
+  // ── All shortest paths (allShortestPaths) ────────────────────────────────
+
+  /**
+   * Find all shortest paths using BFS with full predecessor tracking.
+   * Returns null if no path exists.
+   */
+  private findAllShortestPaths(
+    source: string,
+    target: string,
+    relation: RelationPattern,
+    minDepth: number,
+    maxDepth: number | undefined,
+  ): Array<{ nodeIds: string[]; edgeIds: string[] }> | null {
+    const predecessors = new Map<string, string[]>();
+    const predEdges = new Map<string, string[]>();
+    const distOf = new Map<string, number>();
+    distOf.set(source, 0);
+
+    const queue: string[] = [source];
+    let head = 0;
+    let targetDistance = -1;
+
+    while (head < queue.length) {
+      const current = queue[head++]!;
+      const currentDist = distOf.get(current)!;
+
+      if (targetDistance > 0 && currentDist > targetDistance) break;
+
+      this.forEachFilteredNeighbor(current, relation, (neighborId, edgeId) => {
+        const newDist = currentDist + 1;
+        if (maxDepth !== undefined && newDist > maxDepth) return;
+
+        const existing = distOf.get(neighborId);
+        if (existing === undefined) {
+          distOf.set(neighborId, newDist);
+          predecessors.set(neighborId, [current]);
+          predEdges.set(neighborId, [edgeId]);
+
+          if (neighborId === target) {
+            targetDistance = newDist;
+          }
+
+          if (newDist < targetDistance || targetDistance === -1) {
+            queue.push(neighborId);
+          }
+        } else if (existing === newDist) {
+          predecessors.get(neighborId)!.push(current);
+          predEdges.get(neighborId)!.push(edgeId);
+        }
+      });
+    }
+
+    if (targetDistance === -1 || targetDistance < minDepth) return null;
+
+    return this.reconstructPathsIterative(target, predecessors, predEdges);
+  }
+
+  // ── Shared neighbor iteration ────────────────────────────────────────────
+
+  /**
+   * Iterate over filtered neighbors of a node with a callback.
+   * Avoids allocating intermediate arrays — processes each edge inline.
+   */
+  private forEachFilteredNeighbor(
+    nodeId: string,
+    relation: RelationPattern,
+    cb: (neighborId: string, edgeId: string) => void,
+  ): void {
+    const direction = relation.direction;
+    const edgeTypeProp = this.config.edgeTypeProperty;
+    const wantType = relation.type;
+
+    if (direction === 'OUT' || direction === 'UNDIRECTED') {
+      this.graph.forEachOutboundEdge(nodeId, (edgeId, attrs, _s, t) => {
+        if (wantType && attrs[edgeTypeProp] !== wantType) return;
+        cb(t, edgeId);
+      });
+    }
+    if (direction === 'IN' || direction === 'UNDIRECTED') {
+      this.graph.forEachInboundEdge(nodeId, (edgeId, attrs, s, _t) => {
+        if (wantType && attrs[edgeTypeProp] !== wantType) return;
+        cb(s, edgeId);
+      });
+    }
+  }
+
+  /**
+   * Iteratively reconstruct all paths from target back to source.
+   * Builds paths in reverse (target → source), then reverses each.
+   */
+  private reconstructPathsIterative(
+    target: string,
+    predecessors: Map<string, string[]>,
+    predEdges: Map<string, string[]>,
+  ): Array<{ nodeIds: string[]; edgeIds: string[] }> {
+    const allPaths: Array<{ nodeIds: string[]; edgeIds: string[] }> = [];
+    const stack: Array<[string, string[], string[]]> = [
+      [target, [target], []],
+    ];
+
+    while (stack.length > 0) {
+      const [current, nodeIds, edgeIds] = stack.pop()!;
+
+      const preds = predecessors.get(current);
+      if (!preds || preds.length === 0) {
+        allPaths.push({
+          nodeIds: [...nodeIds].reverse(),
+          edgeIds: [...edgeIds].reverse(),
+        });
+        continue;
+      }
+
+      const edges = predEdges.get(current)!;
+      for (let i = 0; i < preds.length; i++) {
+        stack.push([
+          preds[i]!,
+          [...nodeIds, preds[i]!],
+          [...edgeIds, edges[i]!],
+        ]);
+      }
+    }
+
+    return allPaths;
   }
 }

@@ -42,6 +42,7 @@ See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 - **Pipelining:** `WITH`, `count()`, `sum()`, `avg()`, `min()`, `max()`, `DISTINCT` aggregations
 - **UNION/UNION ALL:** combine results from multiple branches (each ending with `RETURN`), ORDER BY/SKIP/LIMIT on combined result
 - **Scalar functions:** 28+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `labels` (sole RETURN item only), `labelsOf` (everywhere), `nodes` (sole RETURN item only), `relationships` (sole RETURN item only), etc.)
+- **Path expressions:** `shortestPath((a)-[*]->(b))` returns single shortest path (BFS); `allShortestPaths((a)-[*]->(b))` returns all minimum-length paths. Supports type filtering (`[:TYPE*]`), direction (`->`, `<-`, `-`), and depth bounds (`*min..max`). Variables must be bound in query context.
 - **Arithmetic:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`, parentheses. Works in RETURN/WHERE/WITH/ORDER BY/SET. Null propagation (null operand → null), division by zero → null
 - **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices
 - **Mutations:** `CREATE` (single node or chain `(a)-[r:TYPE]->(b)`), `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `MERGE` (in-memory only). MERGE: supports WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE. CREATE chain: reuses bound nodes, creates unbound ones.
@@ -51,7 +52,7 @@ See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 
 ## When to Use
 
-Service dependencies, blast radius, path tracing, infrastructure topology, monitoring coverage, degree analysis, graph mutations, idempotent seeding with MERGE.
+Service dependencies, blast radius, path tracing, shortest path, infrastructure topology, monitoring coverage, degree analysis, graph mutations, idempotent seeding with MERGE.
 
 ## Cypher Patterns
 
@@ -93,6 +94,10 @@ Service dependencies, blast radius, path tracing, infrastructure topology, monit
 | CALL with YIELD+WHERE | `CALL { MATCH (n:Person) RETURN n.name AS name } YIELD name WHERE name <> "Bob" RETURN name` |
 | CALL with WHERE | `CALL { MATCH (n:Person) RETURN n.age AS age } WHERE age > 28 RETURN age` |
 | Nested CALL | `CALL { CALL { MATCH (n:Person) RETURN n.name AS name } RETURN name }` |
+| Shortest path | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) RETURN shortestPath((a)-[*]->(b)) AS path` |
+| Shortest path (typed) | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) RETURN shortestPath((a)-[:TCP*]->(b)) AS path` |
+| All shortest paths | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) RETURN allShortestPaths((a)-[*]->(b)) AS paths` |
+| Shortest path (undirected) | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) RETURN shortestPath((a)-[*]-(b)) AS path` |
 
 See `references/queries.md` for more patterns.
 

@@ -639,6 +639,7 @@ export type {
   LiteralExpression,
   AggregationExpression,
   BinaryExpression,
+  PathExpression,
   Projection,
   OrderByItem,
   ResultRow,

@@ -101,6 +101,8 @@ export interface RelationPattern {
   type: string | undefined;
   minDepth: number | undefined;
   maxDepth: number | undefined;
+  /** True when a RangeLiteral was present (*, *3, *3..5, *3.., *..5). Distinguishes bare * from regular single-hop edges. */
+  variableLength: boolean;
   direction: Direction;
 }
 
@@ -277,7 +279,20 @@ export interface CaseExpression {
   elseResult: Expression | undefined;
 }
 
-export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression;
+/** A shortestPath / allShortestPaths path expression. */
+export interface PathExpression {
+  type: 'Path';
+  /** 'shortestPath' | 'allShortestPaths' */
+  functionName: 'shortestPath' | 'allShortestPaths';
+  /** Source node pattern (from the inner pattern element). */
+  sourcePattern: NodePattern;
+  /** Relationship pattern (type, direction, variable-length). */
+  relationPattern: RelationPattern;
+  /** Target node pattern. */
+  targetPattern: NodePattern;
+}
+
+export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression | PathExpression;
 
 export interface BinaryExpression {
   type: 'BinaryExpression';

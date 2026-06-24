@@ -81,6 +81,73 @@ Use `*min..max` to specify path length (`*1..3` for 1–3 hops, `*2..2` for exac
 MATCH (u:User)-[r:FRIEND*1..3]-(f:User) RETURN u, r, f
 ```
 
+### Path expressions
+
+Find the shortest path(s) between two nodes using `shortestPath()` and `allShortestPaths()`:
+
+```cypher
+-- Find the single shortest path from Alice to Bob
+MATCH (a:User {name: 'Alice'}) MATCH (b:User {name: 'Bob'})
+RETURN shortestPath((a)-[*]->(b)) AS path
+
+-- Find ALL shortest paths (same minimum length)
+MATCH (a:User {name: 'Alice'}) MATCH (b:User {name: 'Bob'})
+RETURN allShortestPaths((a)-[*]->(b)) AS paths
+```
+
+The returned path object has the structure:
+
+```json
+{
+  "nodes": [{ "id": "...", "name": "Alice" }, { "id": "...", "name": "Bob" }],
+  "relationships": [{ "id": "...", "source": "...", "target": "...", "type": "FRIEND" }]
+}
+```
+
+**Filtering by relationship type:**
+
+```cypher
+-- Only traverse FRIEND relationships
+MATCH (a:User {name: 'Alice'}) MATCH (b:User {name: 'Bob'})
+RETURN shortestPath((a)-[:FRIEND*]->(b)) AS path
+```
+
+**Direction control:**
+
+```cypher
+-- Outbound only (default)
+RETURN shortestPath((a)-[*]->(b)) AS path
+
+-- Inbound only (traverse edges in reverse)
+RETURN shortestPath((a)<-[*]-(b)) AS path
+
+-- Undirected (either direction)
+RETURN shortestPath((a)-[*]-(b)) AS path
+```
+
+**Variable-length bounds:**
+
+```cypher
+-- Minimum 1 hop, maximum 3 hops
+RETURN shortestPath((a)-[*1..3]->(b)) AS path
+```
+
+**In WHERE clauses:**
+
+```cypher
+-- Find all node pairs connected by a path
+MATCH (a:User) MATCH (b:User)
+WHERE shortestPath((a)-[*]->(b)) IS NOT NULL
+RETURN a.name, b.name
+```
+
+**Notes:**
+- Both functions resolve node IDs from bound variables in the query context
+- `shortestPath()` returns a single path object, or `null` if no path exists
+- `allShortestPaths()` returns an array of path objects, or `[]` if no path exists
+- When source and target are the same node, returns a single-node path with no edges
+- Uses unweighted BFS (all edges have equal weight)
+
 ### Directional edges
 
 | Syntax | Meaning |

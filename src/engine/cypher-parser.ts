@@ -15,6 +15,7 @@ import type {
   MergeSetAction,
   NodePattern,
   OrderByItem,
+  PathExpression,
   RelationPattern,
   Direction,
   WithClause,
@@ -134,6 +135,9 @@ const Ctx = {
   CaseExpression: 'CaseExpressionContext',
   CaseAlternatives: 'CaseAlternativesContext',
   CallContext: 'CallContext',
+  ShortestPathPatternFunction: 'ShortestPathPatternFunctionContext',
+  ShortestPathFunctionName: 'ShortestPathFunctionNameContext',
+  AllShortestPathFunctionName: 'AllShortestPathFunctionNameContext',
 } as const;
 
 /**
@@ -652,6 +656,13 @@ function evaluateExpressionFromAtom(atom: TreeNode, fullCtx?: TreeNode): Express
   if (parenCtx) {
     const innerExpr = findChild(parenCtx, Ctx.Expression);
     if (innerExpr) return evaluateExpression(innerExpr);
+  }
+
+  // Shortest path pattern function: shortestPath((a)-[*]->(b)), allShortestPaths((a)-[*]->(b))
+  const spCtx = findChild(atom, Ctx.ShortestPathPatternFunction);
+  if (spCtx) {
+    const pathExpr = extractPathExpression(spCtx);
+    if (pathExpr) return pathExpr;
   }
 
   // Function invocation (e.g., count(f))
@@ -1260,7 +1271,7 @@ function extractDynamicProperties(mapLiteralCtx: TreeNode): Record<string, Expre
 // ── Relationship pattern extraction ──────────────────────────────────────────
 
 function extractRelationPattern(relPatternCtx: TreeNode): RelationPattern {
-  if (!relPatternCtx) return { variable: undefined, type: undefined, minDepth: undefined, maxDepth: undefined, direction: 'UNDIRECTED' };
+  if (!relPatternCtx) return { variable: undefined, type: undefined, minDepth: undefined, maxDepth: undefined, variableLength: false, direction: 'UNDIRECTED' };
 
   const direction = extractDirection(relPatternCtx);
   const detailCtx = findChild(relPatternCtx, Ctx.RelationshipDetail);
@@ -1272,26 +1283,56 @@ function extractRelationPattern(relPatternCtx: TreeNode): RelationPattern {
   const typeNameCtx = findChild(typeCtx, Ctx.RelTypeName);
   const type = getSymbolicName(typeNameCtx);
 
-  // Variable-length paths (*1..3)
+  // Variable-length paths (*1..3, *1.., *..3, *)
   const rangeCtx = findChild(detailCtx, Ctx.RangeLiteral);
   if (rangeCtx) {
-    const intLits = findAllChildren(rangeCtx, Ctx.IntegerLiteral);
-    const values = intLits.map((ic) => {
-      const text = getTerminalText(ic);
-      return text ? parseInt(text, 10) : 0;
-    });
-    if (values.length >= 1) {
-      return {
-        variable,
-        type,
-        minDepth: values[0],
-        maxDepth: values.length >= 2 ? values[1] : values[0],
-        direction,
-      };
+    let minDepth: number | undefined;
+    let maxDepth: number | undefined;
+
+    // RangeLiteral children layout:
+    //   *          → [0]=`*`
+    //   *3..       → [0]=`*`, [1]=IntegerLiteral(3), [2]=`..`
+    //   *..5       → [0]=`*`, [1]=`..`, [2]=IntegerLiteral(5)
+    //   *3..5      → [0]=`*`, [1]=IntegerLiteral(3), [2]=`..`, [3]=IntegerLiteral(5)
+    const children = rangeCtx.children || [];
+    const intLits = children.filter((c: ParseTreeNode) => c.constructor.name === Ctx.IntegerLiteral);
+    const rangeOpIdx = children.findIndex((c: ParseTreeNode) => c.symbol?.text === '..');
+
+    if (intLits.length === 1) {
+      const text = getTerminalText(intLits[0]);
+      const val = text ? parseInt(text, 10) : 0;
+      if (rangeOpIdx < 0) {
+        // *3 — no '..' operator, exact depth
+        minDepth = val;
+        maxDepth = val;
+      } else if (intLits[0] === children[rangeOpIdx - 1]) {
+        // *3.. — integer before '..' → min only
+        minDepth = val;
+      } else {
+        // *..5 — integer after '..' → max only
+        maxDepth = val;
+      }
+    } else if (intLits.length === 2) {
+      // *3..5 — two integers
+      const values = intLits.map((ic) => {
+        const text = getTerminalText(ic);
+        return text ? parseInt(text, 10) : 0;
+      });
+      minDepth = values[0];
+      maxDepth = values[1];
     }
+
+    return {
+      variable,
+      type,
+      minDepth,
+      maxDepth,
+      variableLength: true,
+      direction,
+    };
   }
 
-  return { variable, type, minDepth: undefined, maxDepth: undefined, direction };
+  return { variable, type, minDepth: undefined, maxDepth: undefined, variableLength: false, direction };
 }
 
 function extractDirection(relPatternCtx: TreeNode): Direction {
@@ -1307,6 +1348,68 @@ function extractDirection(relPatternCtx: TreeNode): Direction {
   if (hasStartArrow) return 'IN';
   if (hasEndArrow) return 'OUT';
   return 'UNDIRECTED';
+}
+
+// ── Path expression extraction (shortestPath / allShortestPaths) ─────────────
+
+function extractPathExpression(spCtx: TreeNode): PathExpression | undefined {
+  if (!spCtx) return undefined;
+
+  // Determine function name
+  const spNameCtx = findChild(spCtx, Ctx.ShortestPathFunctionName);
+  const aspNameCtx = findChild(spCtx, Ctx.AllShortestPathFunctionName);
+  const functionName = spNameCtx
+    ? 'shortestPath' as const
+    : aspNameCtx
+      ? 'allShortestPaths' as const
+      : undefined;
+  if (!functionName) return undefined;
+
+  // Find the PatternElement inside the ShortestPathPatternFunction
+  const patternElement = findChild(spCtx, Ctx.PatternElement);
+  if (!patternElement) return undefined;
+
+  // Extract source node pattern
+  const nodePatterns = findAllChildren(patternElement, Ctx.NodePattern);
+  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : {
+    variable: '',
+    labels: undefined,
+    properties: undefined,
+    propertiesExpr: undefined,
+  };
+
+  // Extract relationship pattern and target node from PatternElementChain
+  const chains = findAllChildren(patternElement, Ctx.PatternElementChain);
+  let relationPattern: RelationPattern = {
+    variable: undefined,
+    type: undefined,
+    minDepth: undefined,
+    maxDepth: undefined,
+    variableLength: false,
+    direction: 'UNDIRECTED',
+  };
+  let targetPattern: NodePattern = {
+    variable: '',
+    labels: undefined,
+    properties: undefined,
+    propertiesExpr: undefined,
+  };
+
+  if (chains.length > 0) {
+    const chain = chains[0];
+    const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
+    relationPattern = extractRelationPattern(relPatternCtx);
+
+    const targetNodeCtx = findChild(chain, Ctx.NodePattern);
+    if (targetNodeCtx) {
+      targetPattern = extractNodePattern(targetNodeCtx);
+    }
+  } else if (nodePatterns.length > 1) {
+    // No chain — just two nodes (no relationship pattern)
+    targetPattern = extractNodePattern(nodePatterns[1]);
+  }
+
+  return { type: 'Path' as const, functionName, sourcePattern, relationPattern, targetPattern };
 }
 
 // ── Clause extraction ────────────────────────────────────────────────────────
@@ -1329,7 +1432,7 @@ function extractMatchClause(clauseCtx: ParseTreeNode): MatchClause {
 
   const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
 
-  let relationPattern: RelationPattern = { variable: undefined, type: undefined, minDepth: undefined, maxDepth: undefined, direction: 'UNDIRECTED' };
+  let relationPattern: RelationPattern = { variable: undefined, type: undefined, minDepth: undefined, maxDepth: undefined, variableLength: false, direction: 'UNDIRECTED' };
   let targetPattern: NodePattern = { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
 
   const hasChains = chains.length > 0;
@@ -1420,6 +1523,9 @@ function computeDefaultAlias(expr: Expression): string {
   }
   if (expr.type === 'Case') {
     return 'CASE';
+  }
+  if (expr.type === 'Path') {
+    return `${expr.functionName}()`;
   }
   return String(expr.value);
 }
@@ -2585,7 +2691,7 @@ function extractMergeClause(clauseCtx: ParseTreeNode): MergeClause {
 
   const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
 
-  let relationPattern: RelationPattern = { variable: undefined, type: undefined, minDepth: undefined, maxDepth: undefined, direction: 'UNDIRECTED' };
+  let relationPattern: RelationPattern = { variable: undefined, type: undefined, minDepth: undefined, maxDepth: undefined, variableLength: false, direction: 'UNDIRECTED' };
   let targetPattern: NodePattern = { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
 
   const hasChains = chains.length > 0;

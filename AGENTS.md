@@ -47,6 +47,8 @@ src/
 
 **Scalar functions:** 28+ (`toLower`, `toUpper`, `substring`, `split`, `repl`, `trim`, `ltrim`, `rtrim`, `length`, `head`, `last`, `tail`, `reverse`, `size`, `id`, `labels`, `labelsOf`, `nodes`, `relationships`, `reltype`, `startnode`, `endnode`, `coalesce`, `toString`, `toInteger`, `toFloat`). Work in RETURN/WHERE/WITH/ORDER BY, nested supported. Note: `repl`/`reltype` (not `replace`/`type`) — ANTLR4 reserved. `labels(n)` works as sole RETURN item only (ANTLR4 keyword limitation); use `labelsOf(n)` everywhere else. `nodes(path)`/`relationships(path)` extract from path variables (sole RETURN item only). `startnode()`/`endnode()` return string IDs. `labels()`, `nodes()`, `relationships()` do not support `AS` aliases (ANTLR4 grammar limitation).
 
+**Path expressions:** `shortestPath((a)-[*]->(b))` returns the single shortest path (unweighted BFS); `allShortestPaths((a)-[*]->(b))` returns all paths of minimum length. Support type filtering (`[:TYPE*]`), direction (`->`, `<-`, `-`), and variable-length bounds (`*min..max`). Variables `a`/`b` must be bound in the query context. Uses `graphology-shortest-path` library.
+
 **Arithmetic expressions:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`. Work in RETURN/WHERE/WITH/ORDER BY/SET. Parentheses for grouping. Null propagation (any null operand → null). Division/modulo by zero → null.
 
 **List literals:** `['a', 'b']` in RETURN/WHERE/UNWIND/SET/CREATE. Dynamic values (`[n.name, toUpper(n.name), n]`). Slicing `[start..end]`, `[..end]`, `[start..]`, `[index]` with negative indices.
