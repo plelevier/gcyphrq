@@ -1,6 +1,6 @@
 {
   "name": "gcyphrq",
-  "version": "0.40.1",
+  "version": "0.41.0",
   "description": "A CLI tool and library that executes Cypher graph queries against an in-memory graph built on Graphology",
   "type": "module",
   "main": "dist/lib.js",
