@@ -600,14 +600,38 @@ describe('Graphology JSON format', () => {
     expect(edgeCount).toBe(1);
   });
 
-  it('throws for unsupported options.multi', () => {
+  it('supports options.multi for parallel edges', () => {
+    const graph = createGraph({
+      options: { type: 'directed', multi: true },
+      nodes: [
+        { key: 'a', attributes: { label: 'N' } },
+        { key: 'b', attributes: { label: 'N' } },
+      ],
+      edges: [
+        { source: 'a', target: 'b', attributes: { type: 'TCP' } },
+        { source: 'a', target: 'b', attributes: { type: 'UDP' } },
+      ],
+    });
+    expect(graph.order).toBe(2);
+    let edgeCount = 0;
+    graph.forEachEdge(() => edgeCount++);
+    expect(edgeCount).toBe(2);
+  });
+
+  it('rejects duplicate edges when multi is false', () => {
     expect(() =>
       createGraph({
-        options: { type: 'directed', multi: true },
-        nodes: [{ key: 'a', attributes: { label: 'N' } }],
-        edges: [],
+        options: { type: 'directed' },
+        nodes: [
+          { key: 'a', attributes: { label: 'N' } },
+          { key: 'b', attributes: { label: 'N' } },
+        ],
+        edges: [
+          { source: 'a', target: 'b', attributes: { type: 'TCP' } },
+          { source: 'a', target: 'b', attributes: { type: 'UDP' } },
+        ],
       }),
-    ).toThrow(/Unsupported graph option:.*"multi"/);
+    ).toThrow(/duplicate edge.*a->b/);
   });
 
   it('warns about unsupported edge undirected via onWarning callback', () => {

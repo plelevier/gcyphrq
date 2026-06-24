@@ -30,7 +30,7 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 - `attributes.type` on edges → relationship type (`[:TCP]`). Customize with `-et` flag.
 - All other attributes → filterable properties (`{name: "X"}`, `{region: "us-east-1"}`)
 - Optional `options.allowSelfLoops: true` enables self-loop edges (`source = target`). Defaults to `false`.
-- Optional `options.allowSelfLoops: true` enables self-loop edges (`source = target`). Defaults to `false`.
+- Optional `options.multi: true` enables parallel edges (multiple edges between same nodes). Defaults to `false`.
 
 ## Supported Cypher
 

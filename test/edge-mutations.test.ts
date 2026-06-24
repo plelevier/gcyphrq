@@ -289,4 +289,47 @@ describe('CREATE chain engine', () => {
     expect(results.length).toBe(1);
     expect(countEdges(g)).toBe(1);
   });
+
+  it('creates parallel edges in multi-graph', () => {
+    const g = new Graph({ multi: true });
+    g.addNode('alice', { label: 'Person', name: 'Alice' });
+    g.addNode('bob', { label: 'Person', name: 'Bob' });
+    g.addEdge('alice', 'bob', { type: 'KNOWS' });
+    const engine = createEngine(g);
+    const ast = parseCypher(
+      'MATCH (a:Person {name: "Alice"}) MATCH (b:Person {name: "Bob"}) CREATE (a)-[r:FRIEND]->(b) RETURN r',
+    );
+    const results = engine.execute(ast);
+    expect(results.length).toBe(1);
+    expect(countEdges(g)).toBe(2);
+  });
+
+  it('MATCH returns all parallel edges in multi-graph', () => {
+    const g = new Graph({ multi: true });
+    g.addNode('alice', { label: 'Person', name: 'Alice' });
+    g.addNode('bob', { label: 'Person', name: 'Bob' });
+    g.addEdge('alice', 'bob', { type: 'KNOWS' });
+    g.addEdge('alice', 'bob', { type: 'FRIEND' });
+    const engine = createEngine(g);
+    const ast = parseCypher(
+      'MATCH (a:Person {name: "Alice"})-[r]->(b:Person {name: "Bob"}) RETURN r',
+    );
+    const results = engine.execute(ast);
+    expect(results.length).toBe(2);
+  });
+
+  it('MATCH with type filter returns matching parallel edges', () => {
+    const g = new Graph({ multi: true });
+    g.addNode('alice', { label: 'Person', name: 'Alice' });
+    g.addNode('bob', { label: 'Person', name: 'Bob' });
+    g.addEdge('alice', 'bob', { type: 'KNOWS' });
+    g.addEdge('alice', 'bob', { type: 'KNOWS' });
+    g.addEdge('alice', 'bob', { type: 'FRIEND' });
+    const engine = createEngine(g);
+    const ast = parseCypher(
+      'MATCH (a:Person {name: "Alice"})-[r:KNOWS]->(b:Person {name: "Bob"}) RETURN r',
+    );
+    const results = engine.execute(ast);
+    expect(results.length).toBe(2);
+  });
 });

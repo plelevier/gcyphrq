@@ -566,8 +566,8 @@ interface GraphologyEdge {
 
 interface GraphologyGraphOptions {
   type?: 'directed' | 'undirected' | 'mixed'; // all three are supported
-  allowSelfLoops?: boolean;                    // true will cause an error
-  multi?: boolean;                             // true will cause an error
+  allowSelfLoops?: boolean;                    // enables self-loop edges
+  multi?: boolean;                             // enables parallel edges between same nodes
 }
 ```
 

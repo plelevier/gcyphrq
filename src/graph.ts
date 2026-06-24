@@ -7,6 +7,7 @@ export type GraphType = 'directed' | 'undirected' | 'mixed';
 export interface GraphConstructorOptions {
   type?: GraphType;
   allowSelfLoops?: boolean;
+  multi?: boolean;
 }
 
 export interface GraphInstance {
@@ -66,16 +67,22 @@ interface RawGraph {
 
 const DirectedGraph = (GraphModule as any).DirectedGraph;
 const UndirectedGraph = (GraphModule as any).UndirectedGraph;
+const MultiDirectedGraph = (GraphModule as any).MultiDirectedGraph;
+const MultiUndirectedGraph = (GraphModule as any).MultiUndirectedGraph;
 
-function createRawGraph(type: GraphType, allowSelfLoops = false): RawGraph {
+function createRawGraph(type: GraphType, allowSelfLoops = false, multi = false): RawGraph {
   const opts: Record<string, unknown> = { allowSelfLoops };
   switch (type) {
     case 'directed':
-      return new DirectedGraph(opts) as unknown as RawGraph;
+      return multi
+        ? new MultiDirectedGraph(opts) as unknown as RawGraph
+        : new DirectedGraph(opts) as unknown as RawGraph;
     case 'undirected':
-      return new UndirectedGraph(opts) as unknown as RawGraph;
+      return multi
+        ? new MultiUndirectedGraph(opts) as unknown as RawGraph
+        : new UndirectedGraph(opts) as unknown as RawGraph;
     case 'mixed':
-      return new (GraphModule as new (opts: { type: 'mixed'; allowSelfLoops?: boolean }) => unknown)({ type: 'mixed', allowSelfLoops }) as unknown as RawGraph;
+      return new (GraphModule as new (opts: { type: 'mixed'; allowSelfLoops?: boolean; multi?: boolean }) => unknown)({ type: 'mixed', allowSelfLoops, ...(multi ? { multi: true } : {}) }) as unknown as RawGraph;
   }
 }
 
@@ -167,7 +174,7 @@ export class Graph {
 
   constructor(options?: GraphConstructorOptions) {
     const type = options?.type ?? 'directed';
-    const raw = createRawGraph(type, options?.allowSelfLoops);
+    const raw = createRawGraph(type, options?.allowSelfLoops, options?.multi);
     this._instance = wrapGraph(raw);
   }
 

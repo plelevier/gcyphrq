@@ -37,7 +37,7 @@ src/
 
 **Library API (`lib.ts`):** `createGraph(data)`, `buildGraphIndexes(data, graph, opts?)`, `parseCypher(query)`, `executeQuery(graphData, query, opts?)`, `GraphEngine`. All accept `opts.config` except `createGraph`.
 
-**Graph format:** `{ nodes: [{key, attributes}], edges: [{source, target, attributes}] }`. `attributes.label` → Cypher label, `attributes.type` on edges → relationship type. Customize with `-nl`/`-et` CLI flags or `opts.config`. Optional `options.allowSelfLoops: true` enables self-loop edges.
+**Graph format:** `{ nodes: [{key, attributes}], edges: [{source, target, attributes}] }`. `attributes.label` → Cypher label, `attributes.type` on edges → relationship type. Customize with `-nl`/`-et` CLI flags or `opts.config`. Optional `options.allowSelfLoops: true` enables self-loop edges. Optional `options.multi: true` enables parallel edges (multiple edges between the same nodes).
 
 ## Supported Cypher
 
