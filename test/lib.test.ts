@@ -634,6 +634,51 @@ describe('Graphology JSON format', () => {
     ).toThrow(/duplicate edge.*a->b/);
   });
 
+  it('executeQuery with multi-graph JSON returns all parallel edges', () => {
+    const results = executeQuery({
+      options: { type: 'directed', multi: true },
+      nodes: [
+        { key: 'a', attributes: { label: 'N', name: 'A' } },
+        { key: 'b', attributes: { label: 'N', name: 'B' } },
+      ],
+      edges: [
+        { source: 'a', target: 'b', attributes: { type: 'TCP' } },
+        { source: 'a', target: 'b', attributes: { type: 'UDP' } },
+        { source: 'a', target: 'b', attributes: { type: 'TCP' } },
+      ],
+    }, 'MATCH (a:N)-[r]->(b:N) RETURN a.name, r.type, b.name');
+    expect(results.length).toBe(3);
+  });
+
+  it('supports multi with undirected graph type', () => {
+    const graph = createGraph({
+      options: { type: 'undirected', multi: true },
+      nodes: [
+        { key: 'a', attributes: { label: 'N' } },
+        { key: 'b', attributes: { label: 'N' } },
+      ],
+      edges: [
+        { source: 'a', target: 'b', attributes: { type: 'E1' } },
+        { source: 'a', target: 'b', attributes: { type: 'E2' } },
+      ],
+    });
+    expect(graph.type).toBe('undirected');
+    let edgeCount = 0;
+    graph.forEachEdge(() => edgeCount++);
+    expect(edgeCount).toBe(2);
+  });
+
+  it('wrapExternalGraph preserves multi for parallel edges', () => {
+    const raw = new (Graphology as any).MultiDirectedGraph();
+    raw.addNode('a', { label: 'N' });
+    raw.addNode('b', { label: 'N' });
+    raw.addEdge('a', 'b', { type: 'TCP' });
+    raw.addEdge('a', 'b', { type: 'UDP' });
+    // executeQuery wraps external graphs via wrapExternalGraph
+    const results = executeQuery(raw, 'MATCH (a)-[r]->(b) RETURN r.type');
+    expect(results.length).toBe(2);
+  });
+
   it('warns about unsupported edge undirected via onWarning callback', () => {
     const warnings: string[] = [];
     createGraph({

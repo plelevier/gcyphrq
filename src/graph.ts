@@ -213,9 +213,10 @@ export class Graph {
  */
 export function wrapExternalGraph(raw: any): GraphInstance {
   const type = raw.type as GraphType;
+  const multi = raw.multi === true;
   // Always copy into a new Graph so that our wrapper methods
   // (hasEdge, getEdgeEndpoints, dropEdge) are available.
-  const graph = new Graph({ type });
+  const graph = new Graph({ type, multi });
   const allNodes = raw.filterNodes(() => true);
   for (const id of allNodes) {
     graph.addNode(id, raw.getNodeAttributes(id));
