@@ -267,6 +267,18 @@ describe('CALL engine: YIELD', () => {
       expect(row['age']).toBeDefined();
     }
   });
+
+  it('YIELD followed by WHERE filters results', () => {
+    graph.addNode('p3', { label: 'Person', name: 'Charlie', age: 35 });
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'CALL { MATCH (n:Person) RETURN n.name AS name, n.age AS age } YIELD name WHERE name <> "Bob" RETURN name',
+    );
+    const results = engine.execute(ast);
+    expect(results.length).toBe(2);
+    const names = results.map((r) => r['name'] as string).sort();
+    expect(names).toEqual(['Alice', 'Charlie']);
+  });
 });
 
 // ── Engine tests: CALL followed by other clauses ─────────────────────────────

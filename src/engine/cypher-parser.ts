@@ -2407,7 +2407,7 @@ function extractYieldVariables(queryText: string, callIndex: number): string[] |
 
   // Look for YIELD after the closing brace
   const afterBrace = queryText.slice(closeBraceIndex + 1);
-  const yieldMatch = afterBrace.match(/^\s*YIELD\s+(.+?)(?:\s*(?:RETURN|MATCH|MERGE|WITH|UNWIND|FOREACH|CALL|;|ORDER|SKIP|LIMIT|$))/i);
+  const yieldMatch = afterBrace.match(/^\s*YIELD\s+(.+?)(?:\s*(?:RETURN|MATCH|MERGE|WITH|UNWIND|FOREACH|CALL|WHERE|;|ORDER|SKIP|LIMIT|$))/i);
   if (!yieldMatch) return undefined;
 
   const yieldText = yieldMatch[1]!.trim();
@@ -2956,8 +2956,7 @@ function extractSingleQuery(singleQuery: ParseTreeNode, rawQuery?: string): Adva
 
   // Helper: check if a clause's text position falls inside any CALL brace range
   const isInsideCallBraces = (node: ParseTreeNode): boolean => {
-    // @ts-ignore - ANTLR4 Token has `start` for character offset
-    const startIdx = node.start?.start ?? node.start?.index ?? -1;
+    const startIdx = node.start?.start ?? -1;
     if (startIdx === -1) return false;
     for (const range of callBraceRanges) {
       if (startIdx > range.start && startIdx < range.end) return true;
@@ -3018,7 +3017,7 @@ function extractSingleQuery(singleQuery: ParseTreeNode, rawQuery?: string): Adva
     let afterText = queryText.slice(outermostRange.end + 1).trim();
 
     // Strip leading YIELD clause — it belongs to CALL, not as a standalone clause
-    const yieldMatch = afterText.match(/^\s*YIELD\s+(.+?)(?=\s+(?:RETURN|MATCH|WITH|UNWIND|MERGE|SET|DELETE|REMOVE|FOREACH|CALL|ORDER|SKIP|LIMIT)\b|$)/is);
+    const yieldMatch = afterText.match(/^\s*YIELD\s+(.+?)(?=\s+(?:RETURN|MATCH|WITH|UNWIND|MERGE|SET|DELETE|REMOVE|FOREACH|CALL|WHERE|ORDER|SKIP|LIMIT)\b|$)/is);
     let yieldVars: string[] | undefined;
     if (yieldMatch) {
       yieldVars = yieldMatch[1]!.split(',').map((v) => {
