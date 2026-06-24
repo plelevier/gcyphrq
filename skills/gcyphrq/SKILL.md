@@ -90,6 +90,7 @@ Service dependencies, blast radius, path tracing, infrastructure topology, monit
 | CALL subquery | `CALL { MATCH (n:Person) RETURN n.name AS name }` |
 | CALL with outer var | `MATCH (a:Person) CALL { MATCH (a)-[:FRIEND]->(b) RETURN b.name AS friend } RETURN a.name, friend` |
 | CALL with YIELD | `CALL { MATCH (n:Person) RETURN n.name AS name, n.age AS age } YIELD name RETURN name` |
+| CALL with YIELD+WHERE | `CALL { MATCH (n:Person) RETURN n.name AS name } YIELD name WHERE name <> "Bob" RETURN name` |
 | CALL with WHERE | `CALL { MATCH (n:Person) RETURN n.age AS age } WHERE age > 28 RETURN age` |
 | Nested CALL | `CALL { CALL { MATCH (n:Person) RETURN n.name AS name } RETURN name }` |
 

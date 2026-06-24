@@ -593,6 +593,9 @@ type Stage =
   | { type: 'MATCH'; clause: MatchClause }
   | { type: 'WITH'; clause: WithClause }
   | { type: 'WRITE'; clause: WriteClause }
+  | { type: 'MERGE'; clause: MergeClause }
+  | { type: 'UNWIND'; clause: UnwindClause }
+  | { type: 'FOREACH'; clause: ForeachClause }
   | { type: 'CALL'; clause: CallClause };
 
 interface UnionQueryAST {

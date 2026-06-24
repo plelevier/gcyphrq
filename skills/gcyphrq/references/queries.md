@@ -205,6 +205,11 @@ RETURN s.name, dependency
 CALL { MATCH (n:Service) RETURN n.name AS name, n.type AS type } YIELD name
 RETURN name
 
+# CALL with YIELD + WHERE (filter after subquery)
+CALL { MATCH (n:Service) RETURN n.name AS name, n.type AS type } YIELD name
+WHERE name <> "Bob"
+RETURN name
+
 # CALL followed by WHERE (filter inner results)
 CALL { MATCH (n:Service) RETURN n.type AS type }
 WHERE type = "RPC"

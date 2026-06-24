@@ -1111,6 +1111,19 @@ RETURN name
 
 Only `name` is available after the CALL; `age` is discarded.
 
+### CALL with YIELD + WHERE
+
+Combine YIELD with WHERE to filter results after the subquery:
+
+```cypher
+CALL { MATCH (n:Person) RETURN n.name AS name, n.age AS age }
+YIELD name
+WHERE name <> "Bob"
+RETURN name
+```
+
+The WHERE clause applies after YIELD filtering and before any outer RETURN.
+
 ### CALL followed by other clauses
 
 CALL can be followed by `RETURN`, `MATCH`, `WITH`, `WHERE`, or other clauses:
