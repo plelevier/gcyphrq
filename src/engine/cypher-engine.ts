@@ -310,6 +310,8 @@ export class AdvancedCypherGraphologyEngine {
         }
       }
     }
+    // Normalize: empty Set → undefined (no AND path candidates)
+    if (andCandidates?.size === 0) andCandidates = undefined;
 
     // Step 2: Apply AND NOT labels to AND candidates
     if (hasAndNotLabels && labelExpr) {
@@ -322,11 +324,14 @@ export class AdvancedCypherGraphologyEngine {
       }
       if (andCandidates) {
         for (const id of andNotIds) andCandidates.delete(id);
-      } else if (andNotIds.size > 0) {
+      } else {
         // No AND labels but AND NOT labels — all nodes minus negated
+        // (even if notIds is empty, the NOT filter was explicitly specified)
         andCandidates = new Set(this.graph.filterNodes((id) => !andNotIds.has(id)));
       }
     }
+    // Normalize: empty Set → undefined (no AND path candidates)
+    if (andCandidates?.size === 0) andCandidates = undefined;
 
     // Step 3: OR labels (union)
     let orCandidates: Set<string> | undefined;
@@ -341,6 +346,8 @@ export class AdvancedCypherGraphologyEngine {
         }
       }
     }
+    // Normalize: empty Set → undefined (no OR path candidates)
+    if (orCandidates?.size === 0) orCandidates = undefined;
 
     // Step 4: OR NOT labels — all nodes minus those with the negated label
     if (hasOrNotLabels && labelExpr) {
@@ -371,6 +378,11 @@ export class AdvancedCypherGraphologyEngine {
     }
 
     const hasLabels = hasAnyLabels && (labelCandidates?.size ?? 0) > 0;
+
+    // Labels specified but no candidates — return empty (don't fall through to full-graph scan)
+    if (hasAnyLabels && !hasLabels) {
+      return [];
+    }
 
     if (hasLabels && hasProps && props && labelCandidates) {
       // Intersect label candidates with property index.

@@ -60,6 +60,10 @@ function createEngine(graph: GraphInstance) {
   return new AdvancedCypherGraphologyEngine(graph, buildIndexesFromGraph(graph));
 }
 
+function createEngineNoIndexes(graph: GraphInstance) {
+  return new AdvancedCypherGraphologyEngine(graph);
+}
+
 function setupSocialGraph(): GraphInstance {
   const graph = new Graph();
   graph.addNode('alice', { label: 'User', name: 'Alice' });
@@ -327,14 +331,75 @@ describe('Chained MATCHes', () => {
     });
 
     it('chained MATCH with empty result in first stage returns nothing', () => {
-      // Note: non-existent labels fall through to full-graph scan (pre-existing
-      // engine limitation). Use a property filter that matches nothing instead.
       const graph = setupSocialGraph();
       const engine = createEngine(graph);
       const ast = parseCypher('MATCH (a:User {name: "Nobody"}) MATCH (b:User) RETURN a, b');
       const results = engine.execute(ast);
 
       expect(results.length).toBe(0);
+    });
+
+    it('MATCH with non-existent label returns empty result', () => {
+      const graph = setupSocialGraph();
+      const engine = createEngine(graph);
+      const ast = parseCypher('MATCH (a:NonExistent) RETURN a');
+      const results = engine.execute(ast);
+
+      expect(results.length).toBe(0);
+    });
+
+    it('MATCH with AND label where one is non-existent returns empty', () => {
+      const graph = setupSocialGraph();
+      const engine = createEngine(graph);
+      const ast = parseCypher('MATCH (a:User:NonExistent) RETURN a');
+      const results = engine.execute(ast);
+
+      expect(results.length).toBe(0);
+    });
+
+    it('MATCH with OR label where one is non-existent still matches the existing label', () => {
+      const graph = setupSocialGraph();
+      const engine = createEngine(graph);
+      const ast = parseCypher('MATCH (a:User|NonExistent) RETURN a.name AS name');
+      const results = engine.execute(ast);
+
+      expect(results.length).toBe(3);
+    });
+
+    it('MATCH with OR labels all non-existent returns empty', () => {
+      const graph = setupSocialGraph();
+      const engine = createEngine(graph);
+      const ast = parseCypher('MATCH (a:NonExistent|AlsoMissing) RETURN a');
+      const results = engine.execute(ast);
+
+      expect(results.length).toBe(0);
+    });
+
+    it('MATCH with NOT of non-existent label returns all nodes', () => {
+      const graph = setupSocialGraph();
+      const engine = createEngine(graph);
+      const ast = parseCypher('MATCH (a:!NonExistent) RETURN a.name AS name');
+      const results = engine.execute(ast);
+
+      expect(results.length).toBe(3);
+    });
+
+    it('non-indexed engine: non-existent label returns empty result', () => {
+      const graph = setupSocialGraph();
+      const engine = createEngineNoIndexes(graph);
+      const ast = parseCypher('MATCH (a:NonExistent) RETURN a');
+      const results = engine.execute(ast);
+
+      expect(results.length).toBe(0);
+    });
+
+    it('non-indexed engine: existing label still works', () => {
+      const graph = setupSocialGraph();
+      const engine = createEngineNoIndexes(graph);
+      const ast = parseCypher('MATCH (a:User) RETURN a.name AS name');
+      const results = engine.execute(ast);
+
+      expect(results.length).toBe(3);
     });
 
     it('chained MATCH with empty result in second stage returns nothing', () => {
