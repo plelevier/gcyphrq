@@ -616,6 +616,28 @@ gcyphrq -g examples/team.json -e 'MATCH (p:Person {name: "Frank"}) DELETE p' --f
 
 > **Note:** `DELETE` without a `RETURN` clause produces an empty array (`[]`). The graph is modified in-memory for subsequent queries in the same session.
 
+### 30b. DETACH DELETE
+
+Remove a node and all its incident relationships:
+
+```bash
+gcyphrq -g examples/team.json -e 'MATCH (p:Person {name: "Alice"}) DETACH DELETE p MATCH (m:Person) RETURN m.name' --format rows
+```
+
+**Output:**
+
+```json
+[
+  { "name": "Bob" },
+  { "name": "Charlie" },
+  { "name": "Diana" },
+  { "name": "Eve" },
+  { "name": "Frank" }
+]
+```
+
+> **Note:** `DETACH DELETE` is useful when you want to remove a node without explicitly matching and deleting its relationships first.
+
 ---
 
 ## CASE Expressions

@@ -747,6 +747,18 @@ MATCH (u:User {name: 'Alice'}) SET u.tags = ['admin', 'verified'] RETURN u
 MATCH (f:User {name: 'Bob'}) DELETE f
 ```
 
+### DETACH DELETE
+
+Delete a node and all its incident relationships in one operation. Unlike plain `DELETE`, which requires relationships to be removed separately, `DETACH DELETE` automatically removes all edges connected to the target node.
+
+```cypher
+-- Delete a node and all its connections
+MATCH (f:User {name: 'Bob'}) DETACH DELETE f
+
+-- Delete a node, then query remaining nodes
+MATCH (f:User {name: 'Bob'}) DETACH DELETE f MATCH (u:User) RETURN u.name
+```
+
 ### REMOVE
 
 Remove a label or property from a node. The node and its relationships remain in the graph.
@@ -761,7 +773,7 @@ Multiple items can be combined in a single REMOVE clause (property and/or label)
 
 ### FOREACH
 
-Iterate over a list and execute a mutation (SET, CREATE, DELETE, REMOVE) for each element. Unlike UNWIND, FOREACH **does not expand rows** — the input row count is preserved.
+Iterate over a list and execute a mutation (SET, CREATE, DELETE, DETACH DELETE, REMOVE) for each element. Unlike UNWIND, FOREACH **does not expand rows** — the input row count is preserved.
 
 ```cypher
 -- Set a property on each element of a list
@@ -775,6 +787,9 @@ MATCH (u:User) FOREACH (x IN u.tags | SET x:Tagged) RETURN u.name
 
 -- Delete nodes referenced in a list
 MATCH (u:User) FOREACH (x IN u.todos | DELETE x) RETURN u.name
+
+-- Detach delete nodes (also removes incident edges)
+MATCH (u:User) FOREACH (x IN u.todos | DETACH DELETE x) RETURN u.name
 
 -- Remove a property from each element
 MATCH (u:User) FOREACH (x IN u.items | REMOVE x.temp) RETURN u.name
@@ -914,6 +929,14 @@ MERGE (u:User {name: "Alice"}) ON MATCH DELETE u RETURN u
 MERGE (a:User)-[r:FRIEND]->(b:User) ON MATCH DELETE r RETURN a, b
 ```
 
+### MERGE with DETACH DELETE in ON MATCH
+
+Delete a matched node and all its incident relationships:
+
+```cypher
+MERGE (u:User {name: "Alice"}) ON MATCH DETACH DELETE u RETURN u
+```
+
 ### MERGE with REMOVE in ON MATCH
 
 Remove labels or properties from matched nodes/relationships:
@@ -923,9 +946,9 @@ MERGE (u:User {name: "Alice"}) ON MATCH REMOVE u:Admin RETURN u
 MERGE (u:User {name: "Alice"}) ON MATCH REMOVE u.status RETURN u
 ```
 
-### MERGE with combined SET / DELETE / REMOVE
+### MERGE with combined SET / DELETE / DETACH DELETE / REMOVE
 
-Combine SET, DELETE, and REMOVE in ON CREATE / ON MATCH:
+Combine SET, DELETE, DETACH DELETE, and REMOVE in ON CREATE / ON MATCH:
 
 ```cypher
 MERGE (u:User {name: "Alice"})

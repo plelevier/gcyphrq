@@ -97,8 +97,8 @@ const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 | `WHERE` operators: `=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS` | <span class="badge badge-success">✅</span> |
 | `WHERE` logical operators: `AND`, `OR`, `NOT` | <span class="badge badge-success">✅</span> |
 | `WHERE` IS NULL / IS NOT NULL | <span class="badge badge-success">✅</span> |
-| `CREATE`, `SET`, `DELETE`, `REMOVE` mutations | <span class="badge badge-success">✅</span> |
-| `FOREACH` (SET, CREATE, DELETE, REMOVE on nodes and edges) | <span class="badge badge-success">✅</span> |
+| `CREATE`, `SET`, `DELETE`, `DETACH DELETE`, `REMOVE` mutations | <span class="badge badge-success">✅</span> |
+| `FOREACH` (SET, CREATE, DELETE, DETACH DELETE, REMOVE on nodes and edges) | <span class="badge badge-success">✅</span> |
 | `CASE ... WHEN ... END` (general and simple forms, nested) | <span class="badge badge-success">✅</span> |
 | `ORDER BY` (single/multi-column) | <span class="badge badge-success">✅</span> |
 | `SKIP` / `LIMIT` | <span class="badge badge-success">✅</span> |

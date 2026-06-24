@@ -125,11 +125,18 @@ describe('DETACH DELETE engine', () => {
     ]);
   });
 
-  it('plain DELETE fails if node has incident edges (no DETACH)', () => {
-    // Without DETACH, DELETE on a node with edges should still work (Graphology dropNode removes edges)
-    // But the edges should NOT be removed — only the target node
-    // Actually in our implementation, plain DELETE just drops the node, which Graphology also drops edges
-    // This is a known limitation — we just verify DETACH DELETE works
+  it('plain DELETE on node with edges still works (Graphology removes incident edges)', () => {
+    // Graphology's dropNode already removes incident edges, so plain DELETE
+    // on a connected node works the same as DETACH DELETE in practice.
+    const result = executeQuery(
+      graphData,
+      'MATCH (n:Person {name: "Alice"}) DELETE n MATCH (m:Person) RETURN m.name AS name ORDER BY name',
+    );
+    expect(result).toEqual([
+      { name: 'Bob' },
+      { name: 'Charlie' },
+      { name: 'Diana' },
+    ]);
   });
 });
 
@@ -166,6 +173,37 @@ describe('MERGE with DETACH DELETE', () => {
         ],
       },
       'MERGE (n:User {name: "Alice"}) ON MATCH DETACH DELETE n MATCH (m:User) RETURN m.name AS name ORDER BY name',
+    );
+    expect(result).toEqual([{ name: 'Bob' }]);
+  });
+
+  it('executes MERGE with DETACH DELETE in ON CREATE (node not found — no-op)', () => {
+    // When node doesn't exist, MERGE creates it, so ON CREATE fires.
+    // DETACH DELETE on the newly created node removes it immediately.
+    const result = executeQuery(
+      {
+        nodes: [
+          { key: 'b', attributes: { label: 'User', name: 'Bob' } },
+        ],
+        edges: [],
+      },
+      'MERGE (n:User {name: "Alice"}) ON CREATE DETACH DELETE n MATCH (m:User) RETURN m.name AS name ORDER BY name',
+    );
+    expect(result).toEqual([{ name: 'Bob' }]);
+  });
+
+  it('executes MERGE with combined SET and DETACH DELETE in ON MATCH', () => {
+    const result = executeQuery(
+      {
+        nodes: [
+          { key: 'a', attributes: { label: 'User', name: 'Alice' } },
+          { key: 'b', attributes: { label: 'User', name: 'Bob' } },
+        ],
+        edges: [
+          { source: 'a', target: 'b', attributes: { type: 'KNOWS' } },
+        ],
+      },
+      'MERGE (n:User {name: "Alice"}) ON MATCH SET n.deleted = true DETACH DELETE n MATCH (m:User) RETURN m.name AS name ORDER BY name',
     );
     expect(result).toEqual([{ name: 'Bob' }]);
   });
