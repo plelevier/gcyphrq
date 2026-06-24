@@ -259,7 +259,7 @@ describe('Path expressions', () => {
       );
       const results = engine.execute(ast);
       expect(results.length).toBe(1);
-      const paths = results[0]!.paths as { nodes: CypherNode[]; relationships: CypherEdge[] }[];
+      const paths = results[0]!.paths as unknown as { nodes: CypherNode[]; relationships: CypherEdge[] }[];
       expect(Array.isArray(paths)).toBe(true);
       // There are at least 2 shortest paths of length 2: A->B->D and A->C->D
       expect(paths.length).toBeGreaterThanOrEqual(2);
@@ -276,7 +276,7 @@ describe('Path expressions', () => {
       );
       const results = engine.execute(ast);
       expect(results.length).toBe(1);
-      const paths = results[0]!.paths as unknown[];
+      const paths = results[0]!.paths as unknown as unknown[];
       expect(Array.isArray(paths)).toBe(true);
       expect(paths.length).toBe(0);
     });
@@ -287,7 +287,7 @@ describe('Path expressions', () => {
       );
       const results = engine.execute(ast);
       expect(results.length).toBe(1);
-      const paths = results[0]!.paths as { nodes: CypherNode[]; relationships: CypherEdge[] }[];
+      const paths = results[0]!.paths as unknown as { nodes: CypherNode[]; relationships: CypherEdge[] }[];
       // Only FRIEND edges: A->B->D is the only shortest path
       expect(paths.length).toBeGreaterThanOrEqual(1);
       for (const path of paths) {
@@ -303,7 +303,7 @@ describe('Path expressions', () => {
       );
       const results = engine.execute(ast);
       expect(results.length).toBe(1);
-      const paths = results[0]!.paths as { nodes: CypherNode[]; relationships: CypherEdge[] }[];
+      const paths = results[0]!.paths as unknown as { nodes: CypherNode[]; relationships: CypherEdge[] }[];
       expect(paths.length).toBe(1);
       expect(paths[0]!.nodes.length).toBe(1);
       expect(paths[0]!.relationships.length).toBe(0);
@@ -315,7 +315,7 @@ describe('Path expressions', () => {
       );
       const results = engine.execute(ast);
       expect(results.length).toBe(1);
-      const paths = results[0]!.paths as unknown[];
+      const paths = results[0]!.paths as unknown as unknown[];
       expect(Array.isArray(paths)).toBe(true);
       expect(paths.length).toBe(0);
     });
@@ -326,7 +326,7 @@ describe('Path expressions', () => {
       );
       const results = engine.execute(ast);
       expect(results.length).toBe(1);
-      const paths = results[0]!.paths as unknown[];
+      const paths = results[0]!.paths as unknown as unknown[];
       expect(Array.isArray(paths)).toBe(true);
       expect(paths.length).toBe(0);
     });
@@ -337,7 +337,7 @@ describe('Path expressions', () => {
       );
       const results = engine.execute(ast);
       expect(results.length).toBe(1);
-      const paths = results[0]!.paths as { nodes: CypherNode[]; relationships: CypherEdge[] }[];
+      const paths = results[0]!.paths as unknown as { nodes: CypherNode[]; relationships: CypherEdge[] }[];
       expect(paths.length).toBeGreaterThanOrEqual(1);
     });
   });
@@ -409,7 +409,7 @@ describe('Path expressions', () => {
       );
       const results = engine.execute(ast);
       expect(results.length).toBe(1);
-      const paths = results[0]!.paths as { nodes: CypherNode[]; relationships: CypherEdge[] }[];
+      const paths = results[0]!.paths as unknown as { nodes: CypherNode[]; relationships: CypherEdge[] }[];
       expect(Array.isArray(paths)).toBe(true);
       // Two shortest paths: d<-b<-a and d<-c<-a
       expect(paths.length).toBeGreaterThanOrEqual(2);
@@ -508,7 +508,7 @@ describe('Path expressions', () => {
       );
       const results = engine.execute(ast);
       expect(results.length).toBe(1);
-      const paths = results[0]!.paths as unknown[];
+      const paths = results[0]!.paths as unknown as unknown[];
       expect(paths.length).toBe(0);
     });
 
