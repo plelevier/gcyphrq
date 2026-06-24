@@ -18,10 +18,6 @@ This guide covers all supported Cypher syntax and query patterns available in th
 
 See the [Home page](index) for the full feature support table.
 
-<div class="callout">
-  <p><strong>Single MATCH per stage:</strong> The engine processes one MATCH clause at a time. Chained MATCHes within the same stage are not supported — use multiple stages separated by <code>WITH</code> instead.</p>
-</div>
-
 ---
 
 ## Graph Options
@@ -175,6 +171,66 @@ MATCH (n)
 OPTIONAL MATCH path=(n)-[:FRIEND]->(m)
 RETURN n.name, path
 ```
+
+---
+
+## Chained MATCHes
+
+Multiple `MATCH` clauses can appear in the same query. Each `MATCH` is executed sequentially, producing a **cartesian product** of the previous stage's results with its own matches. This is equivalent to a `WITH`-separated pipeline but more concise.
+
+### Basic cartesian product
+
+```cypher
+MATCH (a) MATCH (b) RETURN a, b
+```
+
+Returns every combination of nodes `a` and `b` (N × M rows for N nodes and M nodes).
+
+### Cross-variable filtering
+
+Use `WHERE` on the second (or later) `MATCH` to filter across variables bound by earlier stages:
+
+```cypher
+MATCH (a:User) MATCH (b:User) WHERE a.name < b.name RETURN a.name, b.name
+```
+
+### Chained MATCH with relationships
+
+```cypher
+MATCH (a:Person {name: 'Alice'}) MATCH (a)-[r:FRIEND]->(b) RETURN a, r, b
+```
+
+When a variable from a prior `MATCH` is reused as the source of the next `MATCH`, the engine uses the already-bound node as the starting point.
+
+### Three or more MATCHes
+
+```cypher
+MATCH (a:User) MATCH (b:User) MATCH (c:User) WHERE a.name < b.name AND b.name < c.name
+RETURN a.name, b.name, c.name
+```
+
+### Mixed OPTIONAL MATCH
+
+`OPTIONAL MATCH` works alongside regular `MATCH`es in the same query:
+
+```cypher
+MATCH (a:User) OPTIONAL MATCH (a)-[r:FRIEND]->(b) MATCH (c:Admin) RETURN a, b, c
+```
+
+### Chained MATCH before WITH
+
+```cypher
+MATCH (a:User) MATCH (b:User) WHERE a.dept = b.dept
+WITH a, count(b) AS colleagues
+RETURN a.name, colleagues
+```
+
+### When to use WITH instead
+
+Use `WITH` when you need to:
+- Reduce the number of rows before the next `MATCH` (to avoid cartesian explosion)
+- Apply aggregation between `MATCH` stages
+- Rename or transform variables between stages
 
 ---
 
@@ -1028,7 +1084,6 @@ The following Cypher features are **not** supported by the engine:
 
 - **Subqueries** — `CALL {}` syntax
 - **APOC procedures** — `CALL apoc.*`
-- **Multiple MATCH in same stage** — use `WITH` to chain stages
 - **UNION without RETURN** — each branch must end with a `RETURN` clause
 
 

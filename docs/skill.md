@@ -202,7 +202,7 @@ The skill file (`SKILL.md`) includes:
 - **Supported Cypher features** — full feature matrix with status
 - **Query patterns** — pre-built queries using the bundled `references/example-graph.json`
 - **Output format** — graph format (default) and rows format with chaining examples
-- **Limitations** — known constraints (single MATCH per stage, no subqueries, etc.)
+- **Limitations** — known constraints (no subqueries, no APOC, etc.)
 
 ## Troubleshooting
 
@@ -211,7 +211,6 @@ The skill file (`SKILL.md`) includes:
 | `gcyphrq: command not found` | Run `npm install -g gcyphrq` or `npm link` |
 | Skill not detected by agent | Verify the `SKILL.md` is in the correct skill directory for your platform |
 | Query returns empty results | Check that node labels and property names match your graph file exactly |
-| "Single MATCH per stage" error | Split chained MATCHes into separate queries or use WITH pipelining |
 
 ## Next Steps
 

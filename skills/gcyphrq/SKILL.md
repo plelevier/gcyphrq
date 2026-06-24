@@ -36,7 +36,7 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 
 See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 
-- **Matching:** `MATCH`, `OPTIONAL MATCH`, labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges
+- **Matching:** `MATCH`, `OPTIONAL MATCH`, chained `MATCH` (cartesian product), labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges
 - **Filtering:** `WHERE` with `=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `IS NULL`, `AND`/`OR`/`NOT`, map comparison
 - **CASE:** `CASE WHEN cond THEN result` and `CASE expr WHEN val THEN result`. Nested. In RETURN/WHERE/WITH/ORDER BY/SET
 - **Pipelining:** `WITH`, `count()`, `sum()`, `avg()`, `min()`, `max()`, `DISTINCT` aggregations
@@ -45,7 +45,7 @@ See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 - **Arithmetic:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`, parentheses. Works in RETURN/WHERE/WITH/ORDER BY/SET. Null propagation (null operand → null), division by zero → null
 - **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices
 - **Mutations:** `CREATE` (single node or chain `(a)-[r:TYPE]->(b)`), `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `MERGE` (in-memory only). MERGE: supports WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE. CREATE chain: reuses bound nodes, creates unbound ones.
-- **Not supported:** chained `MATCH`, subqueries, `CALL`, APOC, regex in WHERE
+- **Not supported:** subqueries, `CALL`, APOC, regex in WHERE
 - **Notes:** `startnode()`/`endnode()` return string IDs; `avg()`/`min()`/`max()` return null on empty sets
 
 ## When to Use
