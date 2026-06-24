@@ -348,13 +348,34 @@ export interface ForeachClause {
   innerClause: WriteClause;
 }
 
+// ── CALL (subquery) clause types ─────────────────────────────────────────────
+
+/**
+ * A CALL { ... } subquery clause.
+ *
+ * Inline subqueries can reference outer-scope variables.
+ * Detached subqueries (CALL { ... } IN CONSTRUCTOR) cannot.
+ * YIELD restricts which inner variables are exposed to the outer scope.
+ */
+export interface CallClause {
+  type: 'CALL';
+  /** Inner query stages (parsed synthetically from the text between { }). */
+  innerQuery: AdvancedCypherAST;
+  /** Whether this is an inline subquery (can reference outer variables).
+   * Detached = no outer variable access (IN CONSTRUCTOR). */
+  inline: boolean;
+  /** YIELD variables (optional — if absent, all RETURN items are yielded). */
+  yieldVariables: string[] | undefined;
+}
+
 export type Stage =
   | { type: 'MATCH'; clause: MatchClause }
   | { type: 'WITH'; clause: WithClause }
   | { type: 'WRITE'; clause: WriteClause }
   | { type: 'MERGE'; clause: MergeClause }
   | { type: 'UNWIND'; clause: UnwindClause }
-  | { type: 'FOREACH'; clause: ForeachClause };
+  | { type: 'FOREACH'; clause: ForeachClause }
+  | { type: 'CALL'; clause: CallClause };
 
 export interface AdvancedCypherAST {
   type: 'Query';

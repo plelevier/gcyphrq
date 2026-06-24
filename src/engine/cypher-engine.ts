@@ -18,6 +18,7 @@ import type {
   WriteClause,
   UnwindClause,
   ForeachClause,
+  CallClause,
   Expression,
   BinaryExpression,
   WhereExpression,
@@ -129,6 +130,8 @@ export class AdvancedCypherGraphologyEngine {
         contexts = this.executeUnwind(stage.clause, contexts);
       } else if (stage.type === 'FOREACH') {
         contexts = this.executeForeach(stage.clause, contexts);
+      } else if (stage.type === 'CALL') {
+        contexts = this.executeCall(stage.clause, contexts);
       }
     }
 
@@ -136,6 +139,12 @@ export class AdvancedCypherGraphologyEngine {
       return this.executeReturn(ast.return, contexts);
     }
 
+    // No RETURN clause — if CALL produced results, materialise and return them.
+    // Otherwise return empty array (MATCH without RETURN is a write-only pattern).
+    if (ast.stages.some((s) => s.type === 'CALL')) {
+      const materialised = contexts.map((c) => (isContextChain(c) ? materialiseChain(c) : c));
+      return materialised as unknown as ResultRow[];
+    }
     return [];
   }
 
@@ -826,6 +835,108 @@ export class AdvancedCypherGraphologyEngine {
     return contexts;
   }
 
+  // ── 1d. CALL (subquery) STAGE ──────────────────────────────────────────
+  // Executes a CALL { ... } subquery. For each incoming context, runs the
+  // inner query and expands rows based on inner results.
+  // Inline subqueries can reference outer variables; detached cannot.
+  // YIELD restricts which inner variables are exposed.
+
+  private executeCall(
+    clause: CallClause,
+    incomingContexts: (QueryContext | ContextChain)[],
+  ): (QueryContext | ContextChain)[] {
+    const outgoingContexts: (QueryContext | ContextChain)[] = [];
+
+    for (const context of incomingContexts) {
+      // For inline subqueries, pass the materialised outer context.
+      // For detached subqueries, pass an empty context (outer vars not visible).
+      const flatContext = isContextChain(context) ? materialiseChain(context) : context;
+      const innerContext: QueryContext = clause.inline ? { ...flatContext } : {};
+
+      // Execute the inner query with the scoped context
+      const innerResults = this.executeInnerQuery(clause.innerQuery, innerContext);
+
+      // For each inner result row, create a context chain
+      for (const innerRow of innerResults) {
+        // Apply YIELD filtering if specified
+        let overrides: QueryContext;
+        if (clause.yieldVariables && clause.yieldVariables.length > 0) {
+          overrides = {};
+          for (const varName of clause.yieldVariables) {
+            if (varName in innerRow) {
+              overrides[varName] = innerRow[varName];
+            }
+          }
+        } else {
+          // No YIELD — expose all inner result columns
+          overrides = { ...innerRow };
+        }
+
+        outgoingContexts.push({
+          [CHAIN_BASE]: context,
+          [CHAIN_OVERRIDES]: overrides,
+        });
+      }
+
+      // If inner query returned 0 rows, the outer row is dropped (Neo4j semantics)
+      // — nothing added to outgoingContexts for this outer context.
+    }
+
+    // Invalidate indexes so subsequent stages see any mutations from inner query
+    this.indexes = undefined;
+
+    return outgoingContexts;
+  }
+
+  /**
+   * Execute an inner query (from a CALL subquery) against a single context.
+   * Returns result rows as flat QueryContext objects.
+   */
+  private executeInnerQuery(innerAST: AdvancedCypherAST, context: QueryContext): QueryContext[] {
+    let contexts: QueryContext[] = [context];
+
+    for (const stage of innerAST.stages) {
+      if (stage.type === 'MATCH') {
+        // Wrap flat context into chain for MATCH, then unwrap
+        const chainContexts: (QueryContext | ContextChain)[] = contexts.map((c) => c);
+        const matched = this.executeMatch(stage.clause, chainContexts);
+        contexts = matched.map((c) => materialiseChain(c));
+      } else if (stage.type === 'WITH') {
+        const chainContexts: (QueryContext | ContextChain)[] = contexts.map((c) => c);
+        contexts = this.executeWith(stage.clause, chainContexts);
+      } else if (stage.type === 'WRITE') {
+        this.executeWrite(stage.clause, contexts);
+      } else if (stage.type === 'MERGE') {
+        const chainContexts: (QueryContext | ContextChain)[] = contexts.map((c) => c);
+        const merged = this.executeMerge(stage.clause, chainContexts);
+        contexts = merged.map((c) => materialiseChain(c));
+      } else if (stage.type === 'UNWIND') {
+        const chainContexts: (QueryContext | ContextChain)[] = contexts.map((c) => c);
+        const unwound = this.executeUnwind(stage.clause, chainContexts);
+        contexts = unwound.map((c) => materialiseChain(c));
+      } else if (stage.type === 'FOREACH') {
+        const chainContexts: (QueryContext | ContextChain)[] = contexts.map((c) => c);
+        const foreached = this.executeForeach(stage.clause, chainContexts);
+        contexts = foreached.map((c) => materialiseChain(c));
+      } else if (stage.type === 'CALL') {
+        const chainContexts: (QueryContext | ContextChain)[] = contexts.map((c) => c);
+        const called = this.executeCall(stage.clause, chainContexts);
+        contexts = called.map((c) => materialiseChain(c));
+      }
+    }
+
+    // If there's a RETURN clause, project the results
+    if (innerAST.return) {
+      const chainContexts: (QueryContext | ContextChain)[] = contexts.map((c) => c);
+      const rows = this.executeReturn(innerAST.return, chainContexts);
+      // Convert ResultRow[] to QueryContext[] (same shape)
+      return rows as unknown as QueryContext[];
+    }
+
+    // No RETURN — return the contexts as-is (for write-only inner queries)
+    return contexts;
+  }
+
   // ── 2. WITH & IMPLICIT GROUPING AGGREGATIONS STAGE ─────────────────────────
   // Optimisations applied:
   //   #4  Context chains throughout, materialised only for grouping
@@ -876,6 +987,24 @@ export class AdvancedCypherGraphologyEngine {
   ): QueryContext[] {
     const keysSimple = clause.projections.filter((p) => !this.containsAggregation(p.expression));
     const keysAggr = clause.projections.filter((p) => this.containsAggregation(p.expression));
+
+    // WITH * (no projections) — pass all rows through without grouping
+    if (clause.projections.length === 0) {
+      let newContexts = contexts.map((c) => materialiseChain(c));
+      if (clause.where) {
+        newContexts = newContexts.filter((ctx) => this.evaluateWhere(clause.where!, ctx));
+      }
+      if (clause.orderBy && clause.orderBy.length > 0) {
+        newContexts = this.applyOrderByToContexts(newContexts, clause.orderBy);
+      }
+      if (clause.skip !== undefined && clause.skip !== null) {
+        newContexts = newContexts.slice(clause.skip);
+      }
+      if (clause.limit !== undefined && clause.limit !== null) {
+        newContexts = newContexts.slice(0, clause.limit);
+      }
+      return newContexts;
+    }
 
     const groups = new Map<string, { simpleValues: QueryContext; rows: QueryContext[] }>();
 
