@@ -277,7 +277,20 @@ export interface CaseExpression {
   elseResult: Expression | undefined;
 }
 
-export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression;
+/** A shortestPath / allShortestPaths path expression. */
+export interface PathExpression {
+  type: 'Path';
+  /** 'shortestPath' | 'allShortestPaths' */
+  functionName: 'shortestPath' | 'allShortestPaths';
+  /** Source node pattern (from the inner pattern element). */
+  sourcePattern: NodePattern;
+  /** Relationship pattern (type, direction, variable-length). */
+  relationPattern: RelationPattern;
+  /** Target node pattern. */
+  targetPattern: NodePattern;
+}
+
+export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression | PathExpression;
 
 export interface BinaryExpression {
   type: 'BinaryExpression';

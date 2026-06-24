@@ -15,6 +15,7 @@ import type {
   MergeSetAction,
   NodePattern,
   OrderByItem,
+  PathExpression,
   RelationPattern,
   Direction,
   WithClause,
@@ -134,6 +135,9 @@ const Ctx = {
   CaseExpression: 'CaseExpressionContext',
   CaseAlternatives: 'CaseAlternativesContext',
   CallContext: 'CallContext',
+  ShortestPathPatternFunction: 'ShortestPathPatternFunctionContext',
+  ShortestPathFunctionName: 'ShortestPathFunctionNameContext',
+  AllShortestPathFunctionName: 'AllShortestPathFunctionNameContext',
 } as const;
 
 /**
@@ -652,6 +656,13 @@ function evaluateExpressionFromAtom(atom: TreeNode, fullCtx?: TreeNode): Express
   if (parenCtx) {
     const innerExpr = findChild(parenCtx, Ctx.Expression);
     if (innerExpr) return evaluateExpression(innerExpr);
+  }
+
+  // Shortest path pattern function: shortestPath((a)-[*]->(b)), allShortestPaths((a)-[*]->(b))
+  const spCtx = findChild(atom, Ctx.ShortestPathPatternFunction);
+  if (spCtx) {
+    const pathExpr = extractPathExpression(spCtx);
+    if (pathExpr) return pathExpr;
   }
 
   // Function invocation (e.g., count(f))
@@ -1309,6 +1320,67 @@ function extractDirection(relPatternCtx: TreeNode): Direction {
   return 'UNDIRECTED';
 }
 
+// ── Path expression extraction (shortestPath / allShortestPaths) ─────────────
+
+function extractPathExpression(spCtx: TreeNode): PathExpression | undefined {
+  if (!spCtx) return undefined;
+
+  // Determine function name
+  const spNameCtx = findChild(spCtx, Ctx.ShortestPathFunctionName);
+  const aspNameCtx = findChild(spCtx, Ctx.AllShortestPathFunctionName);
+  const functionName = spNameCtx
+    ? 'shortestPath' as const
+    : aspNameCtx
+      ? 'allShortestPaths' as const
+      : undefined;
+  if (!functionName) return undefined;
+
+  // Find the PatternElement inside the ShortestPathPatternFunction
+  const patternElement = findChild(spCtx, Ctx.PatternElement);
+  if (!patternElement) return undefined;
+
+  // Extract source node pattern
+  const nodePatterns = findAllChildren(patternElement, Ctx.NodePattern);
+  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : {
+    variable: '',
+    labels: undefined,
+    properties: undefined,
+    propertiesExpr: undefined,
+  };
+
+  // Extract relationship pattern and target node from PatternElementChain
+  const chains = findAllChildren(patternElement, Ctx.PatternElementChain);
+  let relationPattern: RelationPattern = {
+    variable: undefined,
+    type: undefined,
+    minDepth: undefined,
+    maxDepth: undefined,
+    direction: 'UNDIRECTED',
+  };
+  let targetPattern: NodePattern = {
+    variable: '',
+    labels: undefined,
+    properties: undefined,
+    propertiesExpr: undefined,
+  };
+
+  if (chains.length > 0) {
+    const chain = chains[0];
+    const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
+    relationPattern = extractRelationPattern(relPatternCtx);
+
+    const targetNodeCtx = findChild(chain, Ctx.NodePattern);
+    if (targetNodeCtx) {
+      targetPattern = extractNodePattern(targetNodeCtx);
+    }
+  } else if (nodePatterns.length > 1) {
+    // No chain — just two nodes (no relationship pattern)
+    targetPattern = extractNodePattern(nodePatterns[1]);
+  }
+
+  return { type: 'Path' as const, functionName, sourcePattern, relationPattern, targetPattern };
+}
+
 // ── Clause extraction ────────────────────────────────────────────────────────
 
 function extractMatchClause(clauseCtx: ParseTreeNode): MatchClause {
@@ -1420,6 +1492,9 @@ function computeDefaultAlias(expr: Expression): string {
   }
   if (expr.type === 'Case') {
     return 'CASE';
+  }
+  if (expr.type === 'Path') {
+    return `${expr.functionName}()`;
   }
   return String(expr.value);
 }
