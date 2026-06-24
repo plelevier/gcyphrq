@@ -16,7 +16,7 @@ This guide covers all supported Cypher syntax and query patterns available in th
 
 ## Supported Features
 
-See the [Home page](index) for the full feature support table.
+See the [Home page]({{ '/' | relative_url }}) for the full feature support table.
 
 ---
 
