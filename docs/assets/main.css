@@ -138,6 +138,36 @@ a:hover { text-decoration: underline; }
 .content h3 { font-size: 1.25rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.5rem; }
 .content h4 { font-size: 1.1rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }
 
+/* Discreet heading anchor links — always visible, placed before heading text */
+.heading-anchor {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.45rem;
+  padding: 0.1rem 0.35rem;
+  color: #b0b8c4;
+  text-decoration: none !important;
+  font-size: 0.75em;
+  font-family: var(--font-mono);
+  border-radius: 3px;
+  background: transparent;
+  vertical-align: 0.05em;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  user-select: none;
+}
+
+.content h2:hover .heading-anchor,
+.content h3:hover .heading-anchor,
+.content h4:hover .heading-anchor {
+  opacity: 1;
+}
+
+.heading-anchor:hover {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+}
+
 .content p { margin-bottom: 1.25rem; }
 .content ul, .content ol { margin-bottom: 1.25rem; padding-left: 1.5rem; }
 .content li { margin-bottom: 0.35rem; }
@@ -487,7 +517,7 @@ a:hover { text-decoration: underline; }
 .page-toc__list li.active a {
   color: var(--color-accent);
   border-left-color: var(--color-accent);
-  font-weight: 600;
+  background: var(--color-accent-light);
 }
 
 .page-toc__list .level-h3 a {

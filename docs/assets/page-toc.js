@@ -16,7 +16,11 @@
     var li = document.createElement('li');
     var a = document.createElement('a');
     a.href = '#' + h.id;
-    a.textContent = h.textContent;
+    // Strip the anchor link from the heading text
+    var clone = h.cloneNode(true);
+    var anchor = clone.querySelector('.heading-anchor');
+    if (anchor) anchor.remove();
+    a.textContent = clone.textContent.trim();
     li.appendChild(a);
     list.appendChild(li);
   });
