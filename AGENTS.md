@@ -41,7 +41,7 @@ src/
 
 ## Supported Cypher
 
-**Clauses:** MATCH (`:A`, `:A:B` AND, `:A|B` OR, `:!A`), `MATCH path=(a)-[r]->(b)` path variable binding, OPTIONAL MATCH, chained MATCH (`MATCH (a) MATCH (b)` cartesian product), MERGE (single node + chains, WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE), variable-length `*min..max`, directional edges (`->`, `<-`, `-`), RETURN (property access, aliases), RETURN DISTINCT, WITH + grouping, UNWIND, FOREACH (SET, CREATE, DELETE, DETACH DELETE, REMOVE on nodes and edges), CREATE (single node or chain `(a)-[r:TYPE]->(b)` with directional edges), SET/DELETE/REMOVE (`REMOVE n:Label` partial, `REMOVE n.prop`), DETACH DELETE, ORDER BY (multi, ASC/DESC), SKIP, LIMIT, UNION/UNION ALL (each branch must end with RETURN, ORDER BY/SKIP/LIMIT apply to combined result), `CASE ... WHEN ... END` (general and simple forms, nested, in RETURN/WHERE/WITH/ORDER BY/SET).
+**Clauses:** MATCH (`:A`, `:A:B` AND, `:A|B` OR, `:!A`), `MATCH path=(a)-[r]->(b)` path variable binding, OPTIONAL MATCH, chained MATCH (`MATCH (a) MATCH (b)` cartesian product), MERGE (single node + chains, WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE), variable-length `*min..max`, directional edges (`->`, `<-`, `-`), RETURN (property access, aliases), RETURN DISTINCT, WITH + grouping, UNWIND, FOREACH (SET, CREATE, DELETE, DETACH DELETE, REMOVE on nodes and edges), CREATE (single node or chain `(a)-[r:TYPE]->(b)` with directional edges), SET/DELETE/REMOVE (`REMOVE n:Label` partial, `REMOVE n.prop`), DETACH DELETE, ORDER BY (multi, ASC/DESC), SKIP, LIMIT, UNION/UNION ALL (each branch must end with RETURN, ORDER BY/SKIP/LIMIT apply to combined result), `CASE ... WHEN ... END` (general and simple forms, nested, in RETURN/WHERE/WITH/ORDER BY/SET), `CALL { ... }` subqueries (inline, YIELD, nested, with CREATE/SET/DELETE inside).
 
 **Aggregations:** `count`, `sum`, `avg`, `min`, `max`, `count(DISTINCT)`, `sum(DISTINCT)`, `avg(DISTINCT)`.
 
@@ -55,7 +55,7 @@ src/
 
 **WHERE:** `=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN` (lists, property access, function calls), `AND`/`OR`/`NOT`, IS NULL/IS NOT NULL, string `<`/`>`/`<=`/`>=`, map comparison.
 
-**Not supported:** Subqueries, `CALL`, APOC, UNION without RETURN in each branch.
+**Not supported:** Stored procedures (`CALL db.xxx()`), APOC, UNION without RETURN in each branch.
 
 ## Conventions
 

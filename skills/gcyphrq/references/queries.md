@@ -187,3 +187,45 @@ gcyphrq -g graph.json -e 'MATCH (s:Service) RETURN s' \
 ```
 
 > Graph format preserves nodes/edges but loses variable bindings and row pairing. Use `--format rows` when you need exact row-level data.
+
+## CALL { ... } Subqueries
+
+Execute a subquery that can reference outer-scope variables. Useful for correlated subqueries, isolating logic, and row expansion.
+
+```cypher
+# Basic CALL (returns inner query results directly)
+CALL { MATCH (n:Service) RETURN n.name AS name }
+
+# CALL with outer variable (inline subquery)
+MATCH (s:Service {name: "Auth Service"})
+CALL { MATCH (s)-[r]->(dep) RETURN dep.name AS dependency }
+RETURN s.name, dependency
+
+# CALL with YIELD (restrict exposed columns)
+CALL { MATCH (n:Service) RETURN n.name AS name, n.type AS type } YIELD name
+RETURN name
+
+# CALL followed by WHERE (filter inner results)
+CALL { MATCH (n:Service) RETURN n.type AS type }
+WHERE type = "RPC"
+RETURN type
+
+# CALL followed by MATCH (cartesian product)
+CALL { MATCH (n:Service) RETURN n.name AS name }
+MATCH (m:Database)
+RETURN name, m.name AS db
+
+# Nested CALL
+CALL { CALL { MATCH (n:Service) RETURN n.name AS name } RETURN name }
+
+# CALL with CREATE (mutations inside subquery)
+CALL { CREATE (t:Tag {name: 'new'}) RETURN t.name AS name }
+
+# CALL with ORDER BY
+CALL { MATCH (n:Service) RETURN n.name AS name ORDER BY n.name }
+
+# CALL with aggregation
+CALL { MATCH (n:Service) RETURN count(n) AS total }
+```
+
+> **Note:** CALL { ... } subqueries are supported; stored procedures (CALL db.xxx()) are not.

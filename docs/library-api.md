@@ -471,6 +471,7 @@ import type {
   WithClause,
   ReturnClause,
   WriteClause,
+  CallClause,
   NodePattern,
   RelationPattern,
   Direction,
@@ -591,7 +592,8 @@ interface AdvancedCypherAST {
 type Stage =
   | { type: 'MATCH'; clause: MatchClause }
   | { type: 'WITH'; clause: WithClause }
-  | { type: 'WRITE'; clause: WriteClause };
+  | { type: 'WRITE'; clause: WriteClause }
+  | { type: 'CALL'; clause: CallClause };
 
 interface UnionQueryAST {
   type: 'UnionQuery';
