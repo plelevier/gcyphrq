@@ -9,6 +9,10 @@
 </head>
 <body>
   {% include nav.html %}
+  <aside id="page-toc" class="page-toc" aria-label="Table of contents">
+    <h5 class="page-toc__title">On this page</h5>
+    <ul class="page-toc__list"></ul>
+  </aside>
   <main class="content">
     <div class="container">
       {{ content }}
@@ -16,5 +20,6 @@
   </main>
   {% include footer.html %}
   <script src="{{ '/assets/cypher-highlight.js' | relative_url }}"></script>
+  <script src="{{ '/assets/page-toc.js' | relative_url }}"></script>
 </body>
 </html>
