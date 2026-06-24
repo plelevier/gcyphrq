@@ -530,7 +530,11 @@ export class AdvancedCypherGraphologyEngine {
         }
 
         const minDepth = relationPattern.minDepth ?? 1;
-        const maxDepth = relationPattern.maxDepth ?? 1;
+        // When maxDepth is undefined:
+        //   - regular MATCH (no RangeLiteral): default to minDepth (1 hop)
+        //   - bare * or open-ended (*3.., *..5): treat as unbounded (large cap for DFS safety)
+        const maxDepth = relationPattern.maxDepth ??
+          (relationPattern.variableLength ? 100 : minDepth);
 
         // Build adjacency list from index (optimisation #3 extended)
         // or fall back to graph iteration

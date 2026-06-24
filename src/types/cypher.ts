@@ -101,6 +101,8 @@ export interface RelationPattern {
   type: string | undefined;
   minDepth: number | undefined;
   maxDepth: number | undefined;
+  /** True when a RangeLiteral was present (*, *3, *3..5, *3.., *..5). Distinguishes bare * from regular single-hop edges. */
+  variableLength: boolean;
   direction: Direction;
 }
 

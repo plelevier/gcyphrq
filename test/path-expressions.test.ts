@@ -385,6 +385,189 @@ describe('Path expressions', () => {
     });
   });
 
+  describe('IN direction with valid path', () => {
+    // Graph: a->b FRIEND, b->d FRIEND, a->c KNOWS, c->d FRIEND
+    // IN direction from d: d has inbound from b and c; b has inbound from a
+    it('shortestPath with IN direction finds path', () => {
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (d:User {name: "Dave"}) RETURN shortestPath((d)<-[*]-(a)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      const path = results[0]!.path as { nodes: CypherNode[]; relationships: CypherEdge[] };
+      expect(path).not.toBeNull();
+      expect(path.nodes.length).toBe(3);
+      // Path starts at d (source of path expression) and ends at a
+      expect(path.nodes[0]!.name).toBe('Dave');
+      expect(path.nodes[path.nodes.length - 1]!.name).toBe('Alice');
+      expect(path.relationships.length).toBe(2);
+    });
+
+    it('allShortestPaths with IN direction finds all paths', () => {
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (d:User {name: "Dave"}) RETURN allShortestPaths((d)<-[*]-(a)) AS paths',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      const paths = results[0]!.paths as { nodes: CypherNode[]; relationships: CypherEdge[] }[];
+      expect(Array.isArray(paths)).toBe(true);
+      // Two shortest paths: d<-b<-a and d<-c<-a
+      expect(paths.length).toBeGreaterThanOrEqual(2);
+      for (const path of paths) {
+        expect(path.nodes.length).toBe(3);
+        expect(path.nodes[0]!.name).toBe('Dave');
+        expect(path.nodes[path.nodes.length - 1]!.name).toBe('Alice');
+      }
+    });
+
+    it('IN direction with type filter', () => {
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (d:User {name: "Dave"}) RETURN shortestPath((d)<-[:FRIEND*]-(a)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      const path = results[0]!.path as { nodes: CypherNode[]; relationships: CypherEdge[] };
+      // d<-b<-a: b->d is FRIEND, a->b is FRIEND. Both are FRIEND.
+      // d<-c<-a: c->d is FRIEND, a->c is KNOWS. Not all FRIEND.
+      // So only d<-b<-a qualifies
+      expect(path).not.toBeNull();
+      expect(path.nodes.length).toBe(3);
+      for (const rel of path.relationships) {
+        expect(rel.type).toBe('FRIEND');
+      }
+    });
+  });
+
+  describe('depth bounds', () => {
+    it('*0..0 with same node returns single-node path', () => {
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) RETURN shortestPath((a)-[*0..0]->(a)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      const path = results[0]!.path as { nodes: CypherNode[]; relationships: CypherEdge[] };
+      expect(path.nodes.length).toBe(1);
+      expect(path.relationships.length).toBe(0);
+    });
+
+    it('*0..0 with different nodes returns null', () => {
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (d:User {name: "Dave"}) RETURN shortestPath((a)-[*0..0]->(d)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.path).toBeNull();
+    });
+
+    it('*1..1 returns direct edge path', () => {
+      // Alice and Bob have a direct FRIEND edge
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (b:User {name: "Bob"}) RETURN shortestPath((a)-[*1..1]->(b)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      const path = results[0]!.path as { nodes: CypherNode[]; relationships: CypherEdge[] };
+      expect(path.nodes.length).toBe(2);
+      expect(path.relationships.length).toBe(1);
+    });
+
+    it('*1..1 returns null when no direct edge', () => {
+      // Alice and Dave have no direct edge (path is 2 hops)
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (d:User {name: "Dave"}) RETURN shortestPath((a)-[*1..1]->(d)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.path).toBeNull();
+    });
+
+    it('*2..2 returns exactly 2-hop path', () => {
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (d:User {name: "Dave"}) RETURN shortestPath((a)-[*2..2]->(d)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      const path = results[0]!.path as { nodes: CypherNode[]; relationships: CypherEdge[] };
+      expect(path.nodes.length).toBe(3);
+      expect(path.relationships.length).toBe(2);
+    });
+
+    it('*2..2 returns null when shortest path is 1 hop', () => {
+      // Alice and Bob have a direct edge (1 hop), so *2..2 should return null
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (b:User {name: "Bob"}) RETURN shortestPath((a)-[*2..2]->(b)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.path).toBeNull();
+    });
+
+    it('allShortestPaths *1..1 returns empty when no direct edge', () => {
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (d:User {name: "Dave"}) RETURN allShortestPaths((a)-[*1..1]->(d)) AS paths',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      const paths = results[0]!.paths as unknown[];
+      expect(paths.length).toBe(0);
+    });
+
+    it('*3.. (open-ended max) finds path within min depth', () => {
+      // Alice->Bob->Dave is 2 hops, *3.. requires min 3 hops so should return null
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (d:User {name: "Dave"}) RETURN shortestPath((a)-[*3..]->(d)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.path).toBeNull();
+    });
+
+    it('*1.. (open-ended max) finds shortest path', () => {
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (d:User {name: "Dave"}) RETURN shortestPath((a)-[*1..]->(d)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      const path = results[0]!.path as { nodes: CypherNode[]; relationships: CypherEdge[] };
+      expect(path.nodes.length).toBe(3);
+      expect(path.relationships.length).toBe(2);
+    });
+
+    it('*..1 (open-ended min) with direct edge returns path', () => {
+      // Alice and Bob have a direct edge (1 hop), *..1 allows 0..1 hops
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (b:User {name: "Bob"}) RETURN shortestPath((a)-[*..1]->(b)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      const path = results[0]!.path as { nodes: CypherNode[]; relationships: CypherEdge[] };
+      expect(path.nodes.length).toBe(2);
+      expect(path.relationships.length).toBe(1);
+    });
+
+    it('*..1 (open-ended min) returns null when shortest path exceeds max', () => {
+      // Alice to Dave is 2 hops, but *..1 caps at 1
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (d:User {name: "Dave"}) RETURN shortestPath((a)-[*..1]->(d)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.path).toBeNull();
+    });
+
+    it('* (unbounded) finds shortest path', () => {
+      const ast = parseCypher(
+        'MATCH (a:User {name: "Alice"}) MATCH (e:User {name: "Eve"}) RETURN shortestPath((a)-[*]->(e)) AS path',
+      );
+      const results = engine.execute(ast);
+      expect(results.length).toBe(1);
+      const path = results[0]!.path as { nodes: CypherNode[]; relationships: CypherEdge[] };
+      // Alice->Bob->Dave->Eve (3 hops)
+      expect(path.nodes.length).toBe(4);
+      expect(path.relationships.length).toBe(3);
+    });
+  });
+
   describe('complex graph', () => {
     it('finds shortest path in a linear chain', () => {
       const graph = new Graph();
@@ -406,6 +589,43 @@ describe('Path expressions', () => {
       const path = results[0]!.path as { nodes: CypherNode[]; relationships: CypherEdge[] };
       expect(path.nodes.length).toBe(4);
       expect(path.relationships.length).toBe(3);
+    });
+  });
+
+  describe('MATCH with open-ended ranges', () => {
+    // Graph: a->b FRIEND, b->c KNOWS, b->d FRIEND, a->c KNOWS, c->d FRIEND, d->e FRIEND
+    it('bare * matches all reachable pairs', () => {
+      const ast = parseCypher('MATCH (a:User)-[*]->(b:User) RETURN a.name, b.name');
+      const results = engine.execute(ast);
+      // a->b, a->c, a->d, a->e, b->c, b->d, c->d, d->e = 8 pairs
+      expect(results.length).toBeGreaterThan(5);
+    });
+
+    it('regular MATCH (no *) matches only direct edges', () => {
+      const ast = parseCypher('MATCH (a:User)-[r:FRIEND]->(b:User) RETURN a.name, b.name');
+      const results = engine.execute(ast);
+      // a->b FRIEND, b->d FRIEND, c->d FRIEND, d->e FRIEND = 4 pairs
+      expect(results.length).toBe(4);
+    });
+
+    it('*2.. matches paths of length >= 2', () => {
+      const ast = parseCypher('MATCH (a:User)-[*2..]->(b:User) RETURN a.name, b.name');
+      const results = engine.execute(ast);
+      // Only pairs reachable in 2+ hops
+      expect(results.length).toBeGreaterThan(0);
+      // Alice->Dave (via Bob or Charlie) is 2 hops, Alice->Eve is 3 hops
+      const pairs = results.map((r) => `${r['a.name']}->${r['b.name']}`);
+      expect(pairs).toContain('Alice->Dave');
+      expect(pairs).toContain('Alice->Eve');
+      // Dave->Eve is direct (1 hop), should not appear
+      expect(pairs).not.toContain('Dave->Eve');
+    });
+
+    it('*..1 matches only direct edges (max 1 hop)', () => {
+      const ast = parseCypher('MATCH (a:User)-[*..1]->(b:User) RETURN a.name, b.name');
+      const results = engine.execute(ast);
+      // Same as regular MATCH (all direct edges): 6 edges in graph
+      expect(results.length).toBe(6);
     });
   });
 });
