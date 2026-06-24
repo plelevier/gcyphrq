@@ -1277,8 +1277,12 @@ export class AdvancedCypherGraphologyEngine {
       const nodeIds = new Set<string>();
       const edgeIds = new Set<string>();
       for (const context of materialised) {
-        const target = context[clause.variable] as CypherNode | CypherEdge | undefined;
-        if (target && target.id) {
+        const target = context[clause.variable] as CypherNode | CypherEdge | CypherEdge[] | undefined;
+        if (Array.isArray(target)) {
+          for (const edge of target) {
+            if (edge.id && this.graph.hasEdge(edge.id)) edgeIds.add(edge.id);
+          }
+        } else if (target && target.id) {
           if (this.graph.hasNode(target.id)) nodeIds.add(target.id);
           else if (this.graph.hasEdge(target.id)) edgeIds.add(target.id);
         }
@@ -1290,8 +1294,15 @@ export class AdvancedCypherGraphologyEngine {
         this.graph.dropEdge(edgeId);
       }
       for (const context of materialised) {
-        const target = context[clause.variable] as CypherNode | CypherEdge | undefined;
-        if (target && target.id && (nodeIds.has(target.id) || edgeIds.has(target.id))) {
+        const target = context[clause.variable] as CypherNode | CypherEdge | CypherEdge[] | undefined;
+        if (Array.isArray(target)) {
+          for (const edge of target) {
+            if (edge.id && edgeIds.has(edge.id)) {
+              context[clause.variable] = null;
+              break;
+            }
+          }
+        } else if (target && target.id && (nodeIds.has(target.id) || edgeIds.has(target.id))) {
           context[clause.variable] = null;
         }
       }

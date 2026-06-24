@@ -24,6 +24,44 @@ See the [Home page](index) for the full feature support table.
 
 ---
 
+## Graph Options
+
+The graph JSON file supports an optional `options` field to configure graph behavior:
+
+```json
+{
+  "options": {
+    "type": "directed",
+    "allowSelfLoops": true,
+    "multi": true
+  },
+  "nodes": [...],
+  "edges": [...]
+}
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `type` | `"directed"` | Graph directionality: `"directed"`, `"undirected"`, or `"mixed"` |
+| `allowSelfLoops` | `false` | Enable edges where `source` equals `target` |
+| `multi` | `false` | Enable parallel edges (multiple edges between the same nodes) |
+
+### Parallel edges (multi-graphs)
+
+When `multi: true`, the graph allows multiple edges between the same node pair. `MATCH` clauses return all parallel edges, and you can filter by relationship type to select specific ones:
+
+```cypher
+-- Return all edges between Alice and Bob (may be multiple)
+MATCH (a:Person {name: "Alice"})-[r]->(b:Person {name: "Bob"}) RETURN r
+
+-- Filter to a specific relationship type
+MATCH (a:Person {name: "Alice"})-[r:KNOWS]->(b:Person {name: "Bob"}) RETURN r
+```
+
+When `multi: false` (default), duplicate edges between the same nodes are rejected during graph loading.
+
+---
+
 ## MATCH
 
 ### Basic node match
@@ -834,6 +872,18 @@ RETURN a, b
 MERGE (a:User)<-[:FRIEND]-(b:User)  -- inbound
 MERGE (a:User)-[:FRIEND]-(b:User)   -- undirected
 ```
+
+### MERGE with parallel edges
+
+In multi-graphs (`multi: true`), `MERGE` on a relationship matches the first existing edge of the given type between the two nodes. If at least one matching edge exists, MERGE binds that edge rather than creating a new one:
+
+```cypher
+-- If any :KNOWS edge already exists between a and b, it is matched
+MERGE (a:User {name: "Alice"})-[:KNOWS]->(b:User {name: "Bob"})
+RETURN a, b
+```
+
+To create additional parallel edges, use `CREATE` instead of `MERGE`.
 
 ### MERGE followed by MATCH
 

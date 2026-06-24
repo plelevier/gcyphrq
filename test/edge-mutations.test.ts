@@ -332,4 +332,71 @@ describe('CREATE chain engine', () => {
     const results = engine.execute(ast);
     expect(results.length).toBe(2);
   });
+
+  it('MERGE matches existing edge instead of creating duplicate in multi-graph', () => {
+    const g = new Graph({ multi: true });
+    g.addNode('alice', { label: 'Person', name: 'Alice' });
+    g.addNode('bob', { label: 'Person', name: 'Bob' });
+    g.addEdge('alice', 'bob', { type: 'KNOWS' });
+    const engine = createEngine(g);
+    const ast = parseCypher(
+      'MERGE (a:Person {name: "Alice"})-[r:KNOWS]->(b:Person {name: "Bob"}) RETURN r',
+    );
+    const results = engine.execute(ast);
+    expect(results.length).toBe(1);
+    // MERGE should match the existing edge, not create a new one
+    expect(countEdges(g)).toBe(1);
+  });
+
+  it('MERGE creates new edge when no matching type exists in multi-graph', () => {
+    const g = new Graph({ multi: true });
+    g.addNode('alice', { label: 'Person', name: 'Alice' });
+    g.addNode('bob', { label: 'Person', name: 'Bob' });
+    g.addEdge('alice', 'bob', { type: 'KNOWS' });
+    const engine = createEngine(g);
+    const ast = parseCypher(
+      'MERGE (a:Person {name: "Alice"})-[r:FRIEND]->(b:Person {name: "Bob"}) RETURN r',
+    );
+    const results = engine.execute(ast);
+    expect(results.length).toBe(1);
+    // MERGE should create a new FRIEND edge alongside the existing KNOWS edge
+    expect(countEdges(g)).toBe(2);
+  });
+
+  it('DELETE removes a specific edge by ID in multi-graph', () => {
+    const g = new Graph({ multi: true });
+    g.addNode('alice', { label: 'Person', name: 'Alice' });
+    g.addNode('bob', { label: 'Person', name: 'Bob' });
+    g.addEdge('alice', 'bob', { type: 'KNOWS' });
+    g.addEdge('alice', 'bob', { type: 'FRIEND' });
+    const engine = createEngine(g);
+    const ast = parseCypher(
+      'MATCH (a:Person {name: "Alice"})-[r:KNOWS]->(b:Person {name: "Bob"}) DELETE r RETURN a.name, b.name',
+    );
+    const results = engine.execute(ast);
+    expect(results.length).toBe(1);
+    // One KNOWS edge deleted, FRIEND edge remains
+    expect(countEdges(g)).toBe(1);
+    let remainingEdgeId: string | undefined;
+    g.forEachEdge((e) => { remainingEdgeId = e; });
+    expect(remainingEdgeId).toBeDefined();
+    expect(g.getEdgeAttributes(remainingEdgeId!).type).toBe('FRIEND');
+  });
+
+  it('DELETE removes all matching parallel edges', () => {
+    const g = new Graph({ multi: true });
+    g.addNode('alice', { label: 'Person', name: 'Alice' });
+    g.addNode('bob', { label: 'Person', name: 'Bob' });
+    g.addEdge('alice', 'bob', { type: 'KNOWS' });
+    g.addEdge('alice', 'bob', { type: 'KNOWS' });
+    g.addEdge('alice', 'bob', { type: 'FRIEND' });
+    const engine = createEngine(g);
+    const ast = parseCypher(
+      'MATCH (a:Person {name: "Alice"})-[r:KNOWS]->(b:Person {name: "Bob"}) DELETE r RETURN a.name',
+    );
+    const results = engine.execute(ast);
+    expect(results.length).toBe(2); // two KNOWS edges matched
+    // Both KNOWS edges deleted, FRIEND remains
+    expect(countEdges(g)).toBe(1);
+  });
 });
