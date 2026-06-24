@@ -1092,9 +1092,12 @@ export class AdvancedCypherGraphologyEngine {
         for (const context of materialised) {
           // Resolve source node: use bound variable or create new
           let sourceNode: CypherNode;
-          const boundSource = context[clause.variable] as CypherNode | undefined;
-          if (boundSource && boundSource.id && this.graph.hasNode(boundSource.id)) {
-            sourceNode = { id: boundSource.id, ...this.graph.getNodeAttributes(boundSource.id) } as CypherNode;
+          const sourceWasBound = clause.variable in context &&
+            context[clause.variable] &&
+            (context[clause.variable] as CypherNode).id &&
+            this.graph.hasNode((context[clause.variable] as CypherNode).id);
+          if (sourceWasBound) {
+            sourceNode = { id: (context[clause.variable] as CypherNode).id, ...this.graph.getNodeAttributes((context[clause.variable] as CypherNode).id) } as CypherNode;
           } else {
             const newSourceId = randomUUID();
             const labelValue = clause.labels && clause.labels.length > 0
@@ -1113,16 +1116,24 @@ export class AdvancedCypherGraphologyEngine {
           }
 
           // Resolve target node: use bound variable or create new
+          // If target variable equals source variable and source was not bound,
+          // we just created the source and bound it — treat target as unbound to avoid self-loops.
           let targetNode: CypherNode;
-          const boundTarget = context[clause.targetPattern.variable] as CypherNode | undefined;
-          if (boundTarget && boundTarget.id && this.graph.hasNode(boundTarget.id)) {
-            targetNode = { id: boundTarget.id, ...this.graph.getNodeAttributes(boundTarget.id) } as CypherNode;
+          const targetWasBound = clause.targetPattern.variable in context &&
+            context[clause.targetPattern.variable] &&
+            (context[clause.targetPattern.variable] as CypherNode).id &&
+            this.graph.hasNode((context[clause.targetPattern.variable] as CypherNode).id) &&
+            !(clause.targetPattern.variable === clause.variable && !sourceWasBound);
+          if (targetWasBound) {
+            targetNode = { id: (context[clause.targetPattern.variable] as CypherNode).id, ...this.graph.getNodeAttributes((context[clause.targetPattern.variable] as CypherNode).id) } as CypherNode;
           } else {
             const newTargetId = randomUUID();
             const targetLabelValue = clause.targetPattern.labels && clause.targetPattern.labels.labels.length > 0
               ? (clause.targetPattern.labels.labels.length === 1 ? clause.targetPattern.labels.labels[0]! : clause.targetPattern.labels.labels)
               : undefined;
-            let targetProps: Record<string, CypherValue> = clause.targetPattern.properties ?? {};            if (clause.targetPattern.propertiesExpr) {              targetProps = {};
+            let targetProps: Record<string, CypherValue> = clause.targetPattern.properties ?? {};
+            if (clause.targetPattern.propertiesExpr) {
+              targetProps = {};
               for (const [key, expr] of Object.entries(clause.targetPattern.propertiesExpr)) {
                 targetProps[key] = this.evaluateExpression(expr, context) as CypherValue;
               }

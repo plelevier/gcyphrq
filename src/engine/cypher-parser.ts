@@ -2253,11 +2253,7 @@ function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | undefined {
       const edgePropertiesExpr = extractDynamicProperties(edgeMapLitCtx);
 
       const targetNodeCtx = findChild(chain, Ctx.NodePattern);
-      const targetPropsCtx = targetNodeCtx ? findChild(targetNodeCtx, Ctx.Properties) : undefined;
-      const targetMapLitCtx = targetPropsCtx ? findChild(targetPropsCtx, Ctx.MapLiteral) : undefined;
       const targetPattern = targetNodeCtx ? extractNodePattern(targetNodeCtx) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
-      // Populate dynamic property expressions on the target pattern
-      targetPattern.propertiesExpr = extractDynamicProperties(targetMapLitCtx);
 
       return {
         type: 'CREATE' as const,
