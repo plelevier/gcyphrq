@@ -143,7 +143,11 @@ function computeDefaultAlias(expr: Expression): string {
     return expr.property ?? expr.variable;
   }
   if (expr.type === 'Aggregation') {
-    return `${expr.aggregationType}(${expr.variable})`;
+    if (expr.isStar) return 'count(*)';
+    return `${expr.aggregationType}(${expr.variable}${expr.property ? `.${expr.property}` : ''})`;
+  }
+  if (expr.type === 'Reduce') {
+    return `reduce()`;
   }
   if (expr.type === 'FunctionCall') {
     const argAliases = expr.arguments.map((a) => computeDefaultAlias(a));

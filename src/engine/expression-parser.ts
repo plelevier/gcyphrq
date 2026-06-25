@@ -2,6 +2,7 @@ import type {
   Expression,
   FunctionCallExpression,
   ListSliceExpression,
+  ReduceExpression,
   CypherLiteral,
   CypherValue,
   WhereExpression,
@@ -253,6 +254,106 @@ export function extractListSlice(parentCtx: ParseTreeNode): ListSliceExpression 
 }
 
 /**
+ * Detect `count(*)` pattern in an Atom context.
+ * The ANTLR grammar parses `count(*)` as an Atom with terminals `count`, `(`, `*`, `)`
+ * (no FunctionInvocation because `*` is not a valid expression argument).
+ */
+function extractCountStar(atom: TreeNode): Expression | undefined {
+  if (!atom || !atom.children) return undefined;
+
+  const terminals = atom.children.filter((c: ParseTreeNode) =>
+    c.constructor.name === Ctx.TerminalNode && c.symbol?.text && c.symbol.text.trim() !== ''
+  );
+
+  if (terminals.length >= 3) {
+    const texts = terminals.map((c: ParseTreeNode) => c.symbol!.text.trim().toLowerCase());
+    // Look for pattern: count, (, *, )
+    for (let i = 0; i < texts.length - 2; i++) {
+      if (texts[i] === 'count' && texts[i + 1] === '(' && texts[i + 2] === '*') {
+        return {
+          type: 'Aggregation' as const,
+          aggregationType: 'COUNT' as const,
+          variable: '*',
+          property: undefined,
+          distinct: false,
+          isStar: true,
+        };
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Extract a `reduce(initial, var IN list | body)` expression from a ReduceFunction context.
+ */
+function extractReduceExpression(reduceCtx: TreeNode): ReduceExpression | undefined {
+  if (!reduceCtx || !reduceCtx.children) return undefined;
+
+  const children = reduceCtx.children;
+
+  // Find the accumulator variable (first Variable in the context)
+  const accVarCtx = findChild(reduceCtx, Ctx.Variable);
+  const accumulator = accVarCtx ? getSymbolicName(accVarCtx) : undefined;
+  if (!accumulator) return undefined;
+
+  // Find the initial value expression (first Expression after the `=` sign)
+  const eqIndex = children.findIndex((c: ParseTreeNode) =>
+    c.constructor.name === Ctx.TerminalNode && c.symbol?.text === '='
+  );
+  if (eqIndex === -1) return undefined;
+
+  // The initial expression is the first ExpressionContext after the `=`
+  let initialExpr: Expression | undefined;
+  for (let i = eqIndex + 1; i < children.length; i++) {
+    const child = children[i];
+    if (child && child.constructor.name === Ctx.Expression) {
+      initialExpr = evaluateExpression(child);
+      break;
+    }
+  }
+  if (!initialExpr) return undefined;
+
+  // Find the IdInColl context (var IN list)
+  const idInCollCtx = findChild(reduceCtx, Ctx.IdInColl);
+  if (!idInCollCtx || !idInCollCtx.children) return undefined;
+
+  // Extract loop variable and list expression from IdInColl
+  const loopVarCtx = findChild(idInCollCtx, Ctx.Variable);
+  const loopVariable = loopVarCtx ? getSymbolicName(loopVarCtx) : undefined;
+  if (!loopVariable) return undefined;
+
+  const listExprCtx = findChild(idInCollCtx, Ctx.Expression);
+  const listExpr = listExprCtx ? evaluateExpression(listExprCtx) : undefined;
+  if (!listExpr) return undefined;
+
+  // Find the body expression (after the `|` pipe)
+  const pipeIndex = children.findIndex((c: ParseTreeNode) =>
+    c.constructor.name === Ctx.TerminalNode && c.symbol?.text === '|'
+  );
+  if (pipeIndex === -1) return undefined;
+
+  let bodyExpr: Expression | undefined;
+  for (let i = pipeIndex + 1; i < children.length; i++) {
+    const child = children[i];
+    if (child && child.constructor.name === Ctx.Expression) {
+      bodyExpr = evaluateExpression(child);
+      break;
+    }
+  }
+  if (!bodyExpr) return undefined;
+
+  return {
+    type: 'Reduce' as const,
+    accumulator,
+    initial: initialExpr,
+    loopVariable,
+    list: listExpr,
+    body: bodyExpr,
+  };
+}
+
+/**
  * Evaluate an expression from an Atom context (without slice detection).
  * Optional `extractWhere` callback is used for CASE expressions.
  */
@@ -273,6 +374,12 @@ export function evaluateExpressionFromAtom(
   if (spCtx) {
     const pathExpr = extractPathExpression(spCtx);
     if (pathExpr) return pathExpr;
+  }
+
+  const reduceCtx = findChild(atom, Ctx.ReduceFunction);
+  if (reduceCtx) {
+    const reduceExpr = extractReduceExpression(reduceCtx);
+    if (reduceExpr) return reduceExpr;
   }
 
   const funcCtx = findChild(atom, Ctx.FunctionInvocation);
@@ -306,7 +413,7 @@ export function evaluateExpressionFromAtom(
     if (funcName && argName && AGGREGATION_FUNCTIONS.has(funcName.toLowerCase())) {
       return {
         type: 'Aggregation' as const,
-        aggregationType: funcName.toUpperCase() as 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX',
+        aggregationType: funcName.toUpperCase() as 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COLLECT',
         variable: argName,
         property: argProperty,
         distinct: !!hasDistinct,
@@ -318,6 +425,10 @@ export function evaluateExpressionFromAtom(
       if (funcCall) return funcCall;
     }
   }
+
+  // Detect `count(*)` — parsed as Atom with terminals `count`, `(`, `*`, `)` (no FunctionInvocation)
+  const countStarExpr = extractCountStar(atom);
+  if (countStarExpr) return countStarExpr;
 
   const caseCtx = findChild(atom, Ctx.CaseExpression);
   if (caseCtx && extractWhere) {

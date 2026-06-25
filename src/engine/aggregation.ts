@@ -1,8 +1,12 @@
-import type { AggregationExpression, CypherNode, CypherValue, Expression, Projection, QueryContext, WhereExpression } from '../types/cypher';
+import type { AggregationExpression, CypherNode, CypherValue, Expression, Projection, QueryContext, WhereExpression, ReduceExpression } from '../types/cypher';
 
-/** Check if an expression contains any aggregation. */
+/** Check if an expression contains any aggregation (excluding bare reduce). */
 export function containsAggregation(expr: Expression): boolean {
   if (expr.type === 'Aggregation') return true;
+  // Reduce itself is NOT an aggregation — it only contains one if its sub-expressions do
+  if (expr.type === 'Reduce') {
+    return containsAggregation(expr.initial) || containsAggregation(expr.list) || containsAggregation(expr.body);
+  }
   if (expr.type === 'Arithmetic') { if (expr.left && containsAggregation(expr.left)) return true; return containsAggregation(expr.right); }
   if (expr.type === 'FunctionCall') return expr.arguments.some((a) => containsAggregation(a));
   if (expr.type === 'ListLiteral') return expr.values.some((v) => containsAggregation(v));
@@ -28,6 +32,11 @@ export function containsAggregationInWhere(expr: Expression | WhereExpression): 
 export function collectAggregations(expr: Expression): AggregationExpression[] {
   const results: AggregationExpression[] = [];
   if (expr.type === 'Aggregation') { results.push(expr); }
+  else if (expr.type === 'Reduce') {
+    results.push(...collectAggregations(expr.initial));
+    results.push(...collectAggregations(expr.list));
+    results.push(...collectAggregations(expr.body));
+  }
   else if (expr.type === 'Arithmetic') { if (expr.left) results.push(...collectAggregations(expr.left)); results.push(...collectAggregations(expr.right)); }
   else if (expr.type === 'FunctionCall') { expr.arguments.forEach((a) => results.push(...collectAggregations(a))); }
   else if (expr.type === 'ListLiteral') { expr.values.forEach((v) => results.push(...collectAggregations(v))); }
@@ -49,6 +58,20 @@ export function collectAggregationsInWhere(expr: Expression | WhereExpression): 
   return collectAggregations(expr as Expression);
 }
 
+/** Collect all values for a given aggregation variable/property across rows. */
+function collectValuesForAgg(
+  expr: AggregationExpression,
+  rows: QueryContext[],
+): CypherValue[] {
+  const values: CypherValue[] = [];
+  for (const row of rows) {
+    const baseVal = row[expr.variable];
+    const val = expr.property ? (baseVal as CypherNode | undefined)?.[expr.property] : baseVal;
+    values.push(val as CypherValue);
+  }
+  return values;
+}
+
 /** Compute aggregations for a group of rows. */
 export function computeAggregations(
   baseContext: QueryContext,
@@ -64,6 +87,7 @@ export function computeAggregations(
 
   const numericCache = new Map<string, number[]>();
   const nonNullCache = new Map<string, number>();
+  const allValuesCache = new Map<string, CypherValue[]>();
   const distinctSeen = new Map<string, Set<string>>();
 
   for (const row of rows) {
@@ -71,13 +95,38 @@ export function computeAggregations(
       const key = `${expr.variable}:${expr.property ?? ''}`;
       const baseVal = row[expr.variable];
       const val = expr.property ? (baseVal as CypherNode | undefined)?.[expr.property] : baseVal;
-      if (val !== null && val !== undefined) { nonNullCache.set(key, (nonNullCache.get(key) ?? 0) + 1); }
+
+      // For count(*), count all rows
+      if (expr.isStar) {
+        nonNullCache.set(key, (nonNullCache.get(key) ?? 0) + 1);
+        continue;
+      }
+
+      if (val !== null && val !== undefined) {
+        nonNullCache.set(key, (nonNullCache.get(key) ?? 0) + 1);
+      }
+
+      // Collect all values for COLLECT
+      if (!allValuesCache.has(key)) allValuesCache.set(key, []);
+      allValuesCache.get(key)!.push(val as CypherValue);
+
       if (expr.distinct) {
         if (!distinctSeen.has(key)) distinctSeen.set(key, new Set());
         const seen = distinctSeen.get(key)!;
         const valStr = JSON.stringify(val);
-        if (!seen.has(valStr)) { seen.add(valStr); if (typeof val === 'number') { if (!numericCache.has(key)) numericCache.set(key, []); const arr = numericCache.get(key); if (arr) arr.push(val); } }
-      } else if (typeof val === 'number') { if (!numericCache.has(key)) numericCache.set(key, []); const arr = numericCache.get(key); if (arr) arr.push(val); }
+        if (!seen.has(valStr)) {
+          seen.add(valStr);
+          if (typeof val === 'number') {
+            if (!numericCache.has(key)) numericCache.set(key, []);
+            const arr = numericCache.get(key);
+            if (arr) arr.push(val);
+          }
+        }
+      } else if (typeof val === 'number') {
+        if (!numericCache.has(key)) numericCache.set(key, []);
+        const arr = numericCache.get(key);
+        if (arr) arr.push(val);
+      }
     }
   }
 
@@ -89,18 +138,44 @@ export function computeAggregations(
     const key = `${expr.variable}:${expr.property ?? ''}`;
     const numericValues = numericCache.get(key) ?? [];
     const nonNullCount = nonNullCache.get(key) ?? 0;
-    if (expr.aggregationType === 'COUNT') aggResults.set(aggKey, expr.distinct ? (distinctSeen.get(key)?.size ?? 0) : nonNullCount);
-    else if (expr.aggregationType === 'SUM') aggResults.set(aggKey, numericValues.reduce((a, b) => a + b, 0));
-    else if (expr.aggregationType === 'AVG') aggResults.set(aggKey, numericValues.length > 0 ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length : null);
-    else if (expr.aggregationType === 'MIN') aggResults.set(aggKey, numericValues.length > 0 ? Math.min(...numericValues) : null);
-    else if (expr.aggregationType === 'MAX') aggResults.set(aggKey, numericValues.length > 0 ? Math.max(...numericValues) : null);
+
+    if (expr.isStar) {
+      // count(*) counts all rows
+      aggResults.set(aggKey, rows.length);
+    } else if (expr.aggregationType === 'COUNT') {
+      aggResults.set(aggKey, expr.distinct ? (distinctSeen.get(key)?.size ?? 0) : nonNullCount);
+    } else if (expr.aggregationType === 'COLLECT') {
+      const allValues = allValuesCache.get(key) ?? [];
+      if (expr.distinct) {
+        const seen = new Set<string>();
+        const unique: CypherValue[] = [];
+        for (const v of allValues) {
+          const vStr = JSON.stringify(v);
+          if (!seen.has(vStr)) { seen.add(vStr); unique.push(v); }
+        }
+        aggResults.set(aggKey, unique as unknown as CypherValue);
+      } else {
+        aggResults.set(aggKey, allValues as unknown as CypherValue);
+      }
+    } else if (expr.aggregationType === 'SUM') {
+      aggResults.set(aggKey, numericValues.reduce((a, b) => a + b, 0));
+    } else if (expr.aggregationType === 'AVG') {
+      aggResults.set(aggKey, numericValues.length > 0 ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length : null);
+    } else if (expr.aggregationType === 'MIN') {
+      aggResults.set(aggKey, numericValues.length > 0 ? Math.min(...numericValues) : null);
+    } else if (expr.aggregationType === 'MAX') {
+      aggResults.set(aggKey, numericValues.length > 0 ? Math.max(...numericValues) : null);
+    }
   });
 
   aggrProjections.forEach((p) => {
     if (p.expression.type === 'Aggregation') {
       const key = `${p.expression.variable}:${p.expression.property ?? ''}`;
       const aggKey = `${key}:${p.expression.aggregationType}:${p.expression.distinct}`;
-      newContext[p.alias] = aggResults.get(aggKey) ?? null;
+      newContext[p.alias] = aggResults.get(aggKey) ?? (p.expression.isStar ? 0 : null);
+    } else if (p.expression.type === 'Reduce') {
+      // Evaluate reduce expression with the group rows
+      newContext[p.alias] = evalExprWithAgg(p.expression, newContext, aggResults);
     } else {
       newContext[p.alias] = evalExprWithAgg(p.expression, newContext, aggResults);
     }

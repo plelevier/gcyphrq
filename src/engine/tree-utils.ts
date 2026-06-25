@@ -100,6 +100,9 @@ const Ctx = {
   ShortestPathPatternFunction: 'ShortestPathPatternFunctionContext',
   ShortestPathFunctionName: 'ShortestPathFunctionNameContext',
   AllShortestPathFunctionName: 'AllShortestPathFunctionNameContext',
+  ReduceFunction: 'ReduceFunctionContext',
+  ReduceFunctionName: 'ReduceFunctionNameContext',
+  IdInColl: 'IdInCollContext',
 } as const;
 
 export { Ctx };
@@ -177,7 +180,7 @@ export class ErrorCollector implements BaseErrorListener {
 }
 
 // Set of aggregation function names (case-insensitive check at call site).
-export const AGGREGATION_FUNCTIONS = new Set(['count', 'sum', 'avg', 'min', 'max']);
+export const AGGREGATION_FUNCTIONS = new Set(['count', 'sum', 'avg', 'min', 'max', 'collect']);
 
 // ── Tree helpers ─────────────────────────────────────────────────────────────
 

@@ -50,7 +50,38 @@ export function evaluateExpression(expr: Expression, context: QueryContext, conf
     return evaluateCase(expr, context, config, evalFunc);
   }
   if (expr.type === 'Path') return undefined; // handled separately
+  if (expr.type === 'Reduce') {
+    return evaluateReduce(expr, context, config, evalFunc);
+  }
   return undefined;
+}
+
+/** Evaluate a reduce expression. */
+function evaluateReduce(
+  expr: Extract<Expression, { type: 'Reduce' }>,
+  context: QueryContext,
+  config: GraphConfig,
+  evalFunc: (name: string, args: CypherValue[]) => CypherValue,
+): CypherValue {
+  const evalExpr = (e: Expression, ctx?: QueryContext) => evaluateExpression(e, ctx ?? context, config, evalFunc);
+
+  let accumulator = evalExpr(expr.initial);
+  if (accumulator === null || accumulator === undefined) return null;
+
+  const list = evalExpr(expr.list);
+  if (!Array.isArray(list)) return accumulator;
+
+  for (const element of list) {
+    const loopContext: QueryContext = { ...context, [expr.accumulator]: accumulator, [expr.loopVariable]: element };
+    const bodyValue = evaluateExpression(expr.body, loopContext, config, evalFunc);
+    if (bodyValue === null || bodyValue === undefined) {
+      accumulator = null;
+      break;
+    }
+    accumulator = bodyValue;
+  }
+
+  return accumulator;
 }
 
 /** Evaluate a CASE expression. */

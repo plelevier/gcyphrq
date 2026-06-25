@@ -338,6 +338,25 @@ export class AdvancedCypherGraphologyEngine {
       const key = `${expr.variable}:${expr.property ?? ''}:${expr.aggregationType}:${expr.distinct}`;
       return aggResults.get(key) ?? null;
     }
+    if (expr.type === 'Reduce') {
+      // Evaluate reduce with aggregation-aware operand evaluation
+      let accumulator = this.evaluateExpressionWithAggregations(expr.initial, context, aggResults);
+      if (accumulator === null || accumulator === undefined) return null;
+
+      const list = this.evaluateExpressionWithAggregations(expr.list, context, aggResults);
+      if (!Array.isArray(list)) return accumulator;
+
+      for (const element of list) {
+        const loopContext: QueryContext = { ...context, [expr.accumulator]: accumulator, [expr.loopVariable]: element };
+        const bodyValue = this.evaluateExpressionWithAggregations(expr.body, loopContext, aggResults);
+        if (bodyValue === null || bodyValue === undefined) {
+          accumulator = null;
+          break;
+        }
+        accumulator = bodyValue;
+      }
+      return accumulator;
+    }
     if (expr.type === 'Arithmetic') {
       return this.evaluateArithmeticWith(expr, (e) => this.evaluateExpressionWithAggregations(e, context, aggResults));
     }
