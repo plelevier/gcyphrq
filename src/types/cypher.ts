@@ -228,10 +228,27 @@ export interface MapLiteralExpression {
 
 export interface AggregationExpression {
   type: 'Aggregation';
-  aggregationType: 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX';
+  aggregationType: 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COLLECT';
   variable: string;
   property: string | undefined;
   distinct: boolean;
+  /** True for `count(*)` — counts all rows including nulls. */
+  isStar?: boolean;
+}
+
+/** A reduce expression: `reduce(initial, var IN list | expr)`. */
+export interface ReduceExpression {
+  type: 'Reduce';
+  /** Accumulator variable name (e.g., "total" in `reduce(total = 0, ...)`). */
+  accumulator: string;
+  /** Initial value expression (e.g., `0`). */
+  initial: Expression;
+  /** Loop variable name (e.g., "x" in `x IN [1,2,3]`). */
+  loopVariable: string;
+  /** List expression to iterate over (e.g., `[1,2,3]`). */
+  list: Expression;
+  /** Body expression applied each iteration (e.g., `total + x`). */
+  body: Expression;
 }
 
 /** A scalar function call (toLower, toUpper, substring, split, replace, trim, …). */
@@ -292,7 +309,7 @@ export interface PathExpression {
   targetPattern: NodePattern;
 }
 
-export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression | PathExpression;
+export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression | PathExpression | ReduceExpression;
 
 export interface BinaryExpression {
   type: 'BinaryExpression';

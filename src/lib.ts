@@ -638,6 +638,7 @@ export type {
   PropertyAccessExpression,
   LiteralExpression,
   AggregationExpression,
+  ReduceExpression,
   BinaryExpression,
   PathExpression,
   Projection,

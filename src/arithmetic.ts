@@ -27,6 +27,11 @@ export function evaluateArithmeticCore(
   const leftVal = expr.left ? evalOperand(expr.left) : 0;
   if (leftVal == null) return null;
 
+  // Support string concatenation for + operator (check before numeric conversion)
+  if (expr.operator === '+' && typeof leftVal === 'string' && typeof rightVal === 'string') {
+    return leftVal + rightVal;
+  }
+
   const left = Number(leftVal);
   const right = Number(rightVal);
   if (!Number.isFinite(left) || !Number.isFinite(right)) return null;
