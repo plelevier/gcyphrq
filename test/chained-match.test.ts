@@ -2,59 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { Graph, type GraphInstance } from '../src/graph';
 import { AdvancedCypherGraphologyEngine } from '../src/engine/cypher-engine';
 import { parseCypher as _parseCypher } from '../src/engine/cypher-parser';
-import type { AdvancedCypherAST, CypherEdge, GraphIndexes } from '../src/types/cypher';
+import type { AdvancedCypherAST, CypherEdge } from '../src/types/cypher';
+import { buildIndexesFromGraph } from './helpers';
 
 const parseCypher = _parseCypher as (query: string) => AdvancedCypherAST;
-
-function buildIndexesFromGraph(graph: GraphInstance): GraphIndexes {
-  const labelIndex = new Map<string, Set<string>>();
-  const propertyIndex = new Map<string, Map<string, Set<string>>>();
-  const edgeOut = new Map<string, Map<string, Array<{ target: string; edgeId: string }>>>();
-  const edgeIn = new Map<string, Map<string, Array<{ source: string; edgeId: string }>>>();
-
-  graph.filterNodes(() => true).forEach((id) => {
-    const attrs = graph.getNodeAttributes(id);
-    const rawLabel = attrs.label;
-    if (typeof rawLabel === 'string') {
-      let s = labelIndex.get(rawLabel);
-      if (!s) { s = new Set(); labelIndex.set(rawLabel, s); }
-      s.add(id);
-    } else if (Array.isArray(rawLabel)) {
-      for (const label of rawLabel) {
-        if (typeof label !== 'string') continue;
-        let s = labelIndex.get(label);
-        if (!s) { s = new Set(); labelIndex.set(label, s); }
-        s.add(id);
-      }
-    }
-    for (const [key, value] of Object.entries(attrs)) {
-      if (key === 'label' || value === null || value === undefined || typeof value === 'object') continue;
-      let vm = propertyIndex.get(key);
-      if (!vm) { vm = new Map(); propertyIndex.set(key, vm); }
-      const vk = String(value);
-      let ns = vm.get(vk);
-      if (!ns) { ns = new Set(); vm.set(vk, ns); }
-      ns.add(id);
-    }
-  });
-
-  graph.forEachEdge((edgeId, attrs, source, target) => {
-    const et = (attrs.type && typeof attrs.type === 'string') ? attrs.type : '__UNTYPED__';
-    let om = edgeOut.get(et);
-    if (!om) { om = new Map(); edgeOut.set(et, om); }
-    let os = om.get(source);
-    if (!os) { os = []; om.set(source, os); }
-    os.push({ target, edgeId });
-
-    let im = edgeIn.get(et);
-    if (!im) { im = new Map(); edgeIn.set(et, im); }
-    let is = im.get(target);
-    if (!is) { is = []; im.set(target, is); }
-    is.push({ source, edgeId });
-  });
-
-  return { labelIndex, propertyIndex, edgeTypeIndex: { out: edgeOut, in: edgeIn }, config: { labelProperty: 'label', edgeTypeProperty: 'type' } };
-}
 
 function createEngine(graph: GraphInstance) {
   return new AdvancedCypherGraphologyEngine(graph, buildIndexesFromGraph(graph));

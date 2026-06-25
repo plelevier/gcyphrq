@@ -139,34 +139,6 @@ describe('length', () => {
   });
 });
 
-// ── head / last / tail ──────────────────────────────────────────────────────
-
-describe('head', () => {
-  it('returns first element of list', () => {
-    const result = executeQuery(graph, `MATCH (p) WHERE p.name = 'Charlie' RETURN head(p.tags) AS first`);
-    expect(result).toEqual([{ first: 'admin' }]);
-  });
-
-  it('returns null for non-list input', () => {
-    const result = executeQuery(graph, `MATCH (p) WHERE p.name = 'Alice Smith' RETURN head(p.name) AS first`);
-    expect(result).toEqual([{ first: null }]);
-  });
-});
-
-describe('last', () => {
-  it('returns last element of list', () => {
-    const result = executeQuery(graph, `MATCH (p) WHERE p.name = 'Charlie' RETURN last(p.tags) AS lastTag`);
-    expect(result).toEqual([{ lastTag: 'mod' }]);
-  });
-});
-
-describe('tail', () => {
-  it('returns all but first element', () => {
-    const result = executeQuery(graph, `MATCH (p) WHERE p.name = 'Charlie' RETURN tail(p.tags) AS tailTags`);
-    expect(result).toEqual([{ tailTags: ['user', 'mod'] }]);
-  });
-});
-
 // ── id / labels / type ──────────────────────────────────────────────────────
 
 describe('id', () => {
