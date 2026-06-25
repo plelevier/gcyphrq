@@ -382,6 +382,7 @@ RETURN u.name, friendCount
 | Function | Description |
 |---|---|
 | `count(x)` | Count non-null values |
+| `count(*)` | Count all rows (including nulls) |
 | `count(DISTINCT x)` | Count unique non-null values |
 | `sum(x.prop)` | Sum numeric values |
 | `sum(DISTINCT x.prop)` | Sum unique numeric values |
@@ -389,12 +390,43 @@ RETURN u.name, friendCount
 | `avg(DISTINCT x.prop)` | Average of unique values |
 | `min(x.prop)` | Minimum (null if no values) |
 | `max(x.prop)` | Maximum (null if no values) |
+| `collect(x)` | Gather all values into a list (includes nulls) |
+| `collect(DISTINCT x)` | Gather unique values into a list |
 
 ```cypher
 MATCH (u:User) RETURN count(DISTINCT u.dept) AS uniqueDepts
 MATCH (u:User) RETURN sum(DISTINCT u.score) AS totalScore
 MATCH (u:User) RETURN avg(DISTINCT u.score) AS avgScore
+MATCH (u:User) RETURN count(*) AS totalUsers
+MATCH (u:User) RETURN collect(u.name) AS names
+MATCH (u:User) RETURN collect(DISTINCT u.dept) AS uniqueDepts
 ```
+
+### Reduce
+
+Fold a list into a single value using an accumulator. `reduce(initial, var IN list | body)` iterates over each element in the list, updating the accumulator with the body expression.
+
+```cypher
+-- Sum a list
+MATCH (u:User) RETURN reduce(total = 0, x IN [1, 2, 3, 4] | total + x) AS sum
+
+-- Multiply a list
+MATCH (u:User) RETURN reduce(total = 1, x IN [2, 3, 4] | total * x) AS product
+
+-- Concatenate strings
+MATCH (u:User) RETURN reduce(s = "", x IN ["a", "b", "c"] | s + x) AS result
+
+-- Sum a property that is a list
+MATCH (p:Person) RETURN reduce(total = 0, x IN p.ages | total + x) AS totalAge
+
+-- Reduce over collect (aggregation context)
+MATCH (u:User) RETURN reduce(total = 0, x IN collect(u.age) | total + x) AS totalAge
+
+-- Concatenate all names
+MATCH (u:User) RETURN reduce(s = "", x IN collect(u.name) | s + x + ", ") AS allNames
+```
+
+> **Note:** `reduce` is not itself an aggregation — it evaluates per-row. It triggers aggregation mode only when its sub-expressions contain aggregations (e.g., `reduce(..., x IN collect(y) | ...)`). The `+` operator supports string concatenation when both operands are strings.
 
 ---
 
@@ -601,6 +633,7 @@ MATCH (n:Product) RETURN n.name, length(n.name) * 2 AS nameLenDoubled
 ```
 
 > **Null propagation:** If any operand is `null` (missing property or explicit null), the result is `null`. Division and modulo by zero return `null`.
+> **String concatenation:** The `+` operator concatenates strings when both operands are strings.
 
 ---
 

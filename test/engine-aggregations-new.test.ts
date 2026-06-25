@@ -233,6 +233,7 @@ describe('Engine - count(*), collect(), reduce()', () => {
     });
 
     it('works in WITH clause with grouping key', () => {
+      // Each user gets one reduce evaluation with grouping key
       const ast = parseCypher(
         'MATCH (u:User) WITH u.name AS name, reduce(total = 0, x IN [1, 2, 3] | total + x) AS sum RETURN name, sum'
       );
@@ -240,18 +241,6 @@ describe('Engine - count(*), collect(), reduce()', () => {
       expect(results.length).toBe(4); // one per user
       for (const r of results) {
         expect(r.sum).toBe(6);
-      }
-    });
-
-    it('works with multiple iterations per context', () => {
-      // Each user gets one reduce evaluation (use WITH to group first)
-      const ast = parseCypher(
-        'MATCH (u:User) WITH u.name AS name, reduce(total = 0, x IN [1, 2] | total + x) AS sum RETURN name, sum'
-      );
-      const results = engine.execute(ast);
-      expect(results.length).toBe(4);
-      for (const r of results) {
-        expect(r.sum).toBe(3);
       }
     });
 
