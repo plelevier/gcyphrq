@@ -103,6 +103,17 @@ const Ctx = {
   ReduceFunction: 'ReduceFunctionContext',
   ReduceFunctionName: 'ReduceFunctionNameContext',
   IdInColl: 'IdInCollContext',
+  AllFunction: 'AllFunctionContext',
+  AllFunctionName: 'AllFunctionNameContext',
+  AnyFunction: 'AnyFunctionContext',
+  AnyFunctionName: 'AnyFunctionNameContext',
+  SingleFunction: 'SingleFunctionContext',
+  SingleFunctionName: 'SingleFunctionNameContext',
+  NoneFunction: 'NoneFunctionContext',
+  NoneFunctionName: 'NoneFunctionNameContext',
+  ExistsFunction: 'ExistsFunctionContext',
+  ExistsFunctionName: 'ExistsFunctionNameContext',
+  FilterExpression: 'FilterExpressionContext',
 } as const;
 
 export { Ctx };
@@ -297,7 +308,7 @@ export function findDescendant(ctx: TreeNode, name: string): ParseTreeNode | und
   return undefined;
 }
 
-/** Find the first descendant with the given constructor name, stopping at ListLiteral and FunctionInvocation boundaries. */
+/** Find the first descendant with the given constructor name, stopping at ListLiteral, FunctionInvocation, and quantifier/exists function boundaries. */
 export function findDescendantOutsideCompound(ctx: TreeNode, name: string): ParseTreeNode | undefined {
   if (!ctx) return undefined;
   if (ctx.constructor.name === name) return ctx as ParseTreeNode;
@@ -305,6 +316,11 @@ export function findDescendantOutsideCompound(ctx: TreeNode, name: string): Pars
     for (const child of ctx.children) {
       if (child.constructor.name === Ctx.ListLiteral) continue;
       if (child.constructor.name === Ctx.FunctionInvocation) continue;
+      if (child.constructor.name === Ctx.ExistsFunction) continue;
+      if (child.constructor.name === Ctx.AllFunction) continue;
+      if (child.constructor.name === Ctx.AnyFunction) continue;
+      if (child.constructor.name === Ctx.SingleFunction) continue;
+      if (child.constructor.name === Ctx.NoneFunction) continue;
       const found = findDescendantOutsideCompound(child, name);
       if (found) return found;
     }
