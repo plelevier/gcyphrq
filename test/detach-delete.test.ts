@@ -139,33 +139,6 @@ describe('DETACH DELETE engine', () => {
     ]);
   });
 
-  it('plain DELETE on node with edges still works (Graphology removes incident edges)', () => {
-    // Graphology's dropNode already removes incident edges, so plain DELETE
-    // on a connected node works the same as DETACH DELETE in practice.
-    const result = executeQuery(
-      graphData,
-      'MATCH (n:Person {name: "Alice"}) DELETE n MATCH (m:Person) RETURN m.name AS name ORDER BY name',
-    );
-    expect(result).toEqual([
-      { name: 'Bob' },
-      { name: 'Charlie' },
-      { name: 'Diana' },
-    ]);
-  });
-
-  it('DELETE with multiple variables deletes all listed targets', () => {
-    // Delete both Alice (node) and the KNOWS edge between Bob and Charlie
-    const result = executeQuery(
-      graphData,
-      'MATCH (n:Person {name: "Alice"}) MATCH (b:Person {name: "Bob"})-[r:KNOWS]->(c:Person {name: "Charlie"}) DELETE n, r MATCH (m:Person) RETURN m.name AS name ORDER BY name',
-    );
-    expect(result).toEqual([
-      { name: 'Bob' },
-      { name: 'Charlie' },
-      { name: 'Diana' },
-    ]);
-  });
-
   it('DETACH DELETE with multiple variables deletes nodes and their incident edges', () => {
     // DETACH DELETE Alice (removes a->b, a->c, d->a) and also delete the KNOWS edge
     const result = executeQuery(

@@ -40,13 +40,15 @@ function benchmark(query: string, graph: ReturnType<typeof createGraph>, indexes
 
 // ── CLI arg parsing ──────────────────────────────────────────────────────────
 
-let graphPath = 'examples/cloud-infra.json';
+let graphPath = 'examples/bench-graph.json';
 const defaultQueries = [
   'MATCH (s:Service) RETURN s',
-  'MATCH (s:Service)-[r:DEPENDS_ON*1..2]->(d) RETURN s.name, d.name',
+  'MATCH (s:Service)-[r:RPC*1..2]->(d) RETURN s.name, d.name',
   'MATCH (n) RETURN count(n) AS total',
   'MATCH (s:Service) RETURN s ORDER BY s.name SKIP 2 LIMIT 5',
   'MATCH (s:Service {type: "RPC"}) RETURN s.name',
+  'MATCH (s:Service)-[r:HTTP*1..3]-(t) RETURN s.name, t.name',
+  'MATCH (s:Service) WITH s, count((s)-[]->()) AS outDegree RETURN s.name, outDegree ORDER BY outDegree DESC LIMIT 10',
 ];
 let queries: string[] = [];
 
