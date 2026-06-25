@@ -33,6 +33,14 @@ export function evaluateWhereCore(
     const isNull = value === null || value === undefined;
     return whereNode.negated ? !isNull : isNull;
   }
+  if (whereNode.type === 'Quantifier') {
+    const value = evalExpr(whereNode);
+    return !!value;
+  }
+  if (whereNode.type === 'Exists') {
+    const value = evalExpr(whereNode);
+    return !!value;
+  }
 
   // BinaryExpression
   const leftValue = evalExpr(whereNode.left);
@@ -73,9 +81,9 @@ export function evaluateWhereCore(
   }
 }
 
-/** Check if a value is a valid WhereExpression. */
+/** Check if a value is a valid WhereExpression (including quantifier/exists expressions). */
 export function isWhereExpression(value: Expression | WhereExpression): value is WhereExpression {
-  return value.type === 'BinaryExpression' || value.type === 'LogicalExpression' || value.type === 'NotExpression' || value.type === 'IsNull';
+  return value.type === 'BinaryExpression' || value.type === 'LogicalExpression' || value.type === 'NotExpression' || value.type === 'IsNull' || value.type === 'Quantifier' || value.type === 'Exists';
 }
 
 /** Extract list values from expression. */

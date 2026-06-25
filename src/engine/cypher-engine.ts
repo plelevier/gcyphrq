@@ -295,7 +295,7 @@ export class AdvancedCypherGraphologyEngine {
   private evaluateExpression(expr: Expression, context: QueryContext): CypherValue | undefined {
     if (expr.type === 'Path') return evaluatePathExpressionImpl(this.graph, this.config, expr, context);
     if (expr.type === 'Case') return this.evaluateCase(expr, context);
-    return evaluateExpressionImpl(expr, context, this.config, (name, args) => this.evaluateStringFunction(name, args));
+    return evaluateExpressionImpl(expr, context, this.config, (name, args) => this.evaluateStringFunction(name, args), (w, c) => this.evaluateWhere(w, c));
   }
 
   /** Evaluate a CASE expression. */

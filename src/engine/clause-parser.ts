@@ -46,6 +46,8 @@ import {
   extractListLiteralExpressionFromCtx,
   extractMapLiteralExpressionFromCtx,
   extractCaseExpression,
+  extractQuantifierExpression,
+  extractExistsExpression,
 } from './expression-parser';
 import {
   extractNodePattern,
@@ -175,6 +177,12 @@ function computeDefaultAlias(expr: Expression): string {
   }
   if (expr.type === 'Path') {
     return `${expr.functionName}()`;
+  }
+  if (expr.type === 'Quantifier') {
+    return `${expr.quantifierType}()`;
+  }
+  if (expr.type === 'Exists') {
+    return 'EXISTS()';
   }
   return String(expr.value);
 }
@@ -387,7 +395,19 @@ export function extractWhereExpression(exprCtx: TreeNode): WhereExpression | und
   }
 
   const compCtx = findDescendantOutsideCompound(exprCtx, Ctx.ComparisonExpression);
-  if (compCtx) return extractComparison(compCtx);
+  if (compCtx) {
+    const compResult = extractComparison(compCtx);
+    if (compResult) return compResult;
+  }
+
+  // Fallback: check if this is a quantifier or exists expression (they evaluate to boolean)
+  const atom = getAtom(exprCtx);
+  if (atom) {
+    const quantifierExpr = extractQuantifierExpression(atom, extractWhereExpression);
+    if (quantifierExpr) return quantifierExpr;
+    const existsExpr = extractExistsExpression(atom);
+    if (existsExpr) return existsExpr;
+  }
 
   return undefined;
 }
@@ -461,7 +481,18 @@ function extractWhereExpressionFromChild(ctx: TreeNode): WhereExpression | undef
 
   if (ctx.constructor.name === Ctx.NotExpression) {
     const directComp = findChild(ctx, Ctx.ComparisonExpression);
-    if (directComp) return extractComparison(directComp);
+    if (directComp) {
+      const compResult = extractComparison(directComp);
+      if (compResult) return compResult;
+    }
+    // Fallback for quantifier/exists (NotExpression may be a transparent wrapper without NOT keyword)
+    const notAtom = getAtom(ctx);
+    if (notAtom) {
+      const qe = extractQuantifierExpression(notAtom, extractWhereExpression);
+      if (qe) return hasNotTerminal(ctx) ? wrapInNotExpressions(qe, countNotTerminals(ctx)) : qe;
+      const ee = extractExistsExpression(notAtom);
+      if (ee) return hasNotTerminal(ctx) ? wrapInNotExpressions(ee, countNotTerminals(ctx)) : ee;
+    }
     return undefined;
   }
 
@@ -472,7 +503,17 @@ function extractWhereExpressionFromChild(ctx: TreeNode): WhereExpression | undef
     if (nestedXor) return extractLogicalExpression(nestedXor, Ctx.AndExpression, 'XOR');
     const nestedAnd = findDescendantOutsideCompound(ctx, Ctx.AndExpression);
     if (nestedAnd) return extractLogicalExpression(nestedAnd, Ctx.NotExpression, 'AND');
-    return extractComparison(ctx);
+    const compResult = extractComparison(ctx);
+    if (compResult) return compResult;
+    // Fallback for quantifier/exists (NotExpression may be a transparent wrapper)
+    const compAtom = getAtom(ctx);
+    if (compAtom) {
+      const qe = extractQuantifierExpression(compAtom, extractWhereExpression);
+      if (qe) return qe;
+      const ee = extractExistsExpression(compAtom);
+      if (ee) return ee;
+    }
+    return undefined;
   }
 
   if (ctx.constructor.name === Ctx.AndExpression) {
@@ -492,7 +533,19 @@ function extractWhereExpressionFromChild(ctx: TreeNode): WhereExpression | undef
   if (orCtx) return extractLogicalExpression(orCtx, Ctx.XorExpression, 'OR');
 
   const compCtx = findDescendantOutsideCompound(ctx, Ctx.ComparisonExpression);
-  if (compCtx) return extractComparison(compCtx);
+  if (compCtx) {
+    const compResult = extractComparison(compCtx);
+    if (compResult) return compResult;
+  }
+
+  // Fallback for quantifier/exists
+  const fallbackAtom = getAtom(ctx);
+  if (fallbackAtom) {
+    const qe = extractQuantifierExpression(fallbackAtom, extractWhereExpression);
+    if (qe) return qe;
+    const ee = extractExistsExpression(fallbackAtom);
+    if (ee) return ee;
+  }
 
   return undefined;
 }

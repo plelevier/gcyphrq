@@ -46,6 +46,8 @@ See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 - **Path expressions:** `shortestPath((a)-[*]->(b))` returns single shortest path (BFS); `allShortestPaths((a)-[*]->(b))` returns all minimum-length paths. Supports type filtering (`[:TYPE*]`), direction (`->`, `<-`, `-`), and depth bounds (`*min..max`). Variables must be bound in query context.
 - **Arithmetic:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`, parentheses. `+` concatenates strings. Null propagation, div/mod by zero → null
 - **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices
+- **Quantifiers:** `ALL/ANY/SINGLE/NONE(x IN list WHERE pred)` in WHERE (standalone or with AND/OR/NOT). Empty list: ALL/NONE → true, ANY/SINGLE → false.
+- **EXISTS:** `EXISTS(expr)` — true if not null/undefined. Use with `NOT` in WHERE.
 - **Mutations:** `CREATE` (single node or chain `(a)-[r:TYPE]->(b)`), `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `MERGE` (in-memory only). MERGE: supports WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE. CREATE chain: reuses bound nodes, creates unbound ones.
 - **CALL { ... } subqueries:** inline (reference outer variables), YIELD filtering, nested, CREATE/SET/DELETE inside, ORDER BY inside. Stored procedures (`CALL db.xxx()`) not supported.
 - **Not supported:** stored procedures, APOC, regex in WHERE
@@ -104,6 +106,8 @@ Service dependencies, blast radius, path tracing, shortest path, infrastructure 
 | collect DISTINCT | `MATCH (u:User) RETURN collect(DISTINCT u.dept) AS uniqueDepts` |
 | reduce | `MATCH (u:User) RETURN reduce(total = 0, x IN [1,2,3] | total + x) AS sum` |
 | reduce + collect | `MATCH (u:User) RETURN reduce(total = 0, x IN collect(u.age) | total + x) AS totalAge` |
+| quantifiers | `MATCH (n) WHERE ALL/ANY/SINGLE/NONE(x IN n.tags WHERE x = "a") RETURN n` |
+| EXISTS | `MATCH (n) WHERE EXISTS(n.prop) OR NOT EXISTS(n.prop) RETURN n` |
 
 See `references/queries.md` for more patterns.
 

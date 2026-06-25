@@ -1,8 +1,14 @@
 import { evaluateArithmeticCore } from '../arithmetic';
-import type { CypherEdge, CypherNode, CypherValue, Expression, GraphConfig, QueryContext } from '../types/cypher';
+import type { CypherEdge, CypherNode, CypherValue, Expression, GraphConfig, QueryContext, WhereExpression } from '../types/cypher';
 
 /** Evaluate an expression against a context. */
-export function evaluateExpression(expr: Expression, context: QueryContext, config: GraphConfig, evalFunc: (name: string, args: CypherValue[]) => CypherValue): CypherValue | undefined {
+export function evaluateExpression(
+  expr: Expression,
+  context: QueryContext,
+  config: GraphConfig,
+  evalFunc: (name: string, args: CypherValue[]) => CypherValue,
+  evalWhere?: (w: WhereExpression, ctx: QueryContext) => boolean,
+): CypherValue | undefined {
   if (expr.type === 'PropertyAccess') {
     const obj = context[expr.variable];
     if (obj === undefined) return undefined;
@@ -13,24 +19,24 @@ export function evaluateExpression(expr: Expression, context: QueryContext, conf
   if (expr.type === 'Literal') return expr.value;
   if (expr.type === 'ListLiteral') {
     const values: CypherValue[] = [];
-    for (const le of expr.values) { const val = evaluateExpression(le, context, config, evalFunc); values.push(val as CypherValue); }
+    for (const le of expr.values) { const val = evaluateExpression(le, context, config, evalFunc, evalWhere); values.push(val as CypherValue); }
     return values as CypherValue;
   }
   if (expr.type === 'MapLiteral') {
     const values: Record<string, CypherValue> = {};
-    for (const entry of expr.entries) { const val = evaluateExpression(entry.value, context, config, evalFunc); values[entry.key] = val as CypherValue; }
+    for (const entry of expr.entries) { const val = evaluateExpression(entry.value, context, config, evalFunc, evalWhere); values[entry.key] = val as CypherValue; }
     return values as CypherValue;
   }
   if (expr.type === 'Aggregation') return undefined;
   if (expr.type === 'FunctionCall') {
-    const args = expr.arguments.map((a) => evaluateExpression(a, context, config, evalFunc));
+    const args = expr.arguments.map((a) => evaluateExpression(a, context, config, evalFunc, evalWhere));
     return evalFunc(expr.functionName, args);
   }
   if (expr.type === 'ListSlice') {
-    const list = evaluateExpression(expr.list, context, config, evalFunc);
+    const list = evaluateExpression(expr.list, context, config, evalFunc, evalWhere);
     if (!Array.isArray(list)) return null;
-    const startVal = evaluateExpression(expr.start, context, config, evalFunc);
-    const endVal = evaluateExpression(expr.end, context, config, evalFunc);
+    const startVal = evaluateExpression(expr.start, context, config, evalFunc, evalWhere);
+    const endVal = evaluateExpression(expr.end, context, config, evalFunc, evalWhere);
     if (expr.start === expr.end) {
       const idx = startVal != null ? Number(startVal) : 0;
       const adjIdx = idx < 0 ? list.length + idx : idx;
@@ -44,14 +50,22 @@ export function evaluateExpression(expr: Expression, context: QueryContext, conf
     return list.slice(adjStart, adjEnd) as unknown as CypherValue;
   }
   if (expr.type === 'Arithmetic') {
-    return evaluateArithmeticCore(expr, (e) => evaluateExpression(e, context, config, evalFunc));
+    return evaluateArithmeticCore(expr, (e) => evaluateExpression(e, context, config, evalFunc, evalWhere));
   }
   if (expr.type === 'Case') {
-    return evaluateCase(expr, context, config, evalFunc);
+    return evaluateCase(expr, context, config, evalFunc, evalWhere);
   }
   if (expr.type === 'Path') return undefined; // handled separately
   if (expr.type === 'Reduce') {
-    return evaluateReduce(expr, context, config, evalFunc);
+    return evaluateReduce(expr, context, config, evalFunc, evalWhere);
+  }
+  if (expr.type === 'Quantifier') {
+    if (!evalWhere) return undefined;
+    return evaluateQuantifier(expr, context, config, evalFunc, evalWhere);
+  }
+  if (expr.type === 'Exists') {
+    const value = evaluateExpression(expr.expression, context, config, evalFunc, evalWhere);
+    return value !== null && value !== undefined;
   }
   return undefined;
 }
@@ -62,8 +76,9 @@ function evaluateReduce(
   context: QueryContext,
   config: GraphConfig,
   evalFunc: (name: string, args: CypherValue[]) => CypherValue,
+  evalWhere?: (w: WhereExpression, ctx: QueryContext) => boolean,
 ): CypherValue {
-  const evalExpr = (e: Expression, ctx?: QueryContext) => evaluateExpression(e, ctx ?? context, config, evalFunc);
+  const evalExpr = (e: Expression, ctx?: QueryContext) => evaluateExpression(e, ctx ?? context, config, evalFunc, evalWhere);
 
   let accumulator = evalExpr(expr.initial);
   if (accumulator === null || accumulator === undefined) return null;
@@ -73,7 +88,7 @@ function evaluateReduce(
 
   for (const element of list) {
     const loopContext: QueryContext = { ...context, [expr.accumulator]: accumulator, [expr.loopVariable]: element };
-    const bodyValue = evaluateExpression(expr.body, loopContext, config, evalFunc);
+    const bodyValue = evaluateExpression(expr.body, loopContext, config, evalFunc, evalWhere);
     if (bodyValue === null || bodyValue === undefined) {
       accumulator = null;
       break;
@@ -84,9 +99,52 @@ function evaluateReduce(
   return accumulator;
 }
 
+/** Evaluate a quantifier expression: ALL/ANY/SINGLE/NONE(x IN list WHERE predicate). */
+function evaluateQuantifier(
+  expr: Extract<Expression, { type: 'Quantifier' }>,
+  context: QueryContext,
+  config: GraphConfig,
+  evalFunc: (name: string, args: CypherValue[]) => CypherValue,
+  evalWhere: (w: WhereExpression, ctx: QueryContext) => boolean,
+): boolean {
+  const list = evaluateExpression(expr.list, context, config, evalFunc, evalWhere);
+  if (!Array.isArray(list)) return false;
+
+  // Empty list semantics:
+  // ALL: true (vacuous truth)
+  // ANY: false
+  // SINGLE: false
+  // NONE: true (vacuous truth)
+  if (list.length === 0) {
+    return expr.quantifierType === 'ALL' || expr.quantifierType === 'NONE';
+  }
+
+  let matchCount = 0;
+  for (const element of list) {
+    const loopContext: QueryContext = { ...context, [expr.loopVariable]: element };
+    const predicateResult = evalWhere(expr.predicate, loopContext);
+    if (predicateResult) {
+      matchCount++;
+      // Early exit for ANY (found at least one match)
+      if (expr.quantifierType === 'ANY') return true;
+      // Early exit for ALL (found a non-matching element)
+    } else if (expr.quantifierType === 'ALL') {
+      return false;
+    }
+  }
+
+  switch (expr.quantifierType) {
+    case 'ALL': return true; // All elements matched
+    case 'ANY': return false; // No element matched
+    case 'SINGLE': return matchCount === 1;
+    case 'NONE': return matchCount === 0;
+    default: return false;
+  }
+}
+
 /** Evaluate a CASE expression. */
-export function evaluateCase(expr: Extract<Expression, { type: 'Case' }>, context: QueryContext, config: GraphConfig, evalFunc: (name: string, args: CypherValue[]) => CypherValue): CypherValue {
-  const evalExpr = (e: Expression) => evaluateExpression(e, context, config, evalFunc);
+export function evaluateCase(expr: Extract<Expression, { type: 'Case' }>, context: QueryContext, config: GraphConfig, evalFunc: (name: string, args: CypherValue[]) => CypherValue, evalWhere?: (w: WhereExpression, ctx: QueryContext) => boolean): CypherValue {
+  const evalExpr = (e: Expression) => evaluateExpression(e, context, config, evalFunc, evalWhere);
 
   if (expr.subject !== undefined) {
     const subjectVal = evalExpr(expr.subject);

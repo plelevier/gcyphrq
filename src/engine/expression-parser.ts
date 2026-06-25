@@ -3,6 +3,8 @@ import type {
   FunctionCallExpression,
   ListSliceExpression,
   ReduceExpression,
+  QuantifierExpression,
+  ExistsExpression,
   CypherLiteral,
   CypherValue,
   WhereExpression,
@@ -354,6 +356,81 @@ function extractReduceExpression(reduceCtx: TreeNode): ReduceExpression | undefi
 }
 
 /**
+ * Extract a quantifier expression: ALL/ANY/SINGLE/NONE(x IN list WHERE predicate).
+ */
+export function extractQuantifierExpression(
+  atom: TreeNode,
+  extractWhere?: (ctx: TreeNode) => WhereExpression | undefined,
+): QuantifierExpression | undefined {
+  if (!atom) return undefined;
+
+  const quantifierMap: Array<{ contextName: string; quantifierType: 'ALL' | 'ANY' | 'SINGLE' | 'NONE' }> = [
+    { contextName: Ctx.AllFunction, quantifierType: 'ALL' },
+    { contextName: Ctx.AnyFunction, quantifierType: 'ANY' },
+    { contextName: Ctx.SingleFunction, quantifierType: 'SINGLE' },
+    { contextName: Ctx.NoneFunction, quantifierType: 'NONE' },
+  ];
+
+  for (const { contextName, quantifierType } of quantifierMap) {
+    const quantifierCtx = findChild(atom, contextName);
+    if (!quantifierCtx) continue;
+
+    // Find the FilterExpression child (contains IdInColl + Where)
+    const filterExprCtx = findChild(quantifierCtx, Ctx.FilterExpression);
+    if (!filterExprCtx) continue;
+
+    // Extract loop variable and list from IdInColl
+    const idInCollCtx = findChild(filterExprCtx, Ctx.IdInColl);
+    if (!idInCollCtx) continue;
+
+    const loopVarCtx = findChild(idInCollCtx, Ctx.Variable);
+    const loopVariable = loopVarCtx ? getSymbolicName(loopVarCtx) : undefined;
+    if (!loopVariable) continue;
+
+    const listExprCtx = findChild(idInCollCtx, Ctx.Expression);
+    const listExpr = listExprCtx ? evaluateExpression(listExprCtx) : undefined;
+    if (!listExpr) continue;
+
+    // Extract WHERE predicate
+    const whereCtx = findChild(filterExprCtx, Ctx.Where);
+    if (!whereCtx || !extractWhere) continue;
+
+    const whereExprCtx = findChild(whereCtx, Ctx.Expression);
+    const predicate = whereExprCtx ? extractWhere(whereExprCtx) : undefined;
+    if (!predicate) continue;
+
+    return {
+      type: 'Quantifier' as const,
+      quantifierType,
+      loopVariable,
+      list: listExpr,
+      predicate,
+    };
+  }
+
+  return undefined;
+}
+
+/**
+ * Extract an EXISTS(expression) expression.
+ */
+export function extractExistsExpression(atom: TreeNode): ExistsExpression | undefined {
+  if (!atom) return undefined;
+
+  const existsCtx = findChild(atom, Ctx.ExistsFunction);
+  if (!existsCtx) return undefined;
+
+  const exprCtx = findChild(existsCtx, Ctx.Expression);
+  const innerExpr = exprCtx ? evaluateExpression(exprCtx) : undefined;
+  if (!innerExpr) return undefined;
+
+  return {
+    type: 'Exists' as const,
+    expression: innerExpr,
+  };
+}
+
+/**
  * Evaluate an expression from an Atom context (without slice detection).
  * Optional `extractWhere` callback is used for CASE expressions.
  */
@@ -381,6 +458,14 @@ export function evaluateExpressionFromAtom(
     const reduceExpr = extractReduceExpression(reduceCtx);
     if (reduceExpr) return reduceExpr;
   }
+
+  // Quantifier functions: ALL, ANY, SINGLE, NONE
+  const quantifierExpr = extractQuantifierExpression(atom, extractWhere);
+  if (quantifierExpr) return quantifierExpr;
+
+  // EXISTS function
+  const existsExpr = extractExistsExpression(atom);
+  if (existsExpr) return existsExpr;
 
   const funcCtx = findChild(atom, Ctx.FunctionInvocation);
   if (funcCtx) {

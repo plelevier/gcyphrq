@@ -309,7 +309,27 @@ export interface PathExpression {
   targetPattern: NodePattern;
 }
 
-export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression | PathExpression | ReduceExpression;
+/** A quantifier expression: ALL, ANY, SINGLE, NONE (x IN list WHERE predicate). */
+export interface QuantifierExpression {
+  type: 'Quantifier';
+  /** 'ALL' | 'ANY' | 'SINGLE' | 'NONE' */
+  quantifierType: 'ALL' | 'ANY' | 'SINGLE' | 'NONE';
+  /** Loop variable name (e.g., "x" in `x IN n.tags`). */
+  loopVariable: string;
+  /** List expression to iterate over (e.g., `n.tags`). */
+  list: Expression;
+  /** WHERE predicate to evaluate for each element. */
+  predicate: WhereExpression;
+}
+
+/** An EXISTS expression: EXISTS(expression) — true if expression is not null/undefined. */
+export interface ExistsExpression {
+  type: 'Exists';
+  /** Inner expression to check for existence. */
+  expression: Expression;
+}
+
+export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression | PathExpression | ReduceExpression | QuantifierExpression | ExistsExpression;
 
 export interface BinaryExpression {
   type: 'BinaryExpression';
@@ -336,7 +356,7 @@ export interface IsNullExpression {
   negated: boolean; // true for IS NOT NULL, false for IS NULL
 }
 
-export type WhereExpression = BinaryExpression | LogicalExpression | NotExpression | IsNullExpression;
+export type WhereExpression = BinaryExpression | LogicalExpression | NotExpression | IsNullExpression | QuantifierExpression | ExistsExpression;
 
 export interface Projection {
   expression: Expression;
