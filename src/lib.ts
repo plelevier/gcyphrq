@@ -531,22 +531,22 @@ export function explainQuery(query: string): { query: string; union?: boolean; s
  *
  * const graph = new Graph();
  * graph.addNode('alice', { label: 'User', name: 'Alice' });
- * const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name');
+ * const results = await executeQuery(graph, 'MATCH (u:User) RETURN u.name');
  *
  * // From graph data (original API)
- * const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
+ * const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
  * ```
  *
  * @param graphOrData - Graph data or an existing Graphology graph instance
  * @param query - A Cypher query string
  * @param opts - Optional configuration (label/edge-type property names)
- * @returns Array of result rows
+ * @returns Promise resolving to an array of result rows
  * @throws {GraphError} If graph data is invalid
  * @throws {Error} If the query is invalid or cannot be executed
  */
-export function executeQuery(graph: GraphInstance, query: string, opts?: IndexBuildOptions): ResultRow[];
-export function executeQuery(graphData: GraphInput, query: string, opts?: IndexBuildOptions): ResultRow[];
-export function executeQuery(graphOrData: GraphInstance | GraphInput, query: string, opts?: IndexBuildOptions): ResultRow[] {
+export function executeQuery(graph: GraphInstance, query: string, opts?: IndexBuildOptions): Promise<ResultRow[]>;
+export function executeQuery(graphData: GraphInput, query: string, opts?: IndexBuildOptions): Promise<ResultRow[]>;
+export async function executeQuery(graphOrData: GraphInstance | GraphInput, query: string, opts?: IndexBuildOptions): Promise<ResultRow[]> {
   const graph = isGraphInstance(graphOrData)
     ? (graphOrData instanceof Graph ? graphOrData : wrapExternalGraph(graphOrData as any))
     : (() => {
@@ -558,9 +558,9 @@ export function executeQuery(graphOrData: GraphInstance | GraphInput, query: str
   const engine = new AdvancedCypherGraphologyEngine(graph, indexes, opts?.onWarning);
   const ast = _parseCypher(query);
   if (ast.type === 'UnionQuery') {
-    return engine.executeUnion(ast);
+    return await engine.executeUnion(ast);
   }
-  return engine.execute(ast);
+  return await engine.execute(ast);
 }
 
 /** Type guard to distinguish a GraphInstance from a GraphInput data object. */
@@ -588,7 +588,7 @@ function isGraphInstance(value: GraphInstance | GraphInput): value is GraphInsta
  * const graph = createGraph(graphData);
  * const indexes = buildGraphIndexes(graphData, graph);
  * const engine = new GraphEngine(graph, indexes);
- * const results = engine.execute(ast);
+ * const results = await engine.execute(ast);
  * ```
  */
 export { AdvancedCypherGraphologyEngine as GraphEngine };
@@ -624,7 +624,7 @@ export { Graph };
  * ```ts
  * import { executeQuery } from 'gcyphrq';
  *
- * const results = executeQuery(graphData, 'MATCH (u:User) RETURN u');
+ * const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u');
  * ```
  *
  * @see https://github.com/plelevier/gcyphrq
@@ -660,6 +660,7 @@ export type {
   UnwindClause,
   ForeachClause,
   CallClause,
+  LoadCsvClause,
   NodePattern,
   LabelExpression,
   RelationPattern,

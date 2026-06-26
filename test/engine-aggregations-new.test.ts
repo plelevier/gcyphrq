@@ -14,18 +14,18 @@ describe('Engine - count(*), collect(), reduce()', () => {
   // ── count(*) ───────────────────────────────────────────────────────────
 
   describe('count(*)', () => {
-    it('counts all rows including nulls', () => {
+    it('counts all rows including nulls', async () => {
       const ast = parseCypher('MATCH (u:User) RETURN count(*) AS total');
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(1);
       expect(results[0]!.total).toBe(4);
     });
 
-    it('counts all rows in a group', () => {
+    it('counts all rows in a group', async () => {
       const ast = parseCypher(
         'MATCH (a:User)-[r]-(b:User) WITH a.name AS name, count(*) AS cnt RETURN name, cnt'
       );
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(4); // Alice, Bob, Charlie, Dave all have connections
       const aliceResult = results.find(r => r.name === 'Alice');
       expect(aliceResult?.cnt).toBe(2); // Alice connects to Bob (FRIEND) and Dave (KNOWS)
@@ -33,39 +33,39 @@ describe('Engine - count(*), collect(), reduce()', () => {
       expect(bobResult?.cnt).toBe(2); // Bob connects to Alice (FRIEND) and Charlie (FRIEND)
     });
 
-    it('returns 0 when no matches', () => {
+    it('returns 0 when no matches', async () => {
       const g = new Graph();
       g.addNode('a', { label: 'Item', value: 1 });
       const e = new AdvancedCypherGraphologyEngine(g);
       const ast = parseCypher('MATCH (n:NonExistent) RETURN count(*) AS total');
-      const results = e.execute(ast);
+      const results = await e.execute(ast);
       expect(results.length).toBe(1);
       expect(results[0]!.total).toBe(0);
     });
 
-    it('count(*) vs count(n) difference', () => {
+    it('count(*) vs count(n) difference', async () => {
       // count(*) counts all rows, count(n) excludes nulls
       const g = new Graph();
       g.addNode('a', { label: 'Item', value: 1 });
       g.addNode('b', { label: 'Item', value: null });
       const e = new AdvancedCypherGraphologyEngine(g);
       const ast = parseCypher('MATCH (n:Item) RETURN count(*) AS starCount, count(n.value) AS valueCount');
-      const results = e.execute(ast);
+      const results = await e.execute(ast);
       expect(results.length).toBe(1);
       expect(results[0]!.starCount).toBe(2);   // counts all rows
       expect(results[0]!.valueCount).toBe(1);   // excludes null
     });
 
-    it('count(*) with AS alias', () => {
+    it('count(*) with AS alias', async () => {
       const ast = parseCypher('MATCH (u:User) RETURN count(*) AS userCount');
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(1);
       expect(results[0]!.userCount).toBe(4);
     });
 
-    it('count(*) without AS uses default alias', () => {
+    it('count(*) without AS uses default alias', async () => {
       const ast = parseCypher('MATCH (u:User) RETURN count(*)');
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(1);
       expect(results[0]!).toHaveProperty('count(*)');
       expect(results[0]!['count(*)']).toBe(4);
@@ -75,9 +75,9 @@ describe('Engine - count(*), collect(), reduce()', () => {
   // ── collect() ──────────────────────────────────────────────────────────
 
   describe('collect()', () => {
-    it('collects all values into a list', () => {
+    it('collects all values into a list', async () => {
       const ast = parseCypher('MATCH (u:User) RETURN collect(u.name) AS names');
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(1);
       expect(Array.isArray(results[0]!.names)).toBe(true);
       const names = results[0]!.names as string[];
@@ -88,11 +88,11 @@ describe('Engine - count(*), collect(), reduce()', () => {
       expect(names).toContain('Dave');
     });
 
-    it('collects with grouping', () => {
+    it('collects with grouping', async () => {
       const ast = parseCypher(
         'MATCH (a:User)-[r:FRIEND]->(b:User) WITH a.name AS name, collect(b.name) AS friends RETURN name, friends'
       );
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(2);
       const aliceResult = results.find(r => r.name === 'Alice');
       expect(aliceResult?.friends).toEqual(['Bob']);
@@ -100,9 +100,9 @@ describe('Engine - count(*), collect(), reduce()', () => {
       expect(bobResult?.friends).toEqual(['Charlie']);
     });
 
-    it('collects property values', () => {
+    it('collects property values', async () => {
       const ast = parseCypher('MATCH (u:User) RETURN collect(u.age) AS ages');
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(1);
       const ages = results[0]!.ages as number[];
       expect(ages.length).toBe(4);
@@ -112,7 +112,7 @@ describe('Engine - count(*), collect(), reduce()', () => {
       expect(ages).toContain(28);
     });
 
-    it('collect(DISTINCT) removes duplicates', () => {
+    it('collect(DISTINCT) removes duplicates', async () => {
       // Create a graph with duplicate values
       const g = new Graph();
       g.addNode('a', { label: 'Item', category: 'A' });
@@ -121,30 +121,30 @@ describe('Engine - count(*), collect(), reduce()', () => {
       g.addNode('d', { label: 'Item', category: 'C' });
       const e = new AdvancedCypherGraphologyEngine(g);
       const ast = parseCypher('MATCH (n:Item) RETURN collect(DISTINCT n.category) AS categories');
-      const results = e.execute(ast);
+      const results = await e.execute(ast);
       expect(results.length).toBe(1);
       const categories = results[0]!.categories as string[];
       expect(categories).toEqual(['A', 'B', 'C']);
     });
 
-    it('collect() returns empty list when no matches', () => {
+    it('collect() returns empty list when no matches', async () => {
       const g = new Graph();
       g.addNode('a', { label: 'Item', value: 1 });
       const e = new AdvancedCypherGraphologyEngine(g);
       const ast = parseCypher('MATCH (n:NonExistent) RETURN collect(n.value) AS values');
-      const results = e.execute(ast);
+      const results = await e.execute(ast);
       expect(results.length).toBe(1);
       expect(results[0]!.values).toEqual([]);
     });
 
-    it('collect() with null values includes them', () => {
+    it('collect() with null values includes them', async () => {
       const g = new Graph();
       g.addNode('a', { label: 'Item', value: 1 });
       g.addNode('b', { label: 'Item', value: null });
       g.addNode('c', { label: 'Item', value: 3 });
       const e = new AdvancedCypherGraphologyEngine(g);
       const ast = parseCypher('MATCH (n:Item) RETURN collect(n.value) AS values');
-      const results = e.execute(ast);
+      const results = await e.execute(ast);
       expect(results.length).toBe(1);
       const values = results[0]!.values as (number | null)[];
       expect(values).toContain(1);
@@ -156,110 +156,110 @@ describe('Engine - count(*), collect(), reduce()', () => {
   // ── reduce() ───────────────────────────────────────────────────────────
 
   describe('reduce()', () => {
-    it('sums a list (one row per matched node)', () => {
+    it('sums a list (one row per matched node)', async () => {
       const ast = parseCypher('MATCH (u:User) RETURN reduce(total = 0, x IN [1, 2, 3, 4] | total + x) AS sum');
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(4); // one per user
       for (const r of results) {
         expect(r.sum).toBe(10);
       }
     });
 
-    it('multiplies a list', () => {
+    it('multiplies a list', async () => {
       const ast = parseCypher('MATCH (u:User) RETURN reduce(total = 1, x IN [2, 3, 4] | total * x) AS product');
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(4);
       for (const r of results) {
         expect(r.product).toBe(24);
       }
     });
 
-    it('concatenates strings', () => {
+    it('concatenates strings', async () => {
       const ast = parseCypher('MATCH (u:User) RETURN reduce(s = "", x IN ["a", "b", "c"] | s + x) AS result');
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(4);
       for (const r of results) {
         expect(r.result).toBe('abc');
       }
     });
 
-    it('works with property-based list', () => {
+    it('works with property-based list', async () => {
       // Collect ages and sum them
       const g = new Graph();
       g.addNode('a', { label: 'Person', name: 'Alice', ages: [10, 20, 30] });
       const e = new AdvancedCypherGraphologyEngine(g);
       const ast = parseCypher('MATCH (p:Person) RETURN reduce(total = 0, x IN p.ages | total + x) AS sum');
-      const results = e.execute(ast);
+      const results = await e.execute(ast);
       expect(results.length).toBe(1);
       expect(results[0]!.sum).toBe(60);
     });
 
-    it('returns initial value when list is empty', () => {
+    it('returns initial value when list is empty', async () => {
       const ast = parseCypher('MATCH (u:User) RETURN reduce(total = 42, x IN [] | total + x) AS result');
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(4);
       for (const r of results) {
         expect(r.result).toBe(42);
       }
     });
 
-    it('returns null when initial value is null', () => {
+    it('returns null when initial value is null', async () => {
       const ast = parseCypher('MATCH (u:User) RETURN reduce(total = null, x IN [1, 2] | total + x) AS result');
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(4);
       for (const r of results) {
         expect(r.result).toBeNull();
       }
     });
 
-    it('returns null when body evaluates to null', () => {
+    it('returns null when body evaluates to null', async () => {
       const ast = parseCypher('MATCH (u:User) RETURN reduce(total = 0, x IN [1, null, 3] | total + x) AS result');
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(4);
       for (const r of results) {
         expect(r.result).toBeNull();
       }
     });
 
-    it('works in WITH clause', () => {
+    it('works in WITH clause', async () => {
       // reduce with a literal list evaluates the same for all rows
       // since there are no grouping keys, all rows collapse into one
       const ast = parseCypher(
         'MATCH (u:User) WITH reduce(total = 0, x IN [1, 2, 3] | total + x) AS sum RETURN sum'
       );
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(1);
       expect(results[0]!.sum).toBe(6);
     });
 
-    it('works in WITH clause with grouping key', () => {
+    it('works in WITH clause with grouping key', async () => {
       // Each user gets one reduce evaluation with grouping key
       const ast = parseCypher(
         'MATCH (u:User) WITH u.name AS name, reduce(total = 0, x IN [1, 2, 3] | total + x) AS sum RETURN name, sum'
       );
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(4); // one per user
       for (const r of results) {
         expect(r.sum).toBe(6);
       }
     });
 
-    it('reduce with collect (both are aggregations)', () => {
+    it('reduce with collect (both are aggregations)', async () => {
       // Sum all ages using collect + reduce — collect is an aggregation, so this aggregates
       const ast = parseCypher(
         'MATCH (u:User) RETURN reduce(total = 0, x IN collect(u.age) | total + x) AS totalAge'
       );
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(1);
       expect(results[0]!.totalAge).toBe(118); // 30 + 25 + 35 + 28
     });
 
-    it('reduce with string concatenation of names', () => {
+    it('reduce with string concatenation of names', async () => {
       // collect is an aggregation, so this aggregates all users into one row
       const ast = parseCypher(
         'MATCH (u:User) RETURN reduce(s = "", x IN collect(u.name) | s + x + ", ") AS allNames'
       );
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(1);
       expect(typeof results[0]!.allNames).toBe('string');
       expect((results[0]!.allNames as string).length).toBeGreaterThan(0);
@@ -269,34 +269,34 @@ describe('Engine - count(*), collect(), reduce()', () => {
   // ── Combined scenarios ────────────────────────────────────────────────
 
   describe('combined', () => {
-    it('count(*), collect, and reduce together', () => {
+    it('count(*), collect, and reduce together', async () => {
       const ast = parseCypher(
         'MATCH (u:User) RETURN count(*) AS total, collect(u.name) AS names, reduce(sum = 0, x IN [1, 2, 3] | sum + x) AS listSum'
       );
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(1);
       expect(results[0]!.total).toBe(4);
       expect(Array.isArray(results[0]!.names)).toBe(true);
       expect(results[0]!.listSum).toBe(6);
     });
 
-    it('collect with count and reduce in WITH', () => {
+    it('collect with count and reduce in WITH', async () => {
       const ast = parseCypher(
         'MATCH (a:User)-[r]-(b:User) WITH a.name AS name, count(*) AS connections, collect(b.name) AS connected, reduce(total = 0, x IN [1, 2] | total + x) AS extra RETURN name, connections, connected, extra'
       );
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(4); // Alice, Bob, Charlie, Dave all have connections
       for (const r of results) {
         expect(r.extra).toBe(3);
       }
     });
 
-    it('reduce over collect result with grouping', () => {
+    it('reduce over collect result with grouping', async () => {
       // Use a second WITH to apply reduce after collect
       const ast = parseCypher(
         'MATCH (a:User)-[r:FRIEND]->(b:User) WITH a.name AS name, collect(b.age) AS ages WITH name, reduce(total = 0, x IN ages | total + x) AS totalAge RETURN name, totalAge'
       );
-      const results = engine.execute(ast);
+      const results = await engine.execute(ast);
       expect(results.length).toBe(2);
       const aliceResult = results.find(r => r.name === 'Alice');
       expect(aliceResult?.totalAge).toBe(25); // Bob's age

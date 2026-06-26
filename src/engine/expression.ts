@@ -221,9 +221,9 @@ function parseTimezoneOffset(str: string): string | null {
   const tzMatch = str.match(/[+-](\d{2}):?(\d{2})$/);
   if (tzMatch) {
     const [, h, m] = tzMatch;
-    const idx = str.lastIndexOf(h);
+    const idx = str.lastIndexOf(h!);
     const sign = str[idx - 1];
-    return `${sign}${h}:${m}`;
+    return `${sign}${h!}:${m!}`;
   }
   return null;
 }
@@ -234,7 +234,7 @@ function timezoneOffsetToMinutes(tz: string | null | undefined): number {
   const m = tz.match(/^([+-])(\d{2}):(\d{2})$/);
   if (!m) return 0;
   const sign = m[1] === '+' ? 1 : -1;
-  return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10));
+  return sign * (parseInt(m[2]!, 10) * 60 + parseInt(m[3]!, 10));
 }
 
 /** Parse a temporal string (ISO 8601 datetime/date/time) into components. */
@@ -249,12 +249,12 @@ function parseTemporalValue(input: CypherValue): TemporalParts | null {
     const [, year, month, day, hour, minute, second, ms] = dateTimeMatch;
     const timezone = parseTimezoneOffset(str);
     return {
-      year: parseInt(year, 10),
-      month: parseInt(month, 10),
-      day: parseInt(day, 10),
-      hour: parseInt(hour, 10),
-      minute: parseInt(minute, 10),
-      second: parseInt(second, 10),
+      year: parseInt(year!, 10),
+      month: parseInt(month!, 10),
+      day: parseInt(day!, 10),
+      hour: parseInt(hour!, 10),
+      minute: parseInt(minute!, 10),
+      second: parseInt(second!, 10),
       millisecond: ms ? Math.round(parseFloat(`0.${ms}`) * 1000) : 0,
       timezone,
     };
@@ -265,9 +265,9 @@ function parseTemporalValue(input: CypherValue): TemporalParts | null {
   if (dateMatch) {
     const [, year, month, day] = dateMatch;
     return {
-      year: parseInt(year, 10),
-      month: parseInt(month, 10),
-      day: parseInt(day, 10),
+      year: parseInt(year!, 10),
+      month: parseInt(month!, 10),
+      day: parseInt(day!, 10),
       timezone: null,
     };
   }
@@ -279,9 +279,9 @@ function parseTemporalValue(input: CypherValue): TemporalParts | null {
     const [, hour, minute, second, ms] = timeMatch;
     const timezone = parseTimezoneOffset(str);
     return {
-      hour: parseInt(hour, 10),
-      minute: parseInt(minute, 10),
-      second: parseInt(second, 10),
+      hour: parseInt(hour!, 10),
+      minute: parseInt(minute!, 10),
+      second: parseInt(second!, 10),
       millisecond: ms ? Math.round(parseFloat(`0.${ms}`) * 1000) : 0,
       timezone,
     };
@@ -425,9 +425,9 @@ function buildTemporal(
       const timeMatch = firstArg.match(/^(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
       if (timeMatch) {
         const [, h, m, s, ms] = timeMatch;
-        const hour = parseInt(h, 10);
-        const minute = parseInt(m, 10);
-        const second = parseInt(s, 10);
+        const hour = parseInt(h!, 10);
+        const minute = parseInt(m!, 10);
+        const second = parseInt(s!, 10);
         const millisecond = ms ? Math.round(parseFloat(`0.${ms}`) * 1000) : 0;
         // For timewithzone, preserve timezone from input string
         const tz = parseTimezoneOffset(firstArg);
@@ -448,12 +448,12 @@ function buildTemporal(
       const dateTimeMatch = firstArg.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
       if (dateTimeMatch) {
         const [, y, mo, d, h, m, s, ms] = dateTimeMatch;
-        const year = parseInt(y, 10);
-        const month = parseInt(mo, 10);
-        const day = parseInt(d, 10);
-        const hour = parseInt(h, 10);
-        const minute = parseInt(m, 10);
-        const second = parseInt(s, 10);
+        const year = parseInt(y!, 10);
+        const month = parseInt(mo!, 10);
+        const day = parseInt(d!, 10);
+        const hour = parseInt(h!, 10);
+        const minute = parseInt(m!, 10);
+        const second = parseInt(s!, 10);
         const millisecond = ms ? Math.round(parseFloat(`0.${ms}`) * 1000) : 0;
         const tz = parseTimezoneOffset(firstArg);
         return `${formatLocalDateTime(year, month, day, hour, minute, second, millisecond)}${tz ?? 'Z'}`;
@@ -523,11 +523,11 @@ function parseDurationString(iso: string): DurationParts | null {
   if (!match || iso === 'P' || iso === 'PT') return null;
   const [, y, mo, d, h, mi, s] = match;
   return {
-    years: parseInt(y, 10) || 0,
-    months: parseInt(mo, 10) || 0,
-    days: parseInt(d, 10) || 0,
-    hours: parseInt(h, 10) || 0,
-    minutes: parseInt(mi, 10) || 0,
+    years: parseInt(y!, 10) || 0,
+    months: parseInt(mo!, 10) || 0,
+    days: parseInt(d!, 10) || 0,
+    hours: parseInt(h!, 10) || 0,
+    minutes: parseInt(mi!, 10) || 0,
     seconds: s ? Math.floor(parseFloat(s)) : 0,
     milliseconds: s ? Math.round((parseFloat(s) - Math.floor(parseFloat(s))) * 1000) : 0,
   };

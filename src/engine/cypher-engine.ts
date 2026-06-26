@@ -13,6 +13,7 @@ import type {
   ForeachClause,
   GraphConfig,
   GraphIndexes,
+  LoadCsvClause,
   MergeClause,
   OrderByItem,
   Projection,
@@ -32,10 +33,11 @@ import { isContextChain, materialiseChain, resolveChainValue, type ContextChain,
 import { executeMatch, getMatchingNodeIds, matchNodeCriteria, deepEquals, getNodeLabels } from './match';
 import { evaluateWhere as evaluateWhereCore, isWhereExpression, extractListValues, mapsEqual as mapsEqualImpl, compareValues as compareValuesImpl, compareValuesWithNulls as compareValuesWithNullsImpl, applyOrderByToContexts as applyOrderByToContextsImpl, applyOrderByToRows as applyOrderByToRowsImpl } from './where';
 import { evaluateExpression as evaluateExpressionImpl, evaluateCase as evaluateCaseImpl, evaluateStringFunction as evaluateStringFunctionImpl } from './expression';
-import { containsAggregation, containsAggregationInWhere, collectAggregations, collectAggregationsInWhere, computeAggregations as computeAggregationsImpl } from './aggregation';
+import { containsAggregation, containsAggregationInWhere, collectAggregations, collectAggregationsInWhere, computeAggregations as computeAggregationsImpl, getAggKey } from './aggregation';
 import { executeWrite, executeMerge, applyMergeActions } from './mutation';
 import { evaluatePathExpression as evaluatePathExpressionImpl } from './path-finding';
 import { executeReturn as executeReturnImpl, executeWith as executeWithImpl } from './result';
+import { loadCsv, buildCsvRows } from './csv-reader';
 
 // ── Engine ───────────────────────────────────────────────────────────────────
 
@@ -55,12 +57,12 @@ export class AdvancedCypherGraphologyEngine {
   }
 
   /** MAIN ENTRY POINT - Sequentially executes query stages and formats the return projection. */
-  public execute(ast: AdvancedCypherAST): ResultRow[] {
+  public async execute(ast: AdvancedCypherAST): Promise<ResultRow[]> {
     let contexts: (QueryContext | ContextChain)[] = [{}];
 
     for (const stage of ast.stages) {
       if (stage.type === 'MATCH') {
-        const result = executeMatch(this.graph, this.indexes, this.config, stage.clause, contexts, (w, c) => this.evaluateWhere(w, c), this.warnedNoLabels, this.warnedNoEdgeTypes, this.onWarning);
+        const result = executeMatch(this.graph, this.indexes, this.config, stage.clause, contexts, (w, c) => this.evaluateWhere(w, c), this.warnedNoLabels, this.warnedNoEdgeTypes, this.onWarning, (e, c) => this.evaluateExpression(e, c));
         contexts = result.contexts;
         this.warnedNoLabels = result.warnedNoLabels;
         this.warnedNoEdgeTypes = result.warnedNoEdgeTypes;
@@ -78,7 +80,9 @@ export class AdvancedCypherGraphologyEngine {
       } else if (stage.type === 'FOREACH') {
         contexts = this.executeForeach(stage.clause, contexts);
       } else if (stage.type === 'CALL') {
-        contexts = this.executeCall(stage.clause, contexts);
+        contexts = await this.executeCall(stage.clause, contexts);
+      } else if (stage.type === 'LOAD_CSV') {
+        contexts = await this.executeLoadCsv(stage.clause, contexts);
       }
     }
 
@@ -100,13 +104,13 @@ export class AdvancedCypherGraphologyEngine {
   }
 
   /** Execute a UNION / UNION ALL query. */
-  public executeUnion(ast: UnionQueryAST): ResultRow[] {
+  public async executeUnion(ast: UnionQueryAST): Promise<ResultRow[]> {
     const allRows: ResultRow[] = [];
     const allColumnNames: string[] = [];
     const seenColumns = new Set<string>();
 
     for (const branch of ast.branches) {
-      const branchResults = this.execute(branch);
+      const branchResults = await this.execute(branch);
       for (const row of branchResults) {
         for (const key of Object.keys(row)) {
           if (!seenColumns.has(key)) { seenColumns.add(key); allColumnNames.push(key); }
@@ -185,13 +189,13 @@ export class AdvancedCypherGraphologyEngine {
 
   // ── CALL (subquery) STAGE ────────────────────────────────────────────
 
-  private executeCall(clause: CallClause, incomingContexts: (QueryContext | ContextChain)[]): (QueryContext | ContextChain)[] {
+  private async executeCall(clause: CallClause, incomingContexts: (QueryContext | ContextChain)[]): Promise<(QueryContext | ContextChain)[]> {
     const outgoingContexts: (QueryContext | ContextChain)[] = [];
 
     for (const context of incomingContexts) {
       const flatContext = isContextChain(context) ? materialiseChain(context) : context;
       const innerContext: QueryContext = clause.inline ? { ...flatContext } : {};
-      const innerResults = this.executeInnerQuery(clause.innerQuery, innerContext);
+      const innerResults = await this.executeInnerQuery(clause.innerQuery, innerContext);
 
       for (const innerRow of innerResults) {
         let overrides: QueryContext;
@@ -209,14 +213,33 @@ export class AdvancedCypherGraphologyEngine {
     return outgoingContexts;
   }
 
+  // ── LOAD CSV STAGE ───────────────────────────────────────────────────
+
+  private async executeLoadCsv(clause: LoadCsvClause, incomingContexts: (QueryContext | ContextChain)[]): Promise<(QueryContext | ContextChain)[]> {
+    const { rows, headers } = await loadCsv(clause.source, clause.withHeaders, {
+      fieldTerminator: clause.fieldTerminator,
+      enclosedBy: clause.enclosedBy,
+    });
+    const csvRows = buildCsvRows(rows, headers);
+
+    const outgoingContexts: (QueryContext | ContextChain)[] = [];
+    for (const context of incomingContexts) {
+      for (const csvRow of csvRows) {
+        outgoingContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: { [clause.variable]: csvRow } });
+      }
+    }
+
+    return outgoingContexts;
+  }
+
   /** Execute an inner query (from a CALL subquery) against a single context. */
-  private executeInnerQuery(innerAST: AdvancedCypherAST, context: QueryContext): QueryContext[] {
-    let contexts: QueryContext[] = [context];
+  private async executeInnerQuery(innerAST: AdvancedCypherAST, context: QueryContext): Promise<QueryContext[]> {
+    let contexts: (QueryContext | ContextChain)[] = [context];
 
     for (const stage of innerAST.stages) {
       if (stage.type === 'MATCH') {
         const chainContexts: (QueryContext | ContextChain)[] = contexts.map((c) => c);
-        const matched = executeMatch(this.graph, this.indexes, this.config, stage.clause, chainContexts, (w, c) => this.evaluateWhere(w, c), this.warnedNoLabels, this.warnedNoEdgeTypes, this.onWarning);
+        const matched = executeMatch(this.graph, this.indexes, this.config, stage.clause, chainContexts, (w, c) => this.evaluateWhere(w, c), this.warnedNoLabels, this.warnedNoEdgeTypes, this.onWarning, (e, c) => this.evaluateExpression(e, c));
         contexts = matched.contexts.map((c) => materialiseChain(c));
         this.warnedNoLabels = matched.warnedNoLabels;
         this.warnedNoEdgeTypes = matched.warnedNoEdgeTypes;
@@ -240,8 +263,10 @@ export class AdvancedCypherGraphologyEngine {
         contexts = foreached.map((c) => materialiseChain(c));
       } else if (stage.type === 'CALL') {
         const chainContexts: (QueryContext | ContextChain)[] = contexts.map((c) => c);
-        const called = this.executeCall(stage.clause, chainContexts);
+        const called = await this.executeCall(stage.clause, chainContexts);
         contexts = called.map((c) => materialiseChain(c));
+      } else if (stage.type === 'LOAD_CSV') {
+        contexts = (await this.executeLoadCsv(stage.clause, contexts)).map((c) => materialiseChain(c));
       }
     }
 
@@ -250,7 +275,7 @@ export class AdvancedCypherGraphologyEngine {
       const rows = this.executeReturn(innerAST.return, chainContexts);
       return rows as unknown as QueryContext[];
     }
-    return contexts;
+    return contexts.map((c) => (isContextChain(c) ? materialiseChain(c) : c));
   }
 
   // ── WRITE MUTATIONS STAGE ────────────────────────────────────────────
@@ -339,7 +364,7 @@ export class AdvancedCypherGraphologyEngine {
   /** Evaluate expression that may contain aggregations. */
   private evaluateExpressionWithAggregations(expr: Expression, context: QueryContext, aggResults: Map<string, CypherValue>): CypherValue {
     if (expr.type === 'Aggregation') {
-      const key = `${expr.variable}:${expr.property ?? ''}:${expr.aggregationType}:${expr.distinct}`;
+      const key = `${getAggKey(expr)}:${expr.aggregationType}:${expr.distinct}`;
       return aggResults.get(key) ?? null;
     }
     if (expr.type === 'Reduce') {

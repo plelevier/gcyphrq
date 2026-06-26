@@ -71,7 +71,7 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses LIMIT on WITH clause', () => {
       const ast = parseCypher('MATCH (n) WITH n.name AS name LIMIT 10 RETURN name') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(2);
-      expect(ast.stages[1]?.clause?.limit).toBe(10);
+      expect((ast.stages[1]?.clause as any)?.limit).toBe(10);
     });
   });
 
@@ -138,21 +138,21 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses SKIP on WITH', () => {
       const ast = parseCypher('MATCH (n) WITH n.name AS name SKIP 5 RETURN name') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(2);
-      expect(ast.stages[1]?.clause?.skip).toBe(5);
+      expect((ast.stages[1]?.clause as any)?.skip).toBe(5);
     });
 
     it('parses SKIP + LIMIT on WITH', () => {
       const ast = parseCypher('MATCH (n) WITH n.name AS name SKIP 5 LIMIT 10 RETURN name') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(2);
-      expect(ast.stages[1]?.clause?.skip).toBe(5);
-      expect(ast.stages[1]?.clause?.limit).toBe(10);
+      expect((ast.stages[1]?.clause as any)?.skip).toBe(5);
+      expect((ast.stages[1]?.clause as any)?.limit).toBe(10);
     });
 
     it('parses ORDER BY + SKIP + LIMIT on WITH', () => {
       const ast = parseCypher('MATCH (n) WITH n.name AS name ORDER BY name SKIP 5 LIMIT 10 RETURN name') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(2);
-      expect(ast.stages[1]?.clause?.skip).toBe(5);
-      expect(ast.stages[1]?.clause?.limit).toBe(10);
+      expect((ast.stages[1]?.clause as any)?.skip).toBe(5);
+      expect((ast.stages[1]?.clause as any)?.limit).toBe(10);
     });
   });
 
@@ -172,13 +172,13 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses query with OPTIONAL MATCH', () => {
       const ast = parseCypher('MATCH (n:User) OPTIONAL MATCH (n)-[:FRIEND]->(m:User) RETURN n.name, m.name') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(2);
-      expect(ast.stages[1]?.clause?.optional).toBe(true);
+      expect((ast.stages[1]?.clause as any)?.optional).toBe(true);
     });
 
     it('parses query with WHERE and ORDER BY', () => {
       const ast = parseCypher('MATCH (n) WHERE n.age > 30 RETURN n.name ORDER BY n.name') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
       expect(ast.return!.orderBy).toBeDefined();
     });
 
@@ -220,13 +220,13 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses CONTAINS with property', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name CONTAINS "Alice" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses CONTAINS with function result', () => {
       const ast = parseCypher('MATCH (n) WHERE toUpper(n.name) CONTAINS "ALICE" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
   });
 
@@ -234,13 +234,13 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses AND with two conditions', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" AND n.age > 30 RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses AND with three conditions', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" AND n.age > 30 AND n.dept = "Eng" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
   });
 
@@ -248,13 +248,13 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses OR with two conditions', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" OR n.name = "Bob" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses OR with three conditions', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" OR n.name = "Bob" OR n.name = "Charlie" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
   });
 
@@ -262,13 +262,13 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses AND with OR using parentheses', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" AND (n.age > 30 OR n.dept = "Eng") RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses OR with AND', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" OR (n.age > 30 AND n.dept = "Eng") RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
   });
 
@@ -276,19 +276,19 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses equality condition', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name = "Alice" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses inequality condition', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name <> "Alice" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses greater than condition', () => {
       const ast = parseCypher('MATCH (n) WHERE n.age > 30 RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
   });
 
@@ -296,31 +296,31 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses NOT with equality', () => {
       const ast = parseCypher('MATCH (n) WHERE NOT n.name = "Alice" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses NOT with IN', () => {
       const ast = parseCypher('MATCH (n) WHERE NOT n.name IN ["Alice", "Bob"] RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses NOT with AND', () => {
       const ast = parseCypher('MATCH (n) WHERE NOT (n.name = "Alice" AND n.age > 30) RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses NOT with OR', () => {
       const ast = parseCypher('MATCH (n) WHERE NOT (n.name = "Alice" OR n.age > 30) RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses NOT with IS NULL', () => {
       const ast = parseCypher('MATCH (n) WHERE NOT n.age IS NULL RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
   });
 
@@ -328,25 +328,25 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses IS NULL', () => {
       const ast = parseCypher('MATCH (n) WHERE n.age IS NULL RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses IS NOT NULL', () => {
       const ast = parseCypher('MATCH (n) WHERE n.age IS NOT NULL RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses IS NULL with AND', () => {
       const ast = parseCypher('MATCH (n) WHERE n.age IS NULL AND n.name = "Alice" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses IS NOT NULL with OR', () => {
       const ast = parseCypher('MATCH (n) WHERE n.age IS NOT NULL OR n.name = "Alice" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
   });
 
@@ -354,31 +354,31 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses IN with list literal', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name IN ["Alice", "Bob"] RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses IN with property access', () => {
       const ast = parseCypher('MATCH (n) WHERE n.tags[0] IN ["admin", "user"] RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses IN with function result', () => {
       const ast = parseCypher('MATCH (n) WHERE toUpper(n.name) IN ["ALICE", "BOB"] RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses IN with numeric values', () => {
       const ast = parseCypher('MATCH (n) WHERE n.age IN [20, 30, 40] RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses IN with empty list', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name IN [] RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
   });
 
@@ -386,25 +386,25 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses STARTS WITH', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name STARTS WITH "Al" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses ENDS WITH', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name ENDS WITH "ie" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses STARTS WITH with function result', () => {
       const ast = parseCypher('MATCH (n) WHERE toUpper(n.name) STARTS WITH "AL" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses ENDS WITH with function result', () => {
       const ast = parseCypher('MATCH (n) WHERE toLower(n.name) ENDS WITH "ie" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
   });
 
@@ -1004,13 +1004,13 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses map literal in WHERE with deep equality', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {prop: val} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses map literal in WHERE with multiple properties', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", age: 30} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses map literal in SET', () => {
@@ -1042,7 +1042,7 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses map literal in CASE WHEN condition', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {prop: val} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
   });
 
@@ -1085,7 +1085,7 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses list literal in WHERE', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name IN ["Alice", "Bob"] RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal in SET', () => {
@@ -1342,55 +1342,55 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses list literal with deep equality map', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {prop: val} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality nested map', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {prop: {nested: val}} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality list', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {tags: ["admin", "user"]} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality mixed', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", tags: ["admin"], active: true} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality null', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", deleted: null} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality boolean', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", active: true, deleted: false} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality number', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", age: 30, score: 95.5} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality string', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", dept: "Eng"} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality multiple properties', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", age: 30, dept: "Eng", active: true} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in CASE', () => {
@@ -1401,151 +1401,151 @@ describe('parseCypher - ORDER BY / LIMIT / SKIP / DISTINCT / UNWIND / MERGE', ()
     it('parses list literal with deep equality in WHERE IS NULL', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", deleted: null} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE IN', () => {
       const ast = parseCypher('MATCH (n) WHERE n IN [{name: "Alice"}, {name: "Bob"}] RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE CONTAINS', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name CONTAINS "Alice" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE STARTS WITH', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name STARTS WITH "Al" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE ENDS WITH', () => {
       const ast = parseCypher('MATCH (n) WHERE n.name ENDS WITH "ie" RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with function', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: toUpper("alice")} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with arithmetic', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {total: 10 * 5} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with CASE', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {tier: CASE WHEN n.age > 30 THEN "old" ELSE "young" END} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with nested map', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {profile: {name: "Alice", age: 30}} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with nested list', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {tags: [["admin"], ["user"]]} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with mixed nested', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {data: {tags: ["admin", "user"], active: true}} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with multiple nested levels', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {profile: {tags: {admin: true, user: false}}} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with all types', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", age: 30, active: true, deleted: null, tags: ["admin"], profile: {dept: "Eng"}} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with empty map', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with empty list', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {tags: []} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with single property', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice"} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with two properties', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", age: 30} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with three properties', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", age: 30, dept: "Eng"} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with four properties', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", age: 30, dept: "Eng", active: true} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with five properties', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", age: 30, dept: "Eng", active: true, deleted: null} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with six properties', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", age: 30, dept: "Eng", active: true, deleted: null, tags: ["admin"]} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with seven properties', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", age: 30, dept: "Eng", active: true, deleted: null, tags: ["admin"], profile: {dept: "Eng"}} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with eight properties', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", age: 30, dept: "Eng", active: true, deleted: null, tags: ["admin"], profile: {dept: "Eng"}, score: 95.5} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with nine properties', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", age: 30, dept: "Eng", active: true, deleted: null, tags: ["admin"], profile: {dept: "Eng"}, score: 95.5, bio: "Developer"} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
 
     it('parses list literal with deep equality in WHERE with ten properties', () => {
       const ast = parseCypher('MATCH (n) WHERE n = {name: "Alice", age: 30, dept: "Eng", active: true, deleted: null, tags: ["admin"], profile: {dept: "Eng"}, score: 95.5, bio: "Developer", level: 5} RETURN n') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(1);
-      expect(ast.stages[0]?.clause?.where).toBeDefined();
+      expect((ast.stages[0]?.clause as any)?.where).toBeDefined();
     });
   });
 });

@@ -15,7 +15,7 @@ function createEngine(graph: GraphInstance) {
 // ── Parser tests ─────────────────────────────────────────────────────────────
 
 describe('FOREACH parser', () => {
-  it('parses FOREACH with SET property', () => {
+  it('parses FOREACH with SET property', async () => {
     const ast = parseCypher('MATCH (n) FOREACH (x IN n.tags | SET x.active = true) RETURN n');
     expect(ast.stages.length).toBe(2);
     expect(ast.stages[0]?.type).toBe('MATCH');
@@ -34,7 +34,7 @@ describe('FOREACH parser', () => {
     }
   });
 
-  it('parses FOREACH with SET label', () => {
+  it('parses FOREACH with SET label', async () => {
     const ast = parseCypher('MATCH (n) FOREACH (x IN n.tags | SET x:Tag) RETURN n');
     const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
     expect(clause.innerClause.type).toBe('SET');
@@ -43,7 +43,7 @@ describe('FOREACH parser', () => {
     }
   });
 
-  it('parses FOREACH with CREATE', () => {
+  it('parses FOREACH with CREATE', async () => {
     const ast = parseCypher('MATCH (n) FOREACH (x IN n.tags | CREATE (t:Tag {name: x})) RETURN n');
     const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
     expect(clause.innerClause.type).toBe('CREATE');
@@ -55,7 +55,7 @@ describe('FOREACH parser', () => {
     }
   });
 
-  it('parses FOREACH with DELETE', () => {
+  it('parses FOREACH with DELETE', async () => {
     const ast = parseCypher('MATCH (n) FOREACH (x IN n.tags | DELETE x) RETURN n');
     const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
     expect(clause.innerClause.type).toBe('DELETE');
@@ -64,7 +64,7 @@ describe('FOREACH parser', () => {
     }
   });
 
-  it('parses FOREACH with REMOVE property', () => {
+  it('parses FOREACH with REMOVE property', async () => {
     const ast = parseCypher('MATCH (n) FOREACH (x IN n.items | REMOVE x.temp) RETURN n');
     const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
     expect(clause.innerClause.type).toBe('REMOVE');
@@ -74,7 +74,7 @@ describe('FOREACH parser', () => {
     }
   });
 
-  it('parses FOREACH with REMOVE label', () => {
+  it('parses FOREACH with REMOVE label', async () => {
     const ast = parseCypher('MATCH (n) FOREACH (x IN n.items | REMOVE x:Temp) RETURN n');
     const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
     expect(clause.innerClause.type).toBe('REMOVE');
@@ -98,60 +98,60 @@ describe('FOREACH engine: SET property', () => {
     graph.addNode('c', { label: 'Item', value: 3 });
   });
 
-  it('sets property on each element of a list', () => {
+  it('sets property on each element of a list', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.tags | SET x.processed = true) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     // Only 1 row (FOREACH does not expand rows)
     expect(results.length).toBe(1);
     expect(results[0]?.['userName']).toBe('Alice');
   });
 
-  it('does not expand rows (unlike UNWIND)', () => {
+  it('does not expand rows (unlike UNWIND)', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.tags | SET x.processed = true) RETURN u',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     expect(results[0]?.['u']).toBeDefined();
   });
 
-  it('handles empty list (no-op)', () => {
+  it('handles empty list (no-op)', async () => {
     graph.setNodeAttribute('u1', 'tags', []);
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.tags | SET x.processed = true) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     expect(results[0]?.['userName']).toBe('Alice');
   });
 
-  it('handles null list (no-op)', () => {
+  it('handles null list (no-op)', async () => {
     graph.setNodeAttribute('u1', 'tags', null);
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.tags | SET x.processed = true) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     expect(results[0]?.['userName']).toBe('Alice');
   });
 
-  it('handles missing list property (no-op)', () => {
+  it('handles missing list property (no-op)', async () => {
     graph.setNodeAttribute('u1', 'tags', undefined);
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.tags | SET x.processed = true) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
   });
 
-  it('works with literal list', () => {
+  it('works with literal list', async () => {
     graph.addNode('x1', { label: 'Item', name: 'first' });
     graph.addNode('x2', { label: 'Item', name: 'second' });
     // Using a list of strings
@@ -159,7 +159,7 @@ describe('FOREACH engine: SET property', () => {
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (s IN ["hello", "world"] | SET s.marked = true) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
   });
 });
@@ -176,23 +176,23 @@ describe('FOREACH engine: SET label', () => {
     graph.addNode('b', { label: 'Item', value: 2 });
   });
 
-  it('adds label to each element', () => {
+  it('adds label to each element', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.tags | SET x:Tagged) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     expect(results[0]?.['userName']).toBe('Alice');
   });
 
-  it('SET label on strings (no-op on non-node values, no crash)', () => {
+  it('SET label on strings (no-op on non-node values, no crash)', async () => {
     const engine = createEngine(graph);
     // When tags are strings, SET x:Tagged won't find nodes, but shouldn't crash
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.tags | SET x:Tagged) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
   });
 });
@@ -207,12 +207,12 @@ describe('FOREACH engine: CREATE', () => {
     graph.addNode('u1', { label: 'User', name: 'Alice', tags: ['a', 'b', 'c'] });
   });
 
-  it('creates a node for each element with dynamic property', () => {
+  it('creates a node for each element with dynamic property', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.tags | CREATE (t:Tag {name: x})) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     expect(results[0]?.['userName']).toBe('Alice');
 
@@ -229,12 +229,12 @@ describe('FOREACH engine: CREATE', () => {
     expect(names).toEqual(['a', 'b', 'c']);
   });
 
-  it('creates nodes with static labels and dynamic properties', () => {
+  it('creates nodes with static labels and dynamic properties', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.tags | CREATE (t:Tag:Active {name: x, source: "FOREACH"})) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     const allNodes = graph.filterNodes(() => true);
@@ -251,12 +251,12 @@ describe('FOREACH engine: CREATE', () => {
     }
   });
 
-  it('creates nodes from a literal list', () => {
+  it('creates nodes from a literal list', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN [1, 2, 3] | CREATE (n:Number {value: x})) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     const allNodes = graph.filterNodes(() => true);
@@ -267,13 +267,13 @@ describe('FOREACH engine: CREATE', () => {
     expect(numberNodes.length).toBe(3);
   });
 
-  it('creates no nodes when list is null (no-op)', () => {
+  it('creates no nodes when list is null (no-op)', async () => {
     graph.setNodeAttribute('u1', 'tags', null);
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.tags | CREATE (t:Tag {name: x})) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     const allNodes = graph.filterNodes(() => true);
@@ -302,7 +302,7 @@ describe('FOREACH engine: DELETE', () => {
     ]);
   });
 
-  it('deletes nodes referenced in the list', () => {
+  it('deletes nodes referenced in the list', async () => {
     // Simple case: list of node references
     graph.setNodeAttribute('u1', 'todos', ['t2', 't3']);
     const engine = createEngine(graph);
@@ -311,7 +311,7 @@ describe('FOREACH engine: DELETE', () => {
     );
     // This won't actually delete because 't2'/'t3' are strings, not node objects
     // But the query should not crash
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
   });
 });
@@ -329,23 +329,23 @@ describe('FOREACH engine: REMOVE', () => {
     graph.setNodeAttribute('u1', 'items', ['t1', 't2']);
   });
 
-  it('removes property from each element in list', () => {
+  it('removes property from each element in list', async () => {
     graph.setNodeAttribute('u1', 'items', ['t1', 't2']);
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.items | REMOVE x.temp) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
   });
 
-  it('removes label from each element in list', () => {
+  it('removes label from each element in list', async () => {
     graph.setNodeAttribute('u1', 'items', ['t1', 't2']);
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.items | REMOVE x:Item) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
   });
 });
@@ -363,22 +363,22 @@ describe('FOREACH engine: node lists', () => {
     graph.addNode('p3', { label: 'Project', name: 'Gamma', status: 'inactive' });
   });
 
-  it('FOREACH with SET property on a literal list of strings', () => {
+  it('FOREACH with SET property on a literal list of strings', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (s IN ["a", "b"] | SET s.marked = true) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
   });
 
-  it('FOREACH with UNWIND + SET for node iteration', () => {
+  it('FOREACH with UNWIND + SET for node iteration', async () => {
     // Use UNWIND to get nodes into a variable, then FOREACH for mutation
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (p IN ["p1", "p2"] | SET p.reviewed = true) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
   });
 });
@@ -398,23 +398,23 @@ describe('FOREACH integration', () => {
     graph.addEdge('u1', 't2', { type: 'HAS_TAG' });
   });
 
-  it('FOREACH followed by RETURN', () => {
+  it('FOREACH followed by RETURN', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (t IN u.tags | SET t.marked = true) RETURN u.name AS userName, u.tags AS userTags',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2); // 2 users
     const names = results.map((r) => r['userName']).sort();
     expect(names).toEqual(['Alice', 'Bob']);
   });
 
-  it('FOREACH followed by MATCH (uses updated graph)', () => {
+  it('FOREACH followed by MATCH (uses updated graph)', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User {name: "Alice"}) FOREACH (t IN u.tags | CREATE (n:TagNode {name: t})) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     // Verify new nodes were created
@@ -426,19 +426,19 @@ describe('FOREACH integration', () => {
     expect(tagNodes.length).toBe(2);
   });
 
-  it('FOREACH with CREATE, then MATCH new nodes', () => {
+  it('FOREACH with CREATE, then MATCH new nodes', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User {name: "Alice"}) ' +
       'FOREACH (t IN u.tags | CREATE (n:Created {name: t})) ' +
       'MATCH (c:Created) RETURN c.name AS cname',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     const names = results.map((r) => r['cname']).sort();
     expect(names).toEqual(['js', 'ts']);
   });
 
-  it('multiple FOREACH stages', () => {
+  it('multiple FOREACH stages', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User {name: "Alice"}) ' +
@@ -446,7 +446,7 @@ describe('FOREACH integration', () => {
       'FOREACH (t IN ["extra"] | CREATE (n:TagB {name: t})) ' +
       'RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     const allNodes = graph.filterNodes(() => true);
@@ -467,43 +467,43 @@ describe('FOREACH edge cases', () => {
     graph.addNode('u1', { label: 'User', name: 'Alice' });
   });
 
-  it('FOREACH on non-existent property (no-op)', () => {
+  it('FOREACH on non-existent property (no-op)', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.nonexistent | SET x.marked = true) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
   });
 
-  it('FOREACH with empty list (no-op)', () => {
+  it('FOREACH with empty list (no-op)', async () => {
     graph.setNodeAttribute('u1', 'tags', []);
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.tags | CREATE (n:Tag {name: x})) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
   });
 
-  it('FOREACH preserves row count with multiple input rows', () => {
+  it('FOREACH preserves row count with multiple input rows', async () => {
     graph.addNode('u2', { label: 'User', name: 'Bob', tags: ['a', 'b', 'c', 'd', 'e'] });
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (t IN u.tags | SET t.processed = true) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     // 2 input rows → 2 output rows (not 2 + 5 = 7 like UNWIND)
     expect(results.length).toBe(2);
   });
 
-  it('FOREACH with CREATE using loop variable in expression', () => {
+  it('FOREACH with CREATE using loop variable in expression', async () => {
     graph.setNodeAttribute('u1', 'values', [10, 20, 30]);
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (v IN u.values | CREATE (n:Number {value: v, doubled: v * 2})) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     const allNodes = graph.filterNodes(() => true);
@@ -533,7 +533,7 @@ describe('FOREACH engine: node objects in lists', () => {
     graph.addNode('i2', { label: 'Item', name: 'second' });
   });
 
-  it('SET label on node objects stored in a list', () => {
+  it('SET label on node objects stored in a list', async () => {
     // Store actual node objects (with id) in the list
     graph.setNodeAttribute('u1', 'items', [
       { id: 'i1', label: 'Item', name: 'first' },
@@ -543,7 +543,7 @@ describe('FOREACH engine: node objects in lists', () => {
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.items | SET x:Processed) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     // Verify labels were added
@@ -554,7 +554,7 @@ describe('FOREACH engine: node objects in lists', () => {
     expect(attrs2.label).toContain('Processed');
   });
 
-  it('SET property on node objects stored in a list', () => {
+  it('SET property on node objects stored in a list', async () => {
     graph.setNodeAttribute('u1', 'items', [
       { id: 'i1', label: 'Item', name: 'first' },
       { id: 'i2', label: 'Item', name: 'second' },
@@ -563,7 +563,7 @@ describe('FOREACH engine: node objects in lists', () => {
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.items | SET x.reviewed = true) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     // Verify properties were set
@@ -571,7 +571,7 @@ describe('FOREACH engine: node objects in lists', () => {
     expect(graph.getNodeAttributes('i2').reviewed).toBe(true);
   });
 
-  it('SET both label and property in separate FOREACH stages', () => {
+  it('SET both label and property in separate FOREACH stages', async () => {
     graph.setNodeAttribute('u1', 'items', [
       { id: 'i1', label: 'Item', name: 'first' },
       { id: 'i2', label: 'Item', name: 'second' },
@@ -583,7 +583,7 @@ describe('FOREACH engine: node objects in lists', () => {
       'FOREACH (x IN u.items | SET x.reviewed = true) ' +
       'RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     const attrs1 = graph.getNodeAttributes('i1');
@@ -591,7 +591,7 @@ describe('FOREACH engine: node objects in lists', () => {
     expect(attrs1.reviewed).toBe(true);
   });
 
-  it('DELETE node objects stored in a list', () => {
+  it('DELETE node objects stored in a list', async () => {
     graph.setNodeAttribute('u1', 'items', [
       { id: 'i1', label: 'Item', name: 'first' },
     ]);
@@ -599,7 +599,7 @@ describe('FOREACH engine: node objects in lists', () => {
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.items | DELETE x) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     // Verify node was deleted
@@ -621,7 +621,7 @@ describe('FOREACH engine: relationship objects in lists', () => {
     graph.addEdgeWithKey('r2', 'a', 'c', { type: 'KNOWS', since: 2021 });
   });
 
-  it('SET property on relationship objects stored in a list', () => {
+  it('SET property on relationship objects stored in a list', async () => {
     graph.setNodeAttribute('a', 'rels', [
       { id: 'r1', type: 'KNOWS', since: 2020 },
       { id: 'r2', type: 'KNOWS', since: 2021 },
@@ -630,7 +630,7 @@ describe('FOREACH engine: relationship objects in lists', () => {
     const ast = parseCypher(
       'MATCH (a:A) FOREACH (r IN a.rels | SET r.active = true) RETURN a.name AS name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     // Verify properties were set on edges
@@ -638,7 +638,7 @@ describe('FOREACH engine: relationship objects in lists', () => {
     expect(graph.getEdgeAttributes('r2').active).toBe(true);
   });
 
-  it('SET property on relationship with dynamic value', () => {
+  it('SET property on relationship with dynamic value', async () => {
     graph.setNodeAttribute('a', 'rels', [
       { id: 'r1', type: 'KNOWS', since: 2020 },
       { id: 'r2', type: 'KNOWS', since: 2021 },
@@ -647,14 +647,14 @@ describe('FOREACH engine: relationship objects in lists', () => {
     const ast = parseCypher(
       'MATCH (a:A) FOREACH (r IN a.rels | SET r.sinceDoubled = r.since * 2) RETURN a.name AS name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     expect(graph.getEdgeAttributes('r1').sinceDoubled).toBe(4040);
     expect(graph.getEdgeAttributes('r2').sinceDoubled).toBe(4042);
   });
 
-  it('DELETE relationship objects stored in a list', () => {
+  it('DELETE relationship objects stored in a list', async () => {
     graph.setNodeAttribute('a', 'rels', [
       { id: 'r1', type: 'KNOWS', since: 2020 },
     ]);
@@ -662,7 +662,7 @@ describe('FOREACH engine: relationship objects in lists', () => {
     const ast = parseCypher(
       'MATCH (a:A) FOREACH (r IN a.rels | DELETE r) RETURN a.name AS name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     // Verify edge was deleted
@@ -670,7 +670,7 @@ describe('FOREACH engine: relationship objects in lists', () => {
     expect(graph.hasEdge('r2')).toBe(true); // r2 should still exist
   });
 
-  it('REMOVE property from relationship objects stored in a list', () => {
+  it('REMOVE property from relationship objects stored in a list', async () => {
     graph.setEdgeAttribute('r1', 'active', true);
     graph.setEdgeAttribute('r2', 'active', true);
     graph.setNodeAttribute('a', 'rels', [
@@ -681,7 +681,7 @@ describe('FOREACH engine: relationship objects in lists', () => {
     const ast = parseCypher(
       'MATCH (a:A) FOREACH (r IN a.rels | REMOVE r.active) RETURN a.name AS name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     // Verify properties were removed
@@ -689,7 +689,7 @@ describe('FOREACH engine: relationship objects in lists', () => {
     expect(graph.getEdgeAttributes('r2').active).toBeUndefined();
   });
 
-  it('mixed SET on nodes and relationships in separate FOREACH stages', () => {
+  it('mixed SET on nodes and relationships in separate FOREACH stages', async () => {
     graph.setNodeAttribute('a', 'nodes', [
       { id: 'b', label: 'B', name: 'Bob' },
     ]);
@@ -703,7 +703,7 @@ describe('FOREACH engine: relationship objects in lists', () => {
       'FOREACH (r IN a.rels | SET r.marked = true) ' +
       'RETURN a.name AS name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     // Verify node property was set
@@ -712,7 +712,7 @@ describe('FOREACH engine: relationship objects in lists', () => {
     expect(graph.getEdgeAttributes('r1').marked).toBe(true);
   });
 
-  it('FOREACH with SET label on nodes and SET property on edges', () => {
+  it('FOREACH with SET label on nodes and SET property on edges', async () => {
     graph.setNodeAttribute('a', 'nodes', [
       { id: 'b', label: 'B', name: 'Bob' },
     ]);
@@ -726,7 +726,7 @@ describe('FOREACH engine: relationship objects in lists', () => {
       'FOREACH (r IN a.rels | SET r.active = true) ' +
       'RETURN a.name AS name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
 
     // Verify label was added to node
@@ -737,24 +737,24 @@ describe('FOREACH engine: relationship objects in lists', () => {
     expect(graph.getEdgeAttributes('r1').active).toBe(true);
   });
 
-  it('FOREACH on empty relationship list (no-op)', () => {
+  it('FOREACH on empty relationship list (no-op)', async () => {
     graph.setNodeAttribute('a', 'rels', []);
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (a:A) FOREACH (r IN a.rels | SET r.active = true) RETURN a.name AS name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     expect(graph.getEdgeAttributes('r1').active).toBeUndefined();
   });
 
-  it('FOREACH on null relationship list (no-op)', () => {
+  it('FOREACH on null relationship list (no-op)', async () => {
     graph.setNodeAttribute('a', 'rels', null);
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (a:A) FOREACH (r IN a.rels | SET r.active = true) RETURN a.name AS name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     expect(graph.getEdgeAttributes('r1').active).toBeUndefined();
   });

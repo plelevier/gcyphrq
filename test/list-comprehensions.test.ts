@@ -18,53 +18,53 @@ describe('List comprehensions', () => {
   // ── Basic list comprehension (no WHERE) ──────────────────────────────
 
   describe('Basic comprehension [x IN list | expr]', () => {
-    it('doubles each element', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [1, 2, 3] | x * 2] AS doubled');
+    it('doubles each element', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [1, 2, 3] | x * 2] AS doubled');
       expect(results).toEqual([{ doubled: [2, 4, 6] }]);
     });
 
-    it('adds one to each element', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [10, 20, 30] | x + 1] AS incremented');
+    it('adds one to each element', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [10, 20, 30] | x + 1] AS incremented');
       expect(results).toEqual([{ incremented: [11, 21, 31] }]);
     });
 
-    it('returns the element itself (identity)', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN ["a", "b", "c"] | x] AS same');
+    it('returns the element itself (identity)', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN ["a", "b", "c"] | x] AS same');
       expect(results).toEqual([{ same: ['a', 'b', 'c'] }]);
     });
 
-    it('converts numbers to strings', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [1, 2, 3] | toString(x)] AS strings');
+    it('converts numbers to strings', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [1, 2, 3] | toString(x)] AS strings');
       expect(results).toEqual([{ strings: ['1', '2', '3'] }]);
     });
 
-    it('uppercases each string', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN ["hello", "world"] | toUpper(x)] AS upper');
+    it('uppercases each string', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN ["hello", "world"] | toUpper(x)] AS upper');
       expect(results).toEqual([{ upper: ['HELLO', 'WORLD'] }]);
     });
 
-    it('works with empty list', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [] | x * 2] AS empty');
+    it('works with empty list', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [] | x * 2] AS empty');
       expect(results).toEqual([{ empty: [] }]);
     });
 
-    it('works with single element', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [42] | x * 2] AS single');
+    it('works with single element', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [42] | x * 2] AS single');
       expect(results).toEqual([{ single: [84] }]);
     });
 
-    it('works with mixed types', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [1, "two", 3] | x] AS mixed');
+    it('works with mixed types', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [1, "two", 3] | x] AS mixed');
       expect(results).toEqual([{ mixed: [1, 'two', 3] }]);
     });
 
-    it('works with arithmetic in generator', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [1, 2, 3] | x * x + 1] AS result');
+    it('works with arithmetic in generator', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [1, 2, 3] | x * x + 1] AS result');
       expect(results).toEqual([{ result: [2, 5, 10] }]);
     });
 
-    it('works with nested function calls in generator', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN ["a", "bb", "ccc"] | length(x)] AS lengths');
+    it('works with nested function calls in generator', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN ["a", "bb", "ccc"] | length(x)] AS lengths');
       expect(results).toEqual([{ lengths: [1, 2, 3] }]);
     });
   });
@@ -72,53 +72,53 @@ describe('List comprehensions', () => {
   // ── List comprehension with WHERE ────────────────────────────────────
 
   describe('Comprehension with WHERE [x IN list WHERE pred | expr]', () => {
-    it('filters even numbers', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [1, 2, 3, 4, 5, 6] WHERE x % 2 = 0 | x] AS evens');
+    it('filters even numbers', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [1, 2, 3, 4, 5, 6] WHERE x % 2 = 0 | x] AS evens');
       expect(results).toEqual([{ evens: [2, 4, 6] }]);
     });
 
-    it('filters numbers greater than threshold', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [10, 20, 30, 40] WHERE x > 15 | x] AS filtered');
+    it('filters numbers greater than threshold', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [10, 20, 30, 40] WHERE x > 15 | x] AS filtered');
       expect(results).toEqual([{ filtered: [20, 30, 40] }]);
     });
 
-    it('filters strings with CONTAINS', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN ["apple", "banana", "apricot"] WHERE x STARTS WITH "a" | x] AS startsWithA');
+    it('filters strings with CONTAINS', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN ["apple", "banana", "apricot"] WHERE x STARTS WITH "a" | x] AS startsWithA');
       expect(results).toEqual([{ startsWithA: ['apple', 'apricot'] }]);
     });
 
-    it('filters strings with length', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN ["hi", "hello", "hey", "yo"] WHERE length(x) > 2 | x] AS long');
+    it('filters strings with length', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN ["hi", "hello", "hey", "yo"] WHERE length(x) > 2 | x] AS long');
       expect(results).toEqual([{ long: ['hello', 'hey'] }]);
     });
 
-    it('returns empty list when no elements match', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [1, 2, 3] WHERE x > 100 | x] AS none');
+    it('returns empty list when no elements match', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [1, 2, 3] WHERE x > 100 | x] AS none');
       expect(results).toEqual([{ none: [] }]);
     });
 
-    it('combines filter and transform', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [1, 2, 3, 4, 5] WHERE x > 2 | x * 10] AS result');
+    it('combines filter and transform', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [1, 2, 3, 4, 5] WHERE x > 2 | x * 10] AS result');
       expect(results).toEqual([{ result: [30, 40, 50] }]);
     });
 
-    it('uses AND in WHERE', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [1, 5, 10, 15, 20] WHERE x > 3 AND x < 18 | x] AS range');
+    it('uses AND in WHERE', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [1, 5, 10, 15, 20] WHERE x > 3 AND x < 18 | x] AS range');
       expect(results).toEqual([{ range: [5, 10, 15] }]);
     });
 
-    it('uses OR in WHERE', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [1, 5, 10, 15, 20] WHERE x = 1 OR x = 20 | x] AS extremes');
+    it('uses OR in WHERE', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [1, 5, 10, 15, 20] WHERE x = 1 OR x = 20 | x] AS extremes');
       expect(results).toEqual([{ extremes: [1, 20] }]);
     });
 
-    it('uses NOT in WHERE', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [1, 2, 3, 4, 5] WHERE NOT x = 3 | x] AS notThree');
+    it('uses NOT in WHERE', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [1, 2, 3, 4, 5] WHERE NOT x = 3 | x] AS notThree');
       expect(results).toEqual([{ notThree: [1, 2, 4, 5] }]);
     });
 
-    it('uses IN in WHERE', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [1, 2, 3, 4, 5] WHERE x IN [2, 4] | x] AS subset');
+    it('uses IN in WHERE', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [1, 2, 3, 4, 5] WHERE x IN [2, 4] | x] AS subset');
       expect(results).toEqual([{ subset: [2, 4] }]);
     });
   });
@@ -126,16 +126,16 @@ describe('List comprehensions', () => {
   // ── List comprehension with property access ──────────────────────────
 
   describe('Comprehension with property access', () => {
-    it('extracts from property list', () => {
-      const results = executeQuery(
+    it('extracts from property list', async () => {
+      const results = await executeQuery(
         graphData,
         'MATCH (n) WHERE n.name = "Alice" RETURN [x IN n.scores | x + 10] AS boosted'
       );
       expect(results).toEqual([{ boosted: [100, 90, 80] }]);
     });
 
-    it('filters from property list', () => {
-      const results = executeQuery(
+    it('filters from property list', async () => {
+      const results = await executeQuery(
         graphData,
         'MATCH (n) WHERE n.name = "Alice" RETURN [x IN n.scores WHERE x >= 85 | x] AS highScores'
       );
@@ -143,32 +143,32 @@ describe('List comprehensions', () => {
       expect(results).toEqual([{ highScores: [90] }]);
     });
 
-    it('transforms tags to uppercase', () => {
-      const results = executeQuery(
+    it('transforms tags to uppercase', async () => {
+      const results = await executeQuery(
         graphData,
         'MATCH (n) WHERE n.name = "Alice" RETURN [x IN n.tags | toUpper(x)] AS upperTags'
       );
       expect(results).toEqual([{ upperTags: ['ADMIN', 'USER', 'DEV'] }]);
     });
 
-    it('filters tags by length', () => {
-      const results = executeQuery(
+    it('filters tags by length', async () => {
+      const results = await executeQuery(
         graphData,
         'MATCH (n) WHERE n.name = "Alice" RETURN [x IN n.tags WHERE length(x) > 3 | x] AS longTags'
       );
       expect(results).toEqual([{ longTags: ['admin', 'user'] }]);
     });
 
-    it('works with empty property list', () => {
-      const results = executeQuery(
+    it('works with empty property list', async () => {
+      const results = await executeQuery(
         graphData,
         'MATCH (n) WHERE n.name = "Dave" RETURN [x IN n.tags | toUpper(x)] AS upperTags'
       );
       expect(results).toEqual([{ upperTags: [] }]);
     });
 
-    it('works across multiple nodes', () => {
-      const results = executeQuery(
+    it('works across multiple nodes', async () => {
+      const results = await executeQuery(
         graphData,
         'MATCH (n) WHERE n.name IN ["Alice", "Bob"] RETURN n.name AS name, [x IN n.scores | x * 2] AS doubled'
       );
@@ -182,28 +182,28 @@ describe('List comprehensions', () => {
   // ── List comprehension combined with other features ──────────────────
 
   describe('Comprehension with aggregations', () => {
-    it('size of comprehension result', () => {
-      const results = executeQuery(graphData, 'RETURN size([x IN [1, 2, 3, 4, 5] WHERE x > 2 | x]) AS count');
+    it('size of comprehension result', async () => {
+      const results = await executeQuery(graphData, 'RETURN size([x IN [1, 2, 3, 4, 5] WHERE x > 2 | x]) AS count');
       expect(results).toEqual([{ count: 3 }]);
     });
 
-    it('head of comprehension result', () => {
-      const results = executeQuery(graphData, 'RETURN head([x IN [10, 20, 30] | x * 2]) AS first');
+    it('head of comprehension result', async () => {
+      const results = await executeQuery(graphData, 'RETURN head([x IN [10, 20, 30] | x * 2]) AS first');
       expect(results).toEqual([{ first: 20 }]);
     });
 
-    it('tail of comprehension result', () => {
-      const results = executeQuery(graphData, 'RETURN tail([x IN [1, 2, 3, 4] | x * x]) AS rest');
+    it('tail of comprehension result', async () => {
+      const results = await executeQuery(graphData, 'RETURN tail([x IN [1, 2, 3, 4] | x * x]) AS rest');
       expect(results).toEqual([{ rest: [4, 9, 16] }]);
     });
 
-    it('reverse of comprehension result', () => {
-      const results = executeQuery(graphData, 'RETURN reverse([x IN [1, 2, 3] | x * 10]) AS rev');
+    it('reverse of comprehension result', async () => {
+      const results = await executeQuery(graphData, 'RETURN reverse([x IN [1, 2, 3] | x * 10]) AS rev');
       expect(results).toEqual([{ rev: [30, 20, 10] }]);
     });
 
-    it('comprehension with collect inside', () => {
-      const results = executeQuery(
+    it('comprehension with collect inside', async () => {
+      const results = await executeQuery(
         graphData,
         'MATCH (n) RETURN [x IN n.scores | x] AS scores'
       );
@@ -212,8 +212,8 @@ describe('List comprehensions', () => {
   });
 
   describe('Comprehension with reduce', () => {
-    it('sum comprehension result with reduce', () => {
-      const results = executeQuery(
+    it('sum comprehension result with reduce', async () => {
+      const results = await executeQuery(
         graphData,
         'RETURN reduce(total = 0, x IN [y IN [1, 2, 3, 4, 5] WHERE y > 2 | y * 2] | total + x) AS sum'
       );
@@ -222,8 +222,8 @@ describe('List comprehensions', () => {
       expect(results).toEqual([{ sum: 24 }]);
     });
 
-    it('reduce over comprehension from property', () => {
-      const results = executeQuery(
+    it('reduce over comprehension from property', async () => {
+      const results = await executeQuery(
         graphData,
         'MATCH (n) WHERE n.name = "Alice" RETURN reduce(total = 0, x IN [s IN n.scores WHERE s >= 85 | s] | total + x) AS sumHigh'
       );
@@ -233,8 +233,8 @@ describe('List comprehensions', () => {
   });
 
   describe('Comprehension with quantifiers', () => {
-    it('ALL over comprehension result', () => {
-      const results = executeQuery(
+    it('ALL over comprehension result', async () => {
+      const results = await executeQuery(
         graphData,
         'MATCH (n) WHERE ALL(x IN [s IN n.scores | s * 2] WHERE x > 0) RETURN n.name'
       );
@@ -243,8 +243,8 @@ describe('List comprehensions', () => {
       expect(names).toEqual(['Alice', 'Bob', 'Charlie', 'Dave']);
     });
 
-    it('ANY over comprehension result', () => {
-      const results = executeQuery(
+    it('ANY over comprehension result', async () => {
+      const results = await executeQuery(
         graphData,
         'MATCH (n) WHERE ANY(x IN [s IN n.scores | s * 2] WHERE x > 150) RETURN n.name'
       );
@@ -255,8 +255,8 @@ describe('List comprehensions', () => {
   });
 
   describe('Comprehension in WHERE clause', () => {
-    it('comprehension result used in IN', () => {
-      const results = executeQuery(
+    it('comprehension result used in IN', async () => {
+      const results = await executeQuery(
         graphData,
         'MATCH (n) WHERE 3 IN [x IN n.scores | x / 10] RETURN n.name'
       );
@@ -264,8 +264,8 @@ describe('List comprehensions', () => {
       expect(results.length).toBe(0);
     });
 
-    it('comprehension with size in WHERE', () => {
-      const results = executeQuery(
+    it('comprehension with size in WHERE', async () => {
+      const results = await executeQuery(
         graphData,
         'MATCH (n) WHERE size([x IN n.scores WHERE x >= 80 | x]) >= 3 RETURN n.name'
       );
@@ -275,8 +275,8 @@ describe('List comprehensions', () => {
   });
 
   describe('Comprehension in WITH clause', () => {
-    it('comprehension in WITH', () => {
-      const results = executeQuery(
+    it('comprehension in WITH', async () => {
+      const results = await executeQuery(
         graphData,
         'MATCH (n) WITH n.name AS name, [x IN n.scores | x + 1] AS boosted WITH name, boosted WHERE size(boosted) > 1 RETURN name, boosted'
       );
@@ -289,16 +289,16 @@ describe('List comprehensions', () => {
   });
 
   describe('Comprehension with map literals', () => {
-    it('comprehension over map list', () => {
-      const results = executeQuery(
+    it('comprehension over map list', async () => {
+      const results = await executeQuery(
         graphData,
         'RETURN [x IN [{a: 1}, {a: 2}, {a: 3}] | x.a] AS values'
       );
       expect(results).toEqual([{ values: [1, 2, 3] }]);
     });
 
-    it('comprehension with map property filter', () => {
-      const results = executeQuery(
+    it('comprehension with map property filter', async () => {
+      const results = await executeQuery(
         graphData,
         'RETURN [x IN [{v: 1}, {v: 2}, {v: 3}] WHERE x.v > 1 | x.v * 10] AS result'
       );
@@ -307,49 +307,49 @@ describe('List comprehensions', () => {
   });
 
   describe('Edge cases', () => {
-    it('null element in list', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [1, null, 3] | x] AS result');
+    it('null element in list', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [1, null, 3] | x] AS result');
       expect(results).toEqual([{ result: [1, null, 3] }]);
     });
 
-    it('null in generator expression', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [1, null, 3] | x * 2] AS result');
+    it('null in generator expression', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [1, null, 3] | x * 2] AS result');
       expect(results).toEqual([{ result: [2, null, 6] }]);
     });
 
-    it('comprehension on null list returns empty', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN null | x] AS result');
+    it('comprehension on null list returns empty', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN null | x] AS result');
       expect(results).toEqual([{ result: [] }]);
     });
 
-    it('multiple comprehensions in same RETURN', () => {
-      const results = executeQuery(
+    it('multiple comprehensions in same RETURN', async () => {
+      const results = await executeQuery(
         graphData,
         'RETURN [x IN [1, 2, 3] | x * 2] AS doubled, [x IN [1, 2, 3] | x * 3] AS tripled'
       );
       expect(results).toEqual([{ doubled: [2, 4, 6], tripled: [3, 6, 9] }]);
     });
 
-    it('comprehension with string concatenation', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN ["a", "b", "c"] | x + "!"] AS result');
+    it('comprehension with string concatenation', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN ["a", "b", "c"] | x + "!"] AS result');
       expect(results).toEqual([{ result: ['a!', 'b!', 'c!'] }]);
     });
 
-    it('comprehension with coalesce in generator', () => {
-      const results = executeQuery(graphData, 'RETURN [x IN [1, null, 3] | coalesce(x, 0)] AS result');
+    it('comprehension with coalesce in generator', async () => {
+      const results = await executeQuery(graphData, 'RETURN [x IN [1, null, 3] | coalesce(x, 0)] AS result');
       expect(results).toEqual([{ result: [1, 0, 3] }]);
     });
 
-    it('comprehension with CASE in generator', () => {
-      const results = executeQuery(
+    it('comprehension with CASE in generator', async () => {
+      const results = await executeQuery(
         graphData,
         'RETURN [x IN [1, 2, 3] | CASE WHEN x > 1 THEN "big" ELSE "small" END] AS result'
       );
       expect(results).toEqual([{ result: ['small', 'big', 'big'] }]);
     });
 
-    it('comprehension with EXISTS in WHERE', () => {
-      const results = executeQuery(
+    it('comprehension with EXISTS in WHERE', async () => {
+      const results = await executeQuery(
         graphData,
         'RETURN [x IN [{a: 1}, {a: null}, {a: 3}] WHERE EXISTS(x.a) | x.a] AS result'
       );
@@ -358,9 +358,9 @@ describe('List comprehensions', () => {
   });
 
   describe('Comprehension with ORDER BY', () => {
-    it('ORDER BY size of comprehension result (without alias)', () => {
+    it('ORDER BY size of comprehension result (without alias)', async () => {
       // Note: ORDER BY with aliases is a known limitation
-      const results = executeQuery(
+      const results = await executeQuery(
         graphData,
         'MATCH (n) RETURN n.name, [x IN n.scores WHERE x >= 80 | x] AS highScores ORDER BY size([x IN n.scores WHERE x >= 80 | x]) DESC'
       );
@@ -370,8 +370,8 @@ describe('List comprehensions', () => {
   });
 
   describe('Comprehension DISTINCT', () => {
-    it('comprehension with DISTINCT-like result (no duplicates in source)', () => {
-      const results = executeQuery(
+    it('comprehension with DISTINCT-like result (no duplicates in source)', async () => {
+      const results = await executeQuery(
         graphData,
         'RETURN [x IN [1, 2, 3, 4, 5] WHERE x > 2 | x] AS distinct'
       );

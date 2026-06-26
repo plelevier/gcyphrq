@@ -1529,6 +1529,128 @@ If an outer row produces zero inner rows, it is dropped (matching Neo4j semantic
 
 ---
 
+## LOAD CSV
+
+Load data from CSV files and use it in queries. Supports local file paths and HTTP/HTTPS URLs.
+
+### Basic syntax
+
+```cypher
+LOAD CSV FROM 'path/to/file.csv' AS row RETURN row
+```
+
+Each row is an array of strings: `["value1", "value2", ...]`.
+
+### WITH HEADERS
+
+When the CSV has a header row, use `WITH HEADERS` to access columns by name:
+
+```cypher
+LOAD CSV WITH HEADERS FROM 'people.csv' AS row
+RETURN row.name AS name, row.age AS age
+```
+
+Each row is a map: `{ name: "Alice", age: "30", ... }`.
+
+### Combining with MATCH
+
+Load CSV data and match against graph nodes:
+
+```cypher
+LOAD CSV WITH HEADERS FROM 'users.csv' AS row
+MATCH (u:User {name: row.name})
+RETURN row.name AS csvName, u
+```
+
+### Filtering CSV rows
+
+Use `WHERE` to filter rows:
+
+```cypher
+LOAD CSV WITH HEADERS FROM 'data.csv' AS row
+WITH row WHERE row.status = 'active'
+RETURN row.name, row.status
+```
+
+### Creating nodes from CSV
+
+Import CSV data into the graph:
+
+```cypher
+LOAD CSV WITH HEADERS FROM 'people.csv' AS row
+CREATE (p:Person {name: row.name, age: toInteger(row.age)})
+RETURN p.name AS name, p.age AS age
+```
+
+### Aggregating CSV data
+
+```cypher
+LOAD CSV WITH HEADERS FROM 'data.csv' AS row
+RETURN count(*) AS total, collect(row.name) AS names
+```
+
+Aggregations accept function arguments for type conversion and transformation:
+
+```cypher
+LOAD CSV WITH HEADERS FROM 'data.csv' AS row
+RETURN sum(toInteger(row.amount)) AS total,
+       avg(toFloat(row.score)) AS avgScore,
+       collect(toLower(row.name)) AS names
+```
+
+### Supported sources
+
+- **Local file paths**: `LOAD CSV FROM 'data/file.csv' AS row` (resolved relative to CWD)
+- **HTTP/HTTPS URLs**: `LOAD CSV FROM 'https://example.com/data.csv' AS row`
+
+### Custom delimiters
+
+Use `FIELDS TERMINATED BY` to specify a custom field separator:
+
+```cypher
+LOAD CSV FROM 'data.tsv' AS row FIELDS TERMINATED BY '\t'
+RETURN row
+```
+
+### Custom quote character
+
+Use `OPTIONALLY ENCLOSED BY` to specify a custom quote character:
+
+```cypher
+LOAD CSV FROM 'data.csv' AS row OPTIONALLY ENCLOSED BY "'"
+RETURN row
+```
+
+Both options can be combined:
+
+```cypher
+LOAD CSV FROM 'data.csv' AS row
+FIELDS TERMINATED BY '|'
+OPTIONALLY ENCLOSED BY "'"
+RETURN row
+```
+
+### LOAD CSV inside CALL subqueries
+
+LOAD CSV can be used inside `CALL { ... }` subqueries:
+
+```cypher
+CALL {
+  LOAD CSV WITH HEADERS FROM 'data.csv' AS row
+  RETURN row.name AS name
+}
+RETURN name
+```
+
+### Notes
+
+- All CSV values are strings. Use `toInteger()`, `toFloat()`, etc. to convert.
+- Quoted fields are supported (commas, escaped quotes, newlines within quotes).
+- UTF-8 BOM is automatically stripped.
+- Multiple LOAD CSV clauses are supported (each produces a cartesian product with existing contexts).
+
+---
+
 ## EXPLAIN
 
 Use `EXPLAIN` to inspect the query execution plan without running the query. This is useful for debugging and understanding how a query will be processed.

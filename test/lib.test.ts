@@ -30,34 +30,34 @@ const sampleGraph: GraphologyFile = {
 };
 
 describe('executeQuery', () => {
-  it('executes a simple MATCH query', () => {
-    const results = executeQuery(sampleGraph, 'MATCH (u:User) RETURN u.name');
+  it('executes a simple MATCH query', async () => {
+    const results = await executeQuery(sampleGraph, 'MATCH (u:User) RETURN u.name');
     expect(results.length).toBe(3);
     const names = results.map((r) => r.name).sort();
     expect(names).toEqual(['Alice', 'Bob', 'Charlie']);
   });
 
-  it('executes a query with property filter', () => {
-    const results = executeQuery(sampleGraph, 'MATCH (u:User {name: "Alice"}) RETURN u.age');
+  it('executes a query with property filter', async () => {
+    const results = await executeQuery(sampleGraph, 'MATCH (u:User {name: "Alice"}) RETURN u.age');
     expect(results).toEqual([{ age: 30 }]);
   });
 
-  it('executes a traversal query', () => {
-    const results = executeQuery(sampleGraph, 'MATCH (a:User {name: "Alice"})-[r:FRIEND]->(b:User) RETURN b.name');
+  it('executes a traversal query', async () => {
+    const results = await executeQuery(sampleGraph, 'MATCH (a:User {name: "Alice"})-[r:FRIEND]->(b:User) RETURN b.name');
     expect(results).toEqual([{ name: 'Bob' }]);
   });
 
-  it('executes an aggregation query', () => {
-    const results = executeQuery(sampleGraph, 'MATCH (u:User) RETURN count(u)');
+  it('executes an aggregation query', async () => {
+    const results = await executeQuery(sampleGraph, 'MATCH (u:User) RETURN count(u)');
     expect(results).toEqual([{ 'COUNT(u)': 3 }]);
   });
 
-  it('throws GraphError for invalid graph data', () => {
-    expect(() => executeQuery({ nodes: [{ key: '', attributes: {} }], edges: [] }, 'MATCH (n) RETURN n')).toThrow(GraphError);
+  it('throws GraphError for invalid graph data', async () => {
+    await expect(executeQuery({ nodes: [{ key: '', attributes: {} }], edges: [] }, 'MATCH (n) RETURN n')).rejects.toThrow(GraphError);
   });
 
-  it('throws Error for invalid query', () => {
-    expect(() => executeQuery(sampleGraph, 'INVALID QUERY')).toThrow();
+  it('throws Error for invalid query', async () => {
+    await expect(executeQuery(sampleGraph, 'INVALID QUERY')).rejects.toThrow();
   });
 });
 
@@ -95,14 +95,14 @@ describe('Graphology JSON format', () => {
     ],
   };
 
-  it('accepts Graphology JSON format in createGraph', () => {
+  it('accepts Graphology JSON format in createGraph', async () => {
     const graph = createGraph(graphologyGraph);
     expect(graph.order).toBe(3);
     expect(graph.hasNode('alice')).toBe(true);
     expect(graph.hasNode('bob')).toBe(true);
   });
 
-  it('preserves node attributes from Graphology format', () => {
+  it('preserves node attributes from Graphology format', async () => {
     const graph = createGraph(graphologyGraph);
     const attrs = graph.getNodeAttributes('alice');
     expect(attrs.label).toBe('User');
@@ -110,35 +110,35 @@ describe('Graphology JSON format', () => {
     expect(attrs.age).toBe(30);
   });
 
-  it('preserves edge attributes from Graphology format', () => {
+  it('preserves edge attributes from Graphology format', async () => {
     const graph = createGraph(graphologyGraph);
     let capturedAttrs: Record<string, unknown> | undefined;
     graph.forEachEdge('alice', (_e, attrs) => { capturedAttrs = attrs; });
     expect(capturedAttrs!.type).toBe('FRIEND');
   });
 
-  it('executes queries on Graphology JSON format', () => {
-    const results = executeQuery(graphologyGraph, 'MATCH (u:User) RETURN u.name');
+  it('executes queries on Graphology JSON format', async () => {
+    const results = await executeQuery(graphologyGraph, 'MATCH (u:User) RETURN u.name');
     const names = results.map((r) => r.name).sort();
     expect(names).toEqual(['Alice', 'Bob', 'Charlie']);
   });
 
-  it('executes traversal on Graphology JSON format', () => {
-    const results = executeQuery(
+  it('executes traversal on Graphology JSON format', async () => {
+    const results = await executeQuery(
       graphologyGraph,
       'MATCH (a:User {name: "Alice"})-[r:FRIEND]->(b:User) RETURN b.name',
     );
     expect(results).toEqual([{ name: 'Bob' }]);
   });
 
-  it('builds indexes from Graphology JSON format', () => {
+  it('builds indexes from Graphology JSON format', async () => {
     const indexes = buildGraphIndexes(graphologyGraph);
     expect(indexes.labelIndex.get('User')?.size).toBe(3);
     expect(indexes.propertyIndex.get('name')?.get('Alice')?.size).toBe(1);
     expect(indexes.edgeTypeIndex.out.get('FRIEND')?.get('alice')?.length).toBe(1);
   });
 
-  it('works without optional options/attributes fields', () => {
+  it('works without optional options/attributes fields', async () => {
     const minimalGraph: GraphologyFile = {
       nodes: [
         { key: 'a', attributes: { label: 'Node', name: 'A' } },
@@ -152,11 +152,11 @@ describe('Graphology JSON format', () => {
         },
       ],
     };
-    const results = executeQuery(minimalGraph, 'MATCH (n:Node) RETURN count(n)');
+    const results = await executeQuery(minimalGraph, 'MATCH (n:Node) RETURN count(n)');
     expect(results).toEqual([{ 'COUNT(n)': 2 }]);
   });
 
-  it('exports Graphology format types', () => {
+  it('exports Graphology format types', async () => {
     const node: GraphologyNode = { key: 'a', attributes: { label: 'X' } };
     const edge: GraphologyEdge = { source: 'a', target: 'b', attributes: { type: 'LINK' } };
     const options: GraphologyGraphOptions = { type: 'directed' };
@@ -165,7 +165,7 @@ describe('Graphology JSON format', () => {
     expect(input.nodes.length).toBe(1);
   });
 
-  it('detects empty Graphology format via options field', () => {
+  it('detects empty Graphology format via options field', async () => {
     const emptyGraph: GraphologyFile = {
       options: { type: 'directed' },
       nodes: [],
@@ -175,7 +175,7 @@ describe('Graphology JSON format', () => {
     expect(graph.order).toBe(0);
   });
 
-  it('throws for invalid options.type', () => {
+  it('throws for invalid options.type', async () => {
     expect(() =>
       createGraph({
         // @ts-expect-error testing invalid type
@@ -186,7 +186,7 @@ describe('Graphology JSON format', () => {
     ).toThrow(/Unsupported graph option:.*"type"/);
   });
 
-  it('accepts options.type undirected', () => {
+  it('accepts options.type undirected', async () => {
     const graph = createGraph({
       options: { type: 'undirected' },
       nodes: [
@@ -199,7 +199,7 @@ describe('Graphology JSON format', () => {
     expect(graph.order).toBe(2);
   });
 
-  it('accepts options.type mixed', () => {
+  it('accepts options.type mixed', async () => {
     const graph = createGraph({
       options: { type: 'mixed' },
       nodes: [
@@ -212,7 +212,7 @@ describe('Graphology JSON format', () => {
     expect(graph.order).toBe(2);
   });
 
-  it('supports options.allowSelfLoops', () => {
+  it('supports options.allowSelfLoops', async () => {
     const graph = createGraph({
       options: { type: 'directed', allowSelfLoops: true },
       nodes: [{ key: 'a', attributes: { label: 'N' } }],
@@ -227,7 +227,7 @@ describe('Graphology JSON format', () => {
     expect(edgeCount).toBe(1);
   });
 
-  it('supports options.multi for parallel edges', () => {
+  it('supports options.multi for parallel edges', async () => {
     const graph = createGraph({
       options: { type: 'directed', multi: true },
       nodes: [
@@ -245,7 +245,7 @@ describe('Graphology JSON format', () => {
     expect(edgeCount).toBe(2);
   });
 
-  it('rejects duplicate edges when multi is false', () => {
+  it('rejects duplicate edges when multi is false', async () => {
     expect(() =>
       createGraph({
         options: { type: 'directed' },
@@ -261,8 +261,8 @@ describe('Graphology JSON format', () => {
     ).toThrow(/duplicate edge.*a->b/);
   });
 
-  it('executeQuery with multi-graph JSON returns all parallel edges', () => {
-    const results = executeQuery({
+  it('executeQuery with multi-graph JSON returns all parallel edges', async () => {
+    const results = await executeQuery({
       options: { type: 'directed', multi: true },
       nodes: [
         { key: 'a', attributes: { label: 'N', name: 'A' } },
@@ -277,7 +277,7 @@ describe('Graphology JSON format', () => {
     expect(results.length).toBe(3);
   });
 
-  it('supports multi with undirected graph type', () => {
+  it('supports multi with undirected graph type', async () => {
     const graph = createGraph({
       options: { type: 'undirected', multi: true },
       nodes: [
@@ -295,18 +295,18 @@ describe('Graphology JSON format', () => {
     expect(edgeCount).toBe(2);
   });
 
-  it('wrapExternalGraph preserves multi for parallel edges', () => {
+  it('wrapExternalGraph preserves multi for parallel edges', async () => {
     const raw = new (Graphology as any).MultiDirectedGraph();
     raw.addNode('a', { label: 'N' });
     raw.addNode('b', { label: 'N' });
     raw.addEdge('a', 'b', { type: 'TCP' });
     raw.addEdge('a', 'b', { type: 'UDP' });
     // executeQuery wraps external graphs via wrapExternalGraph
-    const results = executeQuery(raw, 'MATCH (a)-[r]->(b) RETURN r.type');
+    const results = await executeQuery(raw, 'MATCH (a)-[r]->(b) RETURN r.type');
     expect(results.length).toBe(2);
   });
 
-  it('warns about unsupported edge undirected via onWarning callback', () => {
+  it('warns about unsupported edge undirected via onWarning callback', async () => {
     const warnings: string[] = [];
     createGraph({
       nodes: [
@@ -321,7 +321,7 @@ describe('Graphology JSON format', () => {
     expect(warnings[0]).toContain('"undirected"');
   });
 
-  it('warns about duplicate edge keys (once) via onWarning callback', () => {
+  it('warns about duplicate edge keys (once) via onWarning callback', async () => {
     const warnings: string[] = [];
     createGraph({
       nodes: [
@@ -338,7 +338,7 @@ describe('Graphology JSON format', () => {
     expect(dupWarnings.length).toBe(1);
   });
 
-  it('does not emit warnings when no onWarning callback is provided', () => {
+  it('does not emit warnings when no onWarning callback is provided', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       createGraph({
@@ -356,7 +356,7 @@ describe('Graphology JSON format', () => {
     }
   });
 
-  it('does not error for supported options', () => {
+  it('does not error for supported options', async () => {
     expect(() =>
       createGraph({
         options: { type: 'directed', allowSelfLoops: false, multi: false },
@@ -366,7 +366,7 @@ describe('Graphology JSON format', () => {
     ).not.toThrow();
   });
 
-  it('detects format by node structure even without options', () => {
+  it('detects format by node structure even without options', async () => {
     const graph: GraphologyFile = {
       nodes: [{ key: 'a', attributes: { label: 'N' } }],
       edges: [],
@@ -374,7 +374,7 @@ describe('Graphology JSON format', () => {
     expect(() => createGraph(graph)).not.toThrow();
   });
 
-  it('throws descriptive error for missing node key', () => {
+  it('throws descriptive error for missing node key', async () => {
     expect(() =>
       createGraph({
         options: { type: 'directed' },
@@ -386,7 +386,7 @@ describe('Graphology JSON format', () => {
 });
 
 describe('Graphology format edge cases', () => {
-  it('throws for null node attributes', () => {
+  it('throws for null node attributes', async () => {
     const data = {
       nodes: [{ key: 'a', attributes: null }],
       edges: [],
@@ -396,7 +396,7 @@ describe('Graphology format edge cases', () => {
 });
 
 describe('edge key preservation', () => {
-  it('creates edges with user-provided keys via addEdgeWithKey', () => {
+  it('creates edges with user-provided keys via addEdgeWithKey', async () => {
     const graph = createGraph({
       nodes: [
         { key: 'a', attributes: { label: 'N' } },
@@ -408,7 +408,7 @@ describe('edge key preservation', () => {
     });
 
     // Verify via query that the edge id is the original key
-    const results = executeQuery(
+    const results = await executeQuery(
       graph,
       'MATCH ()-[r]->() RETURN r',
     );
@@ -416,7 +416,7 @@ describe('edge key preservation', () => {
     expect(edges[0]!.id).toBe('my-custom-edge');
   });
 
-  it('auto-generates edge ids when no key is provided', () => {
+  it('auto-generates edge ids when no key is provided', async () => {
     const graph = createGraph({
       nodes: [
         { key: 'a', attributes: { label: 'N' } },
@@ -427,7 +427,7 @@ describe('edge key preservation', () => {
       ],
     });
 
-    const results = executeQuery(
+    const results = await executeQuery(
       graph,
       'MATCH ()-[r]->() RETURN r',
     );
@@ -436,7 +436,7 @@ describe('edge key preservation', () => {
     expect(edges[0]!.id).toMatch(/^geid_/);
   });
 
-  it('handles mixed edges (some with keys, some without)', () => {
+  it('handles mixed edges (some with keys, some without)', async () => {
     const graph = createGraph({
       nodes: [
         { key: 'a', attributes: { label: 'N' } },
@@ -449,7 +449,7 @@ describe('edge key preservation', () => {
       ],
     });
 
-    const results = executeQuery(
+    const results = await executeQuery(
       graph,
       'MATCH ()-[r]->() RETURN r',
     );
@@ -461,7 +461,7 @@ describe('edge key preservation', () => {
     expect(ids.some((id) => id.startsWith('geid_'))).toBe(true);
   });
 
-  it('preserves edge keys through variable-length paths', () => {
+  it('preserves edge keys through variable-length paths', async () => {
     const graph = createGraph({
       nodes: [
         { key: 'a', attributes: { label: 'N' } },
@@ -474,7 +474,7 @@ describe('edge key preservation', () => {
       ],
     });
 
-    const results = executeQuery(
+    const results = await executeQuery(
       graph,
       'MATCH (a)-[r*1..2]->(c) RETURN r',
     );
@@ -491,7 +491,7 @@ describe('edge key preservation', () => {
     expect(edges[1]!.id).toBe('second-edge');
   });
 
-  it('handles duplicate edge keys gracefully (first wins)', () => {
+  it('handles duplicate edge keys gracefully (first wins)', async () => {
     const warnings: string[] = [];
     const graph = createGraph({
       nodes: [
@@ -506,7 +506,7 @@ describe('edge key preservation', () => {
     }, { onWarning: (w) => warnings.push(w) });
 
     // First edge should have key "dup", second should be auto-generated
-    const results = executeQuery(
+    const results = await executeQuery(
       graph,
       'MATCH ()-[r]->() RETURN r',
     );

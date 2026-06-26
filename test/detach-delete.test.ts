@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { parseCypher } from '../src/engine/cypher-parser';
 import { executeQuery } from '../src/lib';
-import type { DeleteClause, MergeClause } from '../src/types/cypher';
+import type { AdvancedCypherAST, DeleteClause, MergeClause } from '../src/types/cypher';
 
 // ── Parser tests ─────────────────────────────────────────────────────────────
 
 describe('DETACH DELETE parser', () => {
-  it('parses DETACH DELETE with detach flag', () => {
-    const ast = parseCypher('MATCH (n) DETACH DELETE n');
+  it('parses DETACH DELETE with detach flag', async () => {
+    const ast = parseCypher('MATCH (n) DETACH DELETE n') as AdvancedCypherAST;
     const writeStage = ast.stages.find((s) => s.type === 'WRITE');
     expect(writeStage).toBeDefined();
     if (!writeStage || writeStage.type !== 'WRITE') return;
@@ -17,8 +17,8 @@ describe('DETACH DELETE parser', () => {
     expect(clause.detach).toBe(true);
   });
 
-  it('parses plain DELETE without detach flag', () => {
-    const ast = parseCypher('MATCH (n) DELETE n');
+  it('parses plain DELETE without detach flag', async () => {
+    const ast = parseCypher('MATCH (n) DELETE n') as AdvancedCypherAST;
     const writeStage = ast.stages.find((s) => s.type === 'WRITE');
     expect(writeStage).toBeDefined();
     if (!writeStage || writeStage.type !== 'WRITE') return;
@@ -28,8 +28,8 @@ describe('DETACH DELETE parser', () => {
     expect(clause.detach).toBe(false);
   });
 
-  it('parses DETACH DELETE with multiple variables', () => {
-    const ast = parseCypher('MATCH (n)-[r]->(m) DETACH DELETE n, r');
+  it('parses DETACH DELETE with multiple variables', async () => {
+    const ast = parseCypher('MATCH (n)-[r]->(m) DETACH DELETE n, r') as AdvancedCypherAST;
     const writeStage = ast.stages.find((s) => s.type === 'WRITE');
     expect(writeStage).toBeDefined();
     if (!writeStage || writeStage.type !== 'WRITE') return;
@@ -39,8 +39,8 @@ describe('DETACH DELETE parser', () => {
     expect(clause.detach).toBe(true);
   });
 
-  it('parses plain DELETE with multiple variables', () => {
-    const ast = parseCypher('MATCH (n)-[r]->(m) DELETE n, r');
+  it('parses plain DELETE with multiple variables', async () => {
+    const ast = parseCypher('MATCH (n)-[r]->(m) DELETE n, r') as AdvancedCypherAST;
     const writeStage = ast.stages.find((s) => s.type === 'WRITE');
     expect(writeStage).toBeDefined();
     if (!writeStage || writeStage.type !== 'WRITE') return;
@@ -69,9 +69,9 @@ describe('DETACH DELETE engine', () => {
     ],
   };
 
-  it('deletes a node and all incident edges — verified by remaining nodes', () => {
+  it('deletes a node and all incident edges — verified by remaining nodes', async () => {
     // DETACH DELETE Alice, then return remaining people
-    const result = executeQuery(
+    const result = await executeQuery(
       graphData,
       'MATCH (n:Person {name: "Alice"}) DETACH DELETE n MATCH (m:Person) RETURN m.name AS name ORDER BY name',
     );
@@ -82,10 +82,10 @@ describe('DETACH DELETE engine', () => {
     ]);
   });
 
-  it('deletes a node with multiple incident edges (incoming + outgoing)', () => {
+  it('deletes a node with multiple incident edges (incoming + outgoing)', async () => {
     // Alice has: outgoing to Bob (KNOWS), outgoing to Charlie (LIKES), incoming from Diana (FOLLOWS)
     // After DETACH DELETE Alice, only b->c (KNOWS) should remain
-    const result = executeQuery(
+    const result = await executeQuery(
       graphData,
       'MATCH (n:Person {name: "Alice"}) DETACH DELETE n MATCH (a)-[r]->(b) RETURN a.name AS source, reltype(r) AS relType, b.name AS target ORDER BY source',
     );
@@ -94,8 +94,8 @@ describe('DETACH DELETE engine', () => {
     ]);
   });
 
-  it('DETACH DELETE on isolated node (no edges) works as plain DELETE', () => {
-    const result = executeQuery(
+  it('DETACH DELETE on isolated node (no edges) works as plain DELETE', async () => {
+    const result = await executeQuery(
       {
         nodes: [
           { key: 'a', attributes: { label: 'Person', name: 'Alice' } },
@@ -108,8 +108,8 @@ describe('DETACH DELETE engine', () => {
     expect(result).toEqual([{ name: 'Bob' }]);
   });
 
-  it('DETACH DELETE on edge variable works as plain DELETE', () => {
-    const result = executeQuery(
+  it('DETACH DELETE on edge variable works as plain DELETE', async () => {
+    const result = await executeQuery(
       {
         nodes: [
           { key: 'a', attributes: { label: 'Person', name: 'Alice' } },
@@ -127,9 +127,9 @@ describe('DETACH DELETE engine', () => {
     expect(result).toEqual([{ relType: 'LIKES' }]);
   });
 
-  it('DETACH DELETE multiple nodes in sequence', () => {
+  it('DETACH DELETE multiple nodes in sequence', async () => {
     // Delete Alice (removes a->b, a->c, d->a), then delete Bob (removes b->c)
-    const result = executeQuery(
+    const result = await executeQuery(
       graphData,
       'MATCH (n:Person {name: "Alice"}) DETACH DELETE n MATCH (m:Person {name: "Bob"}) DETACH DELETE m MATCH (p:Person) RETURN p.name AS name ORDER BY name',
     );
@@ -139,9 +139,9 @@ describe('DETACH DELETE engine', () => {
     ]);
   });
 
-  it('DETACH DELETE with multiple variables deletes nodes and their incident edges', () => {
+  it('DETACH DELETE with multiple variables deletes nodes and their incident edges', async () => {
     // DETACH DELETE Alice (removes a->b, a->c, d->a) and also delete the KNOWS edge
-    const result = executeQuery(
+    const result = await executeQuery(
       graphData,
       'MATCH (n:Person {name: "Alice"}) MATCH (b:Person {name: "Bob"})-[r:KNOWS]->(c:Person {name: "Charlie"}) DETACH DELETE n, r MATCH (x)-[e]->(y) RETURN reltype(e) AS relType ORDER BY relType',
     );
@@ -149,8 +149,8 @@ describe('DETACH DELETE engine', () => {
     expect(result).toEqual([]);
   });
 
-  it('DETACH DELETE on array of nodes collects incident edges for each', () => {
-    const result = executeQuery(
+  it('DETACH DELETE on array of nodes collects incident edges for each', async () => {
+    const result = await executeQuery(
       {
         nodes: [
           { key: 'a', attributes: { label: 'Person', name: 'Alice' } },
@@ -167,8 +167,8 @@ describe('DETACH DELETE engine', () => {
     expect(result).toEqual([{ name: 'Charlie' }]);
   });
 
-  it('DETACH DELETE on array of edges drops each edge', () => {
-    const result = executeQuery(
+  it('DETACH DELETE on array of edges drops each edge', async () => {
+    const result = await executeQuery(
       {
         nodes: [
           { key: 'a', attributes: { label: 'Person', name: 'Alice' } },
@@ -189,8 +189,8 @@ describe('DETACH DELETE engine', () => {
 // ── MERGE with DETACH DELETE ────────────────────────────────────────────────
 
 describe('MERGE with DETACH DELETE', () => {
-  it('parses MERGE with DETACH DELETE in ON MATCH', () => {
-    const ast = parseCypher('MERGE (n:User {name: "Alice"}) ON MATCH DETACH DELETE n');
+  it('parses MERGE with DETACH DELETE in ON MATCH', async () => {
+    const ast = parseCypher('MERGE (n:User {name: "Alice"}) ON MATCH DETACH DELETE n') as AdvancedCypherAST;
     const mergeStage = ast.stages.find((s) => s.type === 'MERGE');
     expect(mergeStage).toBeDefined();
     if (!mergeStage || mergeStage.type !== 'MERGE') return;
@@ -198,8 +198,8 @@ describe('MERGE with DETACH DELETE', () => {
     expect(clause.onMatch?.detachDeleteVariables).toEqual(['n']);
   });
 
-  it('parses MERGE with DETACH DELETE in ON CREATE', () => {
-    const ast = parseCypher('MERGE (n:User {name: "Alice"}) ON CREATE DETACH DELETE n');
+  it('parses MERGE with DETACH DELETE in ON CREATE', async () => {
+    const ast = parseCypher('MERGE (n:User {name: "Alice"}) ON CREATE DETACH DELETE n') as AdvancedCypherAST;
     const mergeStage = ast.stages.find((s) => s.type === 'MERGE');
     expect(mergeStage).toBeDefined();
     if (!mergeStage || mergeStage.type !== 'MERGE') return;
@@ -207,8 +207,8 @@ describe('MERGE with DETACH DELETE', () => {
     expect(clause.onCreate?.detachDeleteVariables).toEqual(['n']);
   });
 
-  it('executes MERGE with DETACH DELETE in ON MATCH', () => {
-    const result = executeQuery(
+  it('executes MERGE with DETACH DELETE in ON MATCH', async () => {
+    const result = await executeQuery(
       {
         nodes: [
           { key: 'a', attributes: { label: 'User', name: 'Alice' } },
@@ -223,10 +223,10 @@ describe('MERGE with DETACH DELETE', () => {
     expect(result).toEqual([{ name: 'Bob' }]);
   });
 
-  it('executes MERGE with DETACH DELETE in ON CREATE (node not found — no-op)', () => {
+  it('executes MERGE with DETACH DELETE in ON CREATE (node not found — no-op)', async () => {
     // When node doesn't exist, MERGE creates it, so ON CREATE fires.
     // DETACH DELETE on the newly created node removes it immediately.
-    const result = executeQuery(
+    const result = await executeQuery(
       {
         nodes: [
           { key: 'b', attributes: { label: 'User', name: 'Bob' } },
@@ -238,8 +238,8 @@ describe('MERGE with DETACH DELETE', () => {
     expect(result).toEqual([{ name: 'Bob' }]);
   });
 
-  it('executes MERGE with combined SET and DETACH DELETE in ON MATCH', () => {
-    const result = executeQuery(
+  it('executes MERGE with combined SET and DETACH DELETE in ON MATCH', async () => {
+    const result = await executeQuery(
       {
         nodes: [
           { key: 'a', attributes: { label: 'User', name: 'Alice' } },
@@ -258,8 +258,8 @@ describe('MERGE with DETACH DELETE', () => {
 // ── FOREACH with DETACH DELETE ──────────────────────────────────────────────
 
 describe('FOREACH with DETACH DELETE', () => {
-  it('parses FOREACH with DETACH DELETE', () => {
-    const ast = parseCypher('MATCH (n) FOREACH (x IN n.items | DETACH DELETE x) RETURN n');
+  it('parses FOREACH with DETACH DELETE', async () => {
+    const ast = parseCypher('MATCH (n) FOREACH (x IN n.items | DETACH DELETE x) RETURN n') as AdvancedCypherAST;
     const foreachStage = ast.stages.find((s) => s.type === 'FOREACH');
     expect(foreachStage).toBeDefined();
     if (!foreachStage || foreachStage.type !== 'FOREACH') return;
@@ -270,8 +270,8 @@ describe('FOREACH with DETACH DELETE', () => {
     }
   });
 
-  it('executes FOREACH with DETACH DELETE on list of nodes', () => {
-    const result = executeQuery(
+  it('executes FOREACH with DETACH DELETE on list of nodes', async () => {
+    const result = await executeQuery(
       {
         nodes: [
           { key: 'a', attributes: { label: 'Person', name: 'Alice' } },

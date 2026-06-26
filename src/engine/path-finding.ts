@@ -69,19 +69,19 @@ function findSingleShortestPath(
   let targetDistance = -1;
 
   while (head < queue.length) {
-    const current = queue[head++];
+    const current = queue[head++]!;
     const currentDist = distOf.get(current)!;
     if (targetDistance > 0 && currentDist > targetDistance) break;
 
-    forEachFilteredNeighbor(graph, config, current, relation, (neighborId, edgeId) => {
+    forEachFilteredNeighbor(graph, config, current, relation, (nId, eId) => {
       const newDist = currentDist + 1;
       if (maxDepth !== undefined && newDist > maxDepth) return;
-      if (!distOf.has(neighborId)) {
-        distOf.set(neighborId, newDist);
-        parent.set(neighborId, current);
-        parentEdge.set(neighborId, edgeId);
-        if (neighborId === target) targetDistance = newDist;
-        if (newDist < targetDistance || targetDistance === -1) queue.push(neighborId);
+      if (!distOf.has(nId)) {
+        distOf.set(nId, newDist);
+        parent.set(nId, current);
+        parentEdge.set(nId, eId);
+        if (nId === target) targetDistance = newDist;
+        if (newDist < targetDistance || targetDistance === -1) queue.push(nId);
       }
     });
   }
@@ -109,23 +109,23 @@ function findAllShortestPaths(
   let targetDistance = -1;
 
   while (head < queue.length) {
-    const current = queue[head++];
+    const current = queue[head++]!;
     const currentDist = distOf.get(current)!;
     if (targetDistance > 0 && currentDist > targetDistance) break;
 
-    forEachFilteredNeighbor(graph, config, current, relation, (neighborId, edgeId) => {
+    forEachFilteredNeighbor(graph, config, current, relation, (nId, eId) => {
       const newDist = currentDist + 1;
       if (maxDepth !== undefined && newDist > maxDepth) return;
-      const existing = distOf.get(neighborId);
+      const existing = distOf.get(nId);
       if (existing === undefined) {
-        distOf.set(neighborId, newDist);
-        predecessors.set(neighborId, [current]);
-        predEdges.set(neighborId, [edgeId]);
-        if (neighborId === target) targetDistance = newDist;
-        if (newDist < targetDistance || targetDistance === -1) queue.push(neighborId);
+        distOf.set(nId, newDist);
+        predecessors.set(nId, [current]);
+        predEdges.set(nId, [eId]);
+        if (nId === target) targetDistance = newDist;
+        if (newDist < targetDistance || targetDistance === -1) queue.push(nId);
       } else if (existing === newDist) {
-        predecessors.get(neighborId)!.push(current);
-        predEdges.get(neighborId)!.push(edgeId);
+        predecessors.get(nId)!.push(current);
+        predEdges.get(nId)!.push(eId);
       }
     });
   }
@@ -143,10 +143,10 @@ function forEachFilteredNeighbor(
   const wantType = relation.type;
 
   if (direction === 'OUT' || direction === 'UNDIRECTED') {
-    graph.forEachOutboundEdge(nodeId, (edgeId, attrs, _s, t) => { if (wantType && attrs[edgeTypeProp] !== wantType) return; cb(t, edgeId); });
+    graph.forEachOutboundEdge(nodeId, (edgeId, attrs, _s, t) => { if (wantType && attrs[edgeTypeProp] !== wantType) return; cb(t as string, edgeId as string); });
   }
   if (direction === 'IN' || direction === 'UNDIRECTED') {
-    graph.forEachInboundEdge(nodeId, (edgeId, attrs, s, _t) => { if (wantType && attrs[edgeTypeProp] !== wantType) return; cb(s, edgeId); });
+    graph.forEachInboundEdge(nodeId, (edgeId, attrs, s, _t) => { if (wantType && attrs[edgeTypeProp] !== wantType) return; cb(s as string, edgeId as string); });
   }
 }
 

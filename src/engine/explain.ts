@@ -15,6 +15,7 @@ import type {
   UnwindClause,
   ForeachClause,
   CallClause,
+  LoadCsvClause,
   NodePattern,
   RelationPattern,
   Projection,
@@ -64,7 +65,8 @@ function extractExpressionVariables(expr: Expression | undefined): string[] {
         vars.add(e.variable);
         break;
       case 'Aggregation':
-        vars.add(e.variable);
+        if (e.variable) vars.add(e.variable);
+        if (e.expression) walk(e.expression);
         break;
       case 'ListLiteral':
         e.values.forEach(walk);
@@ -225,6 +227,8 @@ function analyzeStage(stage: Stage, index: number): ExplainStage {
       return analyzeForeach(stage.clause, index);
     case 'CALL':
       return analyzeCall(stage.clause, index);
+    case 'LOAD_CSV':
+      return analyzeLoadCsv(stage.clause, index);
     default:
       return { index, type: 'UNKNOWN', description: 'Unknown stage', variables: [] };
   }
@@ -510,6 +514,25 @@ function analyzeCall(clause: CallClause, index: number): ExplainStage {
   };
 }
 
+function analyzeLoadCsv(clause: LoadCsvClause, index: number): ExplainStage {
+  const details: Record<string, unknown> = {
+    source: clause.source,
+    withHeaders: clause.withHeaders,
+    variable: clause.variable,
+  };
+  if (clause.fieldTerminator) details.fieldTerminator = clause.fieldTerminator;
+  if (clause.enclosedBy) details.enclosedBy = clause.enclosedBy;
+
+  const headersInfo = clause.withHeaders ? ' WITH HEADERS' : '';
+  return {
+    index,
+    type: 'LOAD CSV',
+    description: `LOAD CSV${headersInfo} FROM '${clause.source}' AS ${clause.variable}`,
+    variables: [clause.variable],
+    details,
+  };
+}
+
 // ── Expression description ───────────────────────────────────────────────────
 
 function describeExpression(expr: Expression | undefined): string {
@@ -520,7 +543,7 @@ function describeExpression(expr: Expression | undefined): string {
     case 'Literal':
       return JSON.stringify(expr.value);
     case 'Aggregation':
-      const inner = expr.property ? `${expr.variable}.${expr.property}` : (expr.isStar ? '*' : expr.variable);
+      const inner = expr.expression ? describeExpression(expr.expression) : (expr.property ? `${expr.variable}.${expr.property}` : (expr.isStar ? '*' : expr.variable));
       return `${expr.aggregationType.toLowerCase()}(${expr.distinct ? 'DISTINCT ' : ''}${inner})`;
     case 'FunctionCall':
       return `${expr.functionName}(${expr.arguments.map(describeExpression).join(', ')})`;

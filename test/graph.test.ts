@@ -3,12 +3,12 @@ import { Graph, type GraphInstance } from '../src/graph';
 import { executeQuery } from '../src/lib';
 
 describe('Graph', () => {
-  it('creates an empty graph with order 0', () => {
+  it('creates an empty graph with order 0', async () => {
     const graph = new Graph();
     expect(graph.order).toBe(0);
   });
 
-  it('adds and retrieves a node', () => {
+  it('adds and retrieves a node', async () => {
     const graph = new Graph();
     graph.addNode('n1', { label: 'User', name: 'Alice' });
     expect(graph.order).toBe(1);
@@ -18,7 +18,7 @@ describe('Graph', () => {
     expect(attrs.name).toBe('Alice');
   });
 
-  it('adds and retrieves an edge via forEachEdge', () => {
+  it('adds and retrieves an edge via forEachEdge', async () => {
     const graph = new Graph();
     graph.addNode('a');
     graph.addNode('b');
@@ -31,7 +31,7 @@ describe('Graph', () => {
     expect(capturedAttrs!.since).toBe(2020);
   });
 
-  it('filterNodes returns matching nodes', () => {
+  it('filterNodes returns matching nodes', async () => {
     const graph = new Graph();
     graph.addNode('a', { label: 'User' });
     graph.addNode('b', { label: 'Admin' });
@@ -41,7 +41,7 @@ describe('Graph', () => {
     expect(users.length).toBe(2);
   });
 
-  it('forEachOutboundEdge iterates only outbound edges', () => {
+  it('forEachOutboundEdge iterates only outbound edges', async () => {
     const graph = new Graph();
     graph.addNode('a');
     graph.addNode('b');
@@ -56,7 +56,7 @@ describe('Graph', () => {
     expect(outbound).toEqual(['b']);
   });
 
-  it('forEachInboundEdge iterates only inbound edges', () => {
+  it('forEachInboundEdge iterates only inbound edges', async () => {
     const graph = new Graph();
     graph.addNode('a');
     graph.addNode('b');
@@ -71,7 +71,7 @@ describe('Graph', () => {
     expect(inbound).toEqual(['c']);
   });
 
-  it('forEachEdge iterates both directions', () => {
+  it('forEachEdge iterates both directions', async () => {
     const graph = new Graph();
     graph.addNode('a');
     graph.addNode('b');
@@ -86,7 +86,7 @@ describe('Graph', () => {
     expect(neighbors.sort()).toEqual(['b', 'c']);
   });
 
-  it('setNodeAttribute updates node attributes', () => {
+  it('setNodeAttribute updates node attributes', async () => {
     const graph = new Graph();
     graph.addNode('n1', { name: 'Alice', age: 30 });
     graph.setNodeAttribute('n1', 'age', 31);
@@ -94,7 +94,7 @@ describe('Graph', () => {
     expect(graph.getNodeAttributes('n1').name).toBe('Alice');
   });
 
-  it('dropNode removes the node from the graph', () => {
+  it('dropNode removes the node from the graph', async () => {
     const graph = new Graph();
     graph.addNode('n1', { label: 'User' });
     graph.addNode('n2', { label: 'User' });
@@ -106,12 +106,12 @@ describe('Graph', () => {
     expect(graph.order).toBe(1);
   });
 
-  it('hasNode returns false for non-existent nodes', () => {
+  it('hasNode returns false for non-existent nodes', async () => {
     const graph = new Graph();
     expect(graph.hasNode('nonexistent')).toBe(false);
   });
 
-  it('handles graph with no attributes', () => {
+  it('handles graph with no attributes', async () => {
     const graph = new Graph();
     graph.addNode('a');
     graph.addNode('b');
@@ -122,7 +122,7 @@ describe('Graph', () => {
 });
 
 describe('Graph API surface', () => {
-  it('exposes all required methods on the GraphInstance', () => {
+  it('exposes all required methods on the GraphInstance', async () => {
     const graph = new Graph();
     const requiredMethods = [
       'addNode',
@@ -144,7 +144,7 @@ describe('Graph API surface', () => {
 });
 
 describe('Graphology graph queried via Cypher', () => {
-  it('can query a graph built from Graphology JSON data', () => {
+  it('can query a graph built from Graphology JSON data', async () => {
     const graphData = {
       nodes: [
         { key: 'alice', attributes: { label: 'User', name: 'Alice' } },
@@ -157,11 +157,11 @@ describe('Graphology graph queried via Cypher', () => {
       ],
     };
 
-    const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name ORDER BY u.name');
+    const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u.name ORDER BY u.name');
     expect(results.map((r) => r.name)).toEqual(['Alice', 'Bob', 'Charlie']);
   });
 
-  it('can traverse edges in a Graphology graph', () => {
+  it('can traverse edges in a Graphology graph', async () => {
     const graphData = {
       nodes: [
         { key: 'alice', attributes: { label: 'User', name: 'Alice' } },
@@ -172,7 +172,7 @@ describe('Graphology graph queried via Cypher', () => {
       ],
     };
 
-    const results = executeQuery(
+    const results = await executeQuery(
       graphData,
       'MATCH (a:User {name: "Alice"})-[:FRIEND]->(b:User) RETURN b.name',
     );

@@ -213,6 +213,14 @@ gcyphrq -g graph.json -e 'MATCH (s:Service)-[]->(t) WITH s, count(t) AS outDegre
 gcyphrq -g graph.json -e 'MATCH (a:Service {name: "API Gateway"})-[r*1..3]->(b) RETURN a, r, b'
 ```
 
+### Import from CSV
+
+Load data from a CSV file and create nodes:
+
+```bash
+gcyphrq -g graph.json -e "LOAD CSV WITH HEADERS FROM 'data.csv' AS row CREATE (n:Person {name: row.name}) RETURN n.name"
+```
+
 ## Exit Codes
 
 | Code | Meaning |

@@ -3,7 +3,7 @@ import type { GraphInstance } from '../graph';
 import type { CypherEdge, CypherNode, CypherValue, Expression, MergeAction, MergeClause, MergeSetAction, NodePattern, QueryContext, RelationPattern, RemoveItem, WriteClause } from '../types/cypher';
 import type { GraphConfig } from '../types/cypher';
 import { isContextChain, materialiseChain, resolveChainValue, type ContextChain, CHAIN_BASE, CHAIN_OVERRIDES } from './context-chain';
-import { getMatchingNodeIds, matchNodeCriteria, deepEquals } from './match';
+import { getMatchingNodeIds, matchNodeCriteria, deepEquals, matchDynamicProperties } from './match';
 
 /** Execute a WRITE mutation (CREATE, SET, DELETE, REMOVE). */
 export function executeWrite(
@@ -184,13 +184,13 @@ export function executeMerge(
     const overrides: QueryContext = {};
 
     if (!hasChains) {
-      const { id: sourceId, created: sourceCreated } = findOrCreateSingleNode(graph, indexes, config, sourcePattern, warnedNoLabelsOut, onWarning);
+      const { id: sourceId, created: sourceCreated } = findOrCreateSingleNode(graph, indexes, config, sourcePattern, context, evalExpr, warnedNoLabelsOut, onWarning);
       warnedNoLabelsOut = sourceCreated ? warnedNoLabelsOut : warnedNoLabelsOut; // no change
       created = sourceCreated;
       const sourceAttr = graph.getNodeAttributes(sourceId);
       overrides[sourcePattern.variable] = { id: sourceId, ...sourceAttr } as CypherNode;
     } else {
-      const result = findOrCreateChain(graph, indexes, config, sourcePattern, relationPattern, targetPattern, context, warnedNoLabelsOut, onWarning);
+      const result = findOrCreateChain(graph, indexes, config, sourcePattern, relationPattern, targetPattern, context, evalExpr, warnedNoLabelsOut, onWarning);
       warnedNoLabelsOut = result.warnedNoLabels;
       created = result.created;
       overrides[sourcePattern.variable] = result.sourceNode;
@@ -218,9 +218,16 @@ export function executeMerge(
 }
 
 function findOrCreateSingleNode(
-  graph: GraphInstance, indexes: any, config: GraphConfig, pattern: NodePattern, warnedNoLabels: boolean, onWarning?: (message: string) => void,
+  graph: GraphInstance, indexes: any, config: GraphConfig, pattern: NodePattern,
+  context: QueryContext | ContextChain, evalExpr: (expr: Expression, ctx: QueryContext) => CypherValue | undefined,
+  warnedNoLabels: boolean, onWarning?: (message: string) => void,
 ): { id: string; created: boolean } {
-  const { ids: candidates, warned } = getMatchingNodeIds(graph, indexes, config, pattern, warnedNoLabels, onWarning);
+  let { ids: candidates, warned } = getMatchingNodeIds(graph, indexes, config, pattern, warnedNoLabels, onWarning);
+  // Filter by dynamic properties (propertiesExpr) if present
+  if (pattern.propertiesExpr && evalExpr) {
+    const flatCtx = isContextChain(context) ? materialiseChain(context) : context;
+    candidates = candidates.filter((id) => matchDynamicProperties(pattern.propertiesExpr!, graph.getNodeAttributes(id), flatCtx, evalExpr));
+  }
   if (candidates.length > 0) return { id: candidates[0]!, created: false };
   const newId = randomUUID();
   const attrs: Record<string, unknown> = { ...pattern.properties };
@@ -233,7 +240,8 @@ function findOrCreateSingleNode(
 function findOrCreateChain(
   graph: GraphInstance, indexes: any, config: GraphConfig,
   sourcePattern: NodePattern, relationPattern: RelationPattern, targetPattern: NodePattern,
-  context: QueryContext | ContextChain, warnedNoLabels: boolean, onWarning?: (message: string) => void,
+  context: QueryContext | ContextChain, evalExpr: (expr: Expression, ctx: QueryContext) => CypherValue | undefined,
+  warnedNoLabels: boolean, onWarning?: (message: string) => void,
 ): { sourceNode: CypherNode; targetNode: CypherNode; edges: CypherEdge[]; created: boolean; warnedNoLabels: boolean } {
   let sourceId: string | undefined;
   const boundSource = resolveChainValue(context, sourcePattern.variable);
@@ -241,10 +249,11 @@ function findOrCreateChain(
 
   let sourceCreated = false;
   let warnedNoLabelsOut = warnedNoLabels;
-  if (!sourceId) { const result = findOrCreateSingleNode(graph, indexes, config, sourcePattern, warnedNoLabelsOut, onWarning); sourceId = result.id; sourceCreated = result.created; warnedNoLabelsOut = warnedNoLabelsOut; }
+  const flatCtx = isContextChain(context) ? materialiseChain(context) : context;
+  if (!sourceId) { const result = findOrCreateSingleNode(graph, indexes, config, sourcePattern, context, evalExpr, warnedNoLabelsOut, onWarning); sourceId = result.id; sourceCreated = result.created; warnedNoLabelsOut = warnedNoLabelsOut; }
   else {
     const freshAttrs = graph.getNodeAttributes(sourceId);
-    if (!matchNodeCriteria(freshAttrs, config, sourcePattern)) { const result = findOrCreateSingleNode(graph, indexes, config, sourcePattern, warnedNoLabelsOut, onWarning); sourceId = result.id; sourceCreated = result.created; warnedNoLabelsOut = warnedNoLabelsOut; }
+    if (!matchNodeCriteria(freshAttrs, config, sourcePattern) || (sourcePattern.propertiesExpr && !matchDynamicProperties(sourcePattern.propertiesExpr, freshAttrs, flatCtx, evalExpr))) { const result = findOrCreateSingleNode(graph, indexes, config, sourcePattern, context, evalExpr, warnedNoLabelsOut, onWarning); sourceId = result.id; sourceCreated = result.created; warnedNoLabelsOut = warnedNoLabelsOut; }
   }
 
   let targetId: string | undefined;
@@ -252,10 +261,10 @@ function findOrCreateChain(
   if (boundTarget && typeof boundTarget === 'object' && !Array.isArray(boundTarget) && 'id' in boundTarget) targetId = (boundTarget as CypherNode).id;
 
   let targetCreated = false;
-  if (!targetId) { const result = findOrCreateSingleNode(graph, indexes, config, targetPattern, warnedNoLabelsOut, onWarning); targetId = result.id; targetCreated = result.created; warnedNoLabelsOut = warnedNoLabelsOut; }
+  if (!targetId) { const result = findOrCreateSingleNode(graph, indexes, config, targetPattern, context, evalExpr, warnedNoLabelsOut, onWarning); targetId = result.id; targetCreated = result.created; warnedNoLabelsOut = warnedNoLabelsOut; }
   else {
     const freshAttrs = graph.getNodeAttributes(targetId);
-    if (!matchNodeCriteria(freshAttrs, config, targetPattern)) { const result = findOrCreateSingleNode(graph, indexes, config, targetPattern, warnedNoLabelsOut, onWarning); targetId = result.id; targetCreated = result.created; warnedNoLabelsOut = warnedNoLabelsOut; }
+    if (!matchNodeCriteria(freshAttrs, config, targetPattern) || (targetPattern.propertiesExpr && !matchDynamicProperties(targetPattern.propertiesExpr, freshAttrs, flatCtx, evalExpr))) { const result = findOrCreateSingleNode(graph, indexes, config, targetPattern, context, evalExpr, warnedNoLabelsOut, onWarning); targetId = result.id; targetCreated = result.created; warnedNoLabelsOut = warnedNoLabelsOut; }
   }
 
   let edgeId: string | undefined;

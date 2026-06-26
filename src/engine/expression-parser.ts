@@ -278,6 +278,7 @@ function extractCountStar(atom: TreeNode): Expression | undefined {
           aggregationType: 'COUNT' as const,
           variable: '*',
           property: undefined,
+          expression: undefined,
           distinct: false,
           isStar: true,
         };
@@ -596,14 +597,32 @@ export function evaluateExpressionFromAtom(
 
     const hasDistinct = hasTerminal(funcCtx, 'DISTINCT');
 
-    if (funcName && argName && AGGREGATION_FUNCTIONS.has(funcName.toLowerCase())) {
-      return {
-        type: 'Aggregation' as const,
-        aggregationType: funcName.toUpperCase() as 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COLLECT',
-        variable: argName,
-        property: argProperty,
-        distinct: !!hasDistinct,
-      };
+    if (funcName && AGGREGATION_FUNCTIONS.has(funcName.toLowerCase())) {
+      // Simple variable/property argument: sum(n.score)
+      if (argName) {
+        return {
+          type: 'Aggregation' as const,
+          aggregationType: funcName.toUpperCase() as 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COLLECT',
+          variable: argName,
+          property: argProperty,
+          expression: undefined,
+          distinct: !!hasDistinct,
+        };
+      }
+      // Complex expression argument: sum(toInteger(row.latency))
+      if (argExpr) {
+        const innerExpr = evaluateExpression(argExpr, extractWhere);
+        if (innerExpr) {
+          return {
+            type: 'Aggregation' as const,
+            aggregationType: funcName.toUpperCase() as 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COLLECT',
+            variable: null,
+            property: undefined,
+            expression: innerExpr,
+            distinct: !!hasDistinct,
+          };
+        }
+      }
     }
 
     if (funcName) {

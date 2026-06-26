@@ -1,0 +1,10 @@
+name,type,team,status
+api-gateway,service,platform,active
+user-service,service,identity,active
+order-service,service,commerce,active
+payment-service,service,payments,active
+inventory-service,service,commerce,active
+notification-service,service,platform,active
+postgres-db,database,platform,active
+redis-cache,cache,platform,active
+sqs-queue,queue,platform,active

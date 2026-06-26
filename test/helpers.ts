@@ -1,4 +1,5 @@
-import type { GraphInstance, GraphIndexes, CypherNode } from '../src/types/cypher';
+import type { GraphIndexes, CypherNode } from '../src/types/cypher';
+import type { GraphInstance } from '../src/graph';
 import { DEFAULT_CONFIG } from '../src/types/cypher';
 
 /** Cast a result-row value to CypherNode for test assertions. */

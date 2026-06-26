@@ -3,6 +3,7 @@ import type {
   CypherNode,
   CypherEdge,
   CypherValue,
+  Expression,
   GraphIndexes,
   GraphConfig,
   QueryContext,
@@ -146,6 +147,24 @@ export function getMatchingNodeIds(
 }
 
 /**
+ * Evaluate dynamic property expressions (propertiesExpr) against a node.
+ * Returns true if all dynamic properties match the node attributes.
+ */
+export function matchDynamicProperties(
+  propertiesExpr: Record<string, Expression>,
+  nodeAttr: Record<string, unknown>,
+  context: QueryContext,
+  evalExpr: (e: Expression, ctx: QueryContext) => CypherValue | undefined,
+): boolean {
+  for (const [key, expr] of Object.entries(propertiesExpr)) {
+    const expected = evalExpr(expr, context);
+    if (expected === undefined) return false;
+    if (!deepEquals(nodeAttr[key], expected)) return false;
+  }
+  return true;
+}
+
+/**
  * Execute a MATCH or OPTIONAL MATCH stage.
  */
 export function executeMatch(
@@ -158,6 +177,7 @@ export function executeMatch(
   warnedNoLabels: boolean,
   warnedNoEdgeTypes: boolean,
   onWarning?: (message: string) => void,
+  evalExpr?: (e: Expression, ctx: QueryContext) => CypherValue | undefined,
 ): { contexts: (QueryContext | ContextChain)[]; warnedNoLabels: boolean; warnedNoEdgeTypes: boolean } {
   const { sourcePattern, relationPattern, targetPattern, optional, hasChains, pathVariable } = clause;
   const outgoingContexts: (QueryContext | ContextChain)[] = [];
@@ -181,6 +201,9 @@ export function executeMatch(
   const getNeighbors = buildNeighborGetter(graph, indexes, config, relationPattern, warnedNoEdgeTypes, onWarning);
   let warnedNoEdgeTypesOut = warnedNoEdgeTypes;
 
+  // Check if target pattern has dynamic properties (needs per-context filtering)
+  const hasTargetDynamicProps = targetPattern.propertiesExpr && evalExpr;
+
   for (const context of incomingContexts) {
     let startNodeIds: string[] = [];
     const boundNode = resolveChainValue(context, sourcePattern.variable);
@@ -188,12 +211,22 @@ export function executeMatch(
       const boundId = (boundNode as CypherNode).id;
       if (graph.hasNode(boundId)) {
         const freshAttrs = graph.getNodeAttributes(boundId);
-        if (matchNodeCriteria(freshAttrs, config, sourcePattern)) { startNodeIds = [boundId]; }
+        if (matchNodeCriteria(freshAttrs, config, sourcePattern)) {
+          // Also check dynamic properties against the current context
+          if (!sourcePattern.propertiesExpr || matchDynamicProperties(sourcePattern.propertiesExpr, freshAttrs, isContextChain(context) ? materialiseChain(context) : context, evalExpr!)) {
+            startNodeIds = [boundId];
+          }
+        }
       }
     } else {
       const result = getMatchingNodeIds(graph, indexes, config, sourcePattern, warnedNoLabelsOut, onWarning);
       startNodeIds = result.ids;
       warnedNoLabelsOut = result.warned;
+      // Filter by dynamic properties (propertiesExpr) if present
+      if (sourcePattern.propertiesExpr && evalExpr) {
+        const flatCtx = isContextChain(context) ? materialiseChain(context) : context;
+        startNodeIds = startNodeIds.filter((id) => matchDynamicProperties(sourcePattern.propertiesExpr!, graph.getNodeAttributes(id), flatCtx, evalExpr));
+      }
     }
 
     let matchFoundForThisContext = false;
@@ -222,8 +255,10 @@ export function executeMatch(
         onStack.add(currentId);
 
         if (edgeHistory.length >= minDepth && eligibleTargetIds.has(currentId)) {
-          matchFoundForThisContext = true;
           const targetAttr = graph.getNodeAttributes(currentId);
+          // Check dynamic target properties if present
+          if (hasTargetDynamicProps && !matchDynamicProperties(targetPattern.propertiesExpr!, targetAttr, isContextChain(context) ? materialiseChain(context) : context, evalExpr!)) return;
+          matchFoundForThisContext = true;
           const targetNode = { id: currentId, ...targetAttr } as CypherNode;
           const edges = edgeHistory.map(({ edgeId, source, target }) => ({ id: edgeId, source, target, ...graph.getEdgeAttributes(edgeId) } as CypherEdge));
           const matchOverrides: QueryContext = { [sourcePattern.variable]: sourceNode, [targetPattern.variable]: targetNode };
@@ -237,8 +272,10 @@ export function executeMatch(
         getNeighbors(currentId, (neighborId, edgeId) => {
           if (neighborId === currentId) {
             if (edgeHistory.length + 1 >= minDepth && eligibleTargetIds.has(currentId)) {
-              matchFoundForThisContext = true;
               const targetAttr = graph.getNodeAttributes(currentId);
+              // Check dynamic target properties if present
+              if (hasTargetDynamicProps && !matchDynamicProperties(targetPattern.propertiesExpr!, targetAttr, isContextChain(context) ? materialiseChain(context) : context, evalExpr!)) return;
+              matchFoundForThisContext = true;
               const targetNode = { id: currentId, ...targetAttr } as CypherNode;
               const allSteps = [...edgeHistory, { edgeId, source: currentId, target: currentId }];
               const edges = allSteps.map(({ edgeId: eid, source, target }) => ({ id: eid, source, target, ...graph.getEdgeAttributes(eid) } as CypherEdge));

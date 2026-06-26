@@ -120,10 +120,22 @@ const graphData = {
   ],
 };
 
-const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name, u.age');
+const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u.name, u.age');
 console.log(results);
 // [ { name: 'Alice', age: 30 }, { name: 'Bob', age: 25 } ]
 ```
+
+## Loading Data from CSV
+
+Build a full graph from CSV files — one for nodes, one for edges — using `LOAD CSV` with `CALL { ... }` subqueries. Example CSV files are bundled in `examples/csv/`.
+
+Pipe an empty graph via stdin and populate it entirely from CSV:
+
+```bash
+echo '{"nodes":[],"edges":[]}' | gcyphrq -g - -e "CALL { LOAD CSV WITH HEADERS FROM 'examples/csv/services.csv' AS s CREATE (:Service {name: s.name, type: s.type, team: s.team, status: s.status}) RETURN count(*) AS _ } CALL { LOAD CSV WITH HEADERS FROM 'examples/csv/dependencies.csv' AS d MATCH (src:Service {name: d.source}) MATCH (tgt:Service {name: d.target}) CREATE (src)-[:DEPENDS_ON {protocol: d.protocol, latency: toInteger(d.latency_ms)}]->(tgt) RETURN count(*) AS _ } MATCH (a)-[r]->(b) RETURN a, r, b"
+```
+
+See the [Query Guide — LOAD CSV]({{ '/query-guide/' | relative_url }}#load-csv) for full syntax reference.
 
 ## Next Steps
 

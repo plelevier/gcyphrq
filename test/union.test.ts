@@ -17,7 +17,7 @@ const socialGraph: GraphInput = {
 
 describe('UNION / UNION ALL', () => {
   describe('parsing', () => {
-    it('parses UNION as UnionQuery AST', () => {
+    it('parses UNION as UnionQuery AST', async () => {
       const ast = parseCypher(
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION MATCH (u:User {name: "Bob"}) RETURN u.name',
       );
@@ -27,7 +27,7 @@ describe('UNION / UNION ALL', () => {
       expect(ast.unionTypes).toEqual([null, 'UNION']);
     });
 
-    it('parses UNION ALL as UnionQuery AST', () => {
+    it('parses UNION ALL as UnionQuery AST', async () => {
       const ast = parseCypher(
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION ALL MATCH (u:User {name: "Bob"}) RETURN u.name',
       );
@@ -37,7 +37,7 @@ describe('UNION / UNION ALL', () => {
       expect(ast.unionTypes).toEqual([null, 'UNION ALL']);
     });
 
-    it('parses 3+ branches with mixed UNION/UNION ALL', () => {
+    it('parses 3+ branches with mixed UNION/UNION ALL', async () => {
       const ast = parseCypher(
         'MATCH (u:User) RETURN u.name UNION MATCH (u:User) RETURN u.name UNION ALL MATCH (u:User) RETURN u.name',
       );
@@ -47,12 +47,12 @@ describe('UNION / UNION ALL', () => {
       expect(ast.unionTypes).toEqual([null, 'UNION', 'UNION ALL']);
     });
 
-    it('parses single query without UNION as AdvancedCypherAST', () => {
+    it('parses single query without UNION as AdvancedCypherAST', async () => {
       const ast = parseCypher('MATCH (u:User) RETURN u.name');
       expect(ast.type).toBe('Query');
     });
 
-    it('extracts ORDER BY from last branch to union level', () => {
+    it('extracts ORDER BY from last branch to union level', async () => {
       const ast = parseCypher(
         'MATCH (u:User) RETURN u.name UNION ALL MATCH (u:User) RETURN u.name ORDER BY name DESC',
       );
@@ -65,7 +65,7 @@ describe('UNION / UNION ALL', () => {
       expect(lastBranch.return?.orderBy).toBeUndefined();
     });
 
-    it('extracts SKIP and LIMIT from last branch to union level', () => {
+    it('extracts SKIP and LIMIT from last branch to union level', async () => {
       const ast = parseCypher(
         'MATCH (u:User) RETURN u.name UNION ALL MATCH (u:User) RETURN u.name SKIP 1 LIMIT 2',
       );
@@ -81,8 +81,8 @@ describe('UNION / UNION ALL', () => {
   });
 
   describe('UNION ALL execution', () => {
-    it('concatenates results from two branches', () => {
-      const results = executeQuery(socialGraph,
+    it('concatenates results from two branches', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION ALL MATCH (u:User {name: "Bob"}) RETURN u.name',
       );
       expect(results).toEqual([
@@ -91,8 +91,8 @@ describe('UNION / UNION ALL', () => {
       ]);
     });
 
-    it('preserves duplicates with UNION ALL', () => {
-      const results = executeQuery(socialGraph,
+    it('preserves duplicates with UNION ALL', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION ALL MATCH (u:User {name: "Alice"}) RETURN u.name',
       );
       expect(results).toEqual([
@@ -101,8 +101,8 @@ describe('UNION / UNION ALL', () => {
       ]);
     });
 
-    it('handles 3+ branches', () => {
-      const results = executeQuery(socialGraph,
+    it('handles 3+ branches', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION ALL MATCH (u:User {name: "Bob"}) RETURN u.name UNION ALL MATCH (u:User {name: "Charlie"}) RETURN u.name',
       );
       expect(results).toEqual([
@@ -114,8 +114,8 @@ describe('UNION / UNION ALL', () => {
   });
 
   describe('UNION (deduplicated) execution', () => {
-    it('deduplicates identical rows', () => {
-      const results = executeQuery(socialGraph,
+    it('deduplicates identical rows', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION MATCH (u:User {name: "Alice"}) RETURN u.name',
       );
       expect(results).toEqual([
@@ -123,8 +123,8 @@ describe('UNION / UNION ALL', () => {
       ]);
     });
 
-    it('keeps distinct rows', () => {
-      const results = executeQuery(socialGraph,
+    it('keeps distinct rows', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION MATCH (u:User {name: "Bob"}) RETURN u.name',
       );
       expect(results).toEqual([
@@ -133,8 +133,8 @@ describe('UNION / UNION ALL', () => {
       ]);
     });
 
-    it('deduplicates across 3+ branches', () => {
-      const results = executeQuery(socialGraph,
+    it('deduplicates across 3+ branches', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION MATCH (u:User {name: "Bob"}) RETURN u.name UNION MATCH (u:User {name: "Alice"}) RETURN u.name',
       );
       expect(results).toEqual([
@@ -145,8 +145,8 @@ describe('UNION / UNION ALL', () => {
   });
 
   describe('column alignment', () => {
-    it('aligns columns by name across branches', () => {
-      const results = executeQuery(socialGraph,
+    it('aligns columns by name across branches', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name AS n, "A" AS grp UNION ALL MATCH (u:User {name: "Bob"}) RETURN u.name AS n, "B" AS grp',
       );
       expect(results).toEqual([
@@ -155,8 +155,8 @@ describe('UNION / UNION ALL', () => {
       ]);
     });
 
-    it('fills missing columns with null', () => {
-      const results = executeQuery(socialGraph,
+    it('fills missing columns with null', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name AS n, "A" AS grp UNION ALL MATCH (u:User {name: "Bob"}) RETURN u.name AS n',
       );
       expect(results).toEqual([
@@ -165,8 +165,8 @@ describe('UNION / UNION ALL', () => {
       ]);
     });
 
-    it('handles columns in different order', () => {
-      const results = executeQuery(socialGraph,
+    it('handles columns in different order', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name AS n, "A" AS grp UNION ALL MATCH (u:User {name: "Bob"}) RETURN "B" AS grp, u.name AS n',
       );
       expect(results).toEqual([
@@ -177,8 +177,8 @@ describe('UNION / UNION ALL', () => {
   });
 
   describe('mixed UNION and UNION ALL', () => {
-    it('deduplicates when any branch is UNION (not ALL)', () => {
-      const results = executeQuery(socialGraph,
+    it('deduplicates when any branch is UNION (not ALL)', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION ALL MATCH (u:User {name: "Bob"}) RETURN u.name UNION MATCH (u:User {name: "Charlie"}) RETURN u.name',
       );
       expect(results).toEqual([
@@ -190,7 +190,7 @@ describe('UNION / UNION ALL', () => {
   });
 
   describe('via GraphEngine directly', () => {
-    it('works with GraphEngine.executeUnion', () => {
+    it('works with GraphEngine.executeUnion', async () => {
       const graph = createGraph(socialGraph);
       const indexes = buildGraphIndexes(socialGraph, graph);
       const engine = new GraphEngine(graph, indexes);
@@ -198,7 +198,7 @@ describe('UNION / UNION ALL', () => {
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION ALL MATCH (u:User {name: "Bob"}) RETURN u.name',
       );
       if (ast.type !== 'UnionQuery') throw new Error('Expected UnionQuery');
-      const results = engine.executeUnion(ast);
+      const results = await engine.executeUnion(ast);
       expect(results).toEqual([
         { name: 'Alice' },
         { name: 'Bob' },
@@ -207,8 +207,8 @@ describe('UNION / UNION ALL', () => {
   });
 
   describe('with aggregations', () => {
-    it('unions aggregated results', () => {
-      const results = executeQuery(socialGraph,
+    it('unions aggregated results', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User) RETURN count(u) AS cnt UNION ALL MATCH (u:User) RETURN count(u) AS cnt',
       );
       expect(results).toEqual([
@@ -219,8 +219,8 @@ describe('UNION / UNION ALL', () => {
   });
 
   describe('with WITH clause', () => {
-    it('supports WITH in each branch', () => {
-      const results = executeQuery(socialGraph,
+    it('supports WITH in each branch', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User) WITH u.name AS n RETURN n UNION ALL MATCH (u:User) WITH u.name AS n RETURN n',
       );
       expect(results.length).toBe(6); // 3 + 3
@@ -228,8 +228,8 @@ describe('UNION / UNION ALL', () => {
   });
 
   describe('with ORDER BY / LIMIT within branches', () => {
-    it('applies ORDER BY independently per branch', () => {
-      const results = executeQuery(socialGraph,
+    it('applies ORDER BY independently per branch', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User) RETURN u.name ORDER BY u.name DESC UNION ALL MATCH (u:User) RETURN u.name ORDER BY u.name ASC',
       );
       expect(results).toEqual([
@@ -244,8 +244,8 @@ describe('UNION / UNION ALL', () => {
   });
 
   describe('ORDER BY / SKIP / LIMIT on combined result', () => {
-    it('applies ORDER BY to the full UNION result', () => {
-      const results = executeQuery(socialGraph,
+    it('applies ORDER BY to the full UNION result', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION ALL MATCH (u:User {name: "Bob"}) RETURN u.name UNION ALL MATCH (u:User {name: "Charlie"}) RETURN u.name ORDER BY name DESC',
       );
       expect(results).toEqual([
@@ -255,8 +255,8 @@ describe('UNION / UNION ALL', () => {
       ]);
     });
 
-    it('applies ORDER BY + LIMIT to the full result', () => {
-      const results = executeQuery(socialGraph,
+    it('applies ORDER BY + LIMIT to the full result', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION ALL MATCH (u:User {name: "Bob"}) RETURN u.name UNION ALL MATCH (u:User {name: "Charlie"}) RETURN u.name ORDER BY name DESC LIMIT 2',
       );
       expect(results).toEqual([
@@ -265,8 +265,8 @@ describe('UNION / UNION ALL', () => {
       ]);
     });
 
-    it('applies ORDER BY + SKIP to the full result', () => {
-      const results = executeQuery(socialGraph,
+    it('applies ORDER BY + SKIP to the full result', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION ALL MATCH (u:User {name: "Bob"}) RETURN u.name UNION ALL MATCH (u:User {name: "Charlie"}) RETURN u.name ORDER BY name ASC SKIP 1',
       );
       expect(results).toEqual([
@@ -275,8 +275,8 @@ describe('UNION / UNION ALL', () => {
       ]);
     });
 
-    it('applies ORDER BY + SKIP + LIMIT to the full result', () => {
-      const results = executeQuery(socialGraph,
+    it('applies ORDER BY + SKIP + LIMIT to the full result', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION ALL MATCH (u:User {name: "Bob"}) RETURN u.name UNION ALL MATCH (u:User {name: "Charlie"}) RETURN u.name ORDER BY name ASC SKIP 1 LIMIT 1',
       );
       expect(results).toEqual([
@@ -284,8 +284,8 @@ describe('UNION / UNION ALL', () => {
       ]);
     });
 
-    it('applies ORDER BY after dedup for UNION', () => {
-      const results = executeQuery(socialGraph,
+    it('applies ORDER BY after dedup for UNION', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION MATCH (u:User {name: "Charlie"}) RETURN u.name UNION MATCH (u:User {name: "Alice"}) RETURN u.name ORDER BY name DESC',
       );
       expect(results).toEqual([
@@ -296,8 +296,8 @@ describe('UNION / UNION ALL', () => {
   });
 
   describe('with empty branches', () => {
-    it('handles empty result from one branch', () => {
-      const results = executeQuery(socialGraph,
+    it('handles empty result from one branch', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u.name UNION ALL MATCH (u:User {name: "NonExistent"}) RETURN u.name',
       );
       expect(results).toEqual([
@@ -307,8 +307,8 @@ describe('UNION / UNION ALL', () => {
   });
 
   describe('with complex values (nodes)', () => {
-    it('deduplicates rows containing nodes', () => {
-      const results = executeQuery(socialGraph,
+    it('deduplicates rows containing nodes', async () => {
+      const results = await executeQuery(socialGraph,
         'MATCH (u:User {name: "Alice"}) RETURN u UNION MATCH (u:User {name: "Alice"}) RETURN u',
       );
       expect(results.length).toBe(1);

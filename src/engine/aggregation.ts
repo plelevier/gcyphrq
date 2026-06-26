@@ -68,18 +68,26 @@ export function collectAggregationsInWhere(expr: Expression | WhereExpression): 
   return collectAggregations(expr as Expression);
 }
 
-/** Collect all values for a given aggregation variable/property across rows. */
-function collectValuesForAgg(
-  expr: AggregationExpression,
-  rows: QueryContext[],
-): CypherValue[] {
-  const values: CypherValue[] = [];
-  for (const row of rows) {
-    const baseVal = row[expr.variable];
-    const val = expr.property ? (baseVal as CypherNode | undefined)?.[expr.property] : baseVal;
-    values.push(val as CypherValue);
+/** Generate a unique key for an aggregation expression. */
+export function getAggKey(expr: AggregationExpression): string {
+  if (expr.expression) {
+    return `__expr__:${JSON.stringify(expr.expression)}`;
   }
-  return values;
+  return `${expr.variable ?? ''}:${expr.property ?? ''}`;
+}
+
+/** Evaluate the value for an aggregation across a single row. */
+function evalAggValue(
+  expr: AggregationExpression,
+  row: QueryContext,
+  evalExpr: (expr: Expression, ctx: QueryContext) => CypherValue | undefined,
+): CypherValue | undefined {
+  if (expr.isStar) return true; // sentinel for count(*)
+  if (expr.expression) {
+    return evalExpr(expr.expression, row);
+  }
+  const baseVal = expr.variable ? row[expr.variable] : undefined;
+  return (expr.property ? (baseVal as CypherNode | undefined)?.[expr.property] : baseVal) as CypherValue | undefined;
 }
 
 /** Compute aggregations for a group of rows. */
@@ -93,7 +101,7 @@ export function computeAggregations(
   const newContext = { ...baseContext };
 
   const aggVars = new Map<string, AggregationExpression>();
-  aggrProjections.forEach((p) => { const aggs = collectAggregations(p.expression); aggs.forEach((agg) => { const key = `${agg.variable}:${agg.property ?? ''}`; aggVars.set(key, agg); }); });
+  aggrProjections.forEach((p) => { const aggs = collectAggregations(p.expression); aggs.forEach((agg) => { const key = getAggKey(agg); aggVars.set(key, agg); }); });
 
   const numericCache = new Map<string, number[]>();
   const nonNullCache = new Map<string, number>();
@@ -102,9 +110,8 @@ export function computeAggregations(
 
   for (const row of rows) {
     for (const expr of aggVars.values()) {
-      const key = `${expr.variable}:${expr.property ?? ''}`;
-      const baseVal = row[expr.variable];
-      const val = expr.property ? (baseVal as CypherNode | undefined)?.[expr.property] : baseVal;
+      const key = getAggKey(expr);
+      const val = evalAggValue(expr, row, evalExpr);
 
       // For count(*), count all rows
       if (expr.isStar) {
@@ -141,11 +148,11 @@ export function computeAggregations(
   }
 
   const allAggExprs = new Map<string, AggregationExpression>();
-  aggrProjections.forEach((p) => { const aggs = collectAggregations(p.expression); aggs.forEach((agg) => { const aggKey = `${agg.variable}:${agg.property ?? ''}:${agg.aggregationType}:${agg.distinct}`; allAggExprs.set(aggKey, agg); }); });
+  aggrProjections.forEach((p) => { const aggs = collectAggregations(p.expression); aggs.forEach((agg) => { const aggKey = `${getAggKey(agg)}:${agg.aggregationType}:${agg.distinct}`; allAggExprs.set(aggKey, agg); }); });
 
   const aggResults = new Map<string, CypherValue>();
   allAggExprs.forEach((expr, aggKey) => {
-    const key = `${expr.variable}:${expr.property ?? ''}`;
+    const key = getAggKey(expr);
     const numericValues = numericCache.get(key) ?? [];
     const nonNullCount = nonNullCache.get(key) ?? 0;
 
@@ -180,7 +187,7 @@ export function computeAggregations(
 
   aggrProjections.forEach((p) => {
     if (p.expression.type === 'Aggregation') {
-      const key = `${p.expression.variable}:${p.expression.property ?? ''}`;
+      const key = getAggKey(p.expression);
       const aggKey = `${key}:${p.expression.aggregationType}:${p.expression.distinct}`;
       newContext[p.alias] = aggResults.get(aggKey) ?? (p.expression.isStar ? 0 : null);
     } else if (p.expression.type === 'Reduce') {

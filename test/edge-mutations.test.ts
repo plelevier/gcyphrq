@@ -25,7 +25,7 @@ function getEdgeEndpoints(graph: GraphInstance, edgeId: string): { source: strin
 // ── Parser tests ─────────────────────────────────────────────────────────────
 
 describe('CREATE chain parser', () => {
-  it('parses CREATE with relationship chain (a)-[r:TYPE]->(b)', () => {
+  it('parses CREATE with relationship chain (a)-[r:TYPE]->(b)', async () => {
     const ast = parseCypher('CREATE (a:Person)-[r:KNOWS]->(b:Person) RETURN a, r, b');
     expect(ast.stages.length).toBe(1);
     expect(ast.stages[0]?.type).toBe('WRITE');
@@ -41,19 +41,19 @@ describe('CREATE chain parser', () => {
     expect(ast.return).toBeDefined();
   });
 
-  it('parses CREATE with incoming direction (a)<-[r:TYPE]-(b)', () => {
+  it('parses CREATE with incoming direction (a)<-[r:TYPE]-(b)', async () => {
     const ast = parseCypher('CREATE (a:Person)<-[r:KNOWS]-(b:Person) RETURN a, b');
     const create = ast.stages[0]! as { type: 'WRITE'; clause: any };
     expect(create.clause.relationPattern.direction).toBe('IN');
   });
 
-  it('parses CREATE with undirected edge (a)-[r]-(b)', () => {
+  it('parses CREATE with undirected edge (a)-[r]-(b)', async () => {
     const ast = parseCypher('CREATE (a:Person)-[r]-(b:Person) RETURN a, b');
     const create = ast.stages[0]! as { type: 'WRITE'; clause: any };
     expect(create.clause.relationPattern.direction).toBe('UNDIRECTED');
   });
 
-  it('parses CREATE chain with inline properties', () => {
+  it('parses CREATE chain with inline properties', async () => {
     const ast = parseCypher('CREATE (a:Person {name: "Alice"})-[r:KNOWS {since: 2020}]->(b:Person {name: "Bob"}) RETURN a, b');
     const create = ast.stages[0]! as { type: 'WRITE'; clause: any };
     expect(create.clause.hasChain).toBe(true);
@@ -62,7 +62,7 @@ describe('CREATE chain parser', () => {
     expect(create.clause.edgeProperties).toEqual({ since: 2020 });
   });
 
-  it('parses CREATE chain with MATCH prefix', () => {
+  it('parses CREATE chain with MATCH prefix', async () => {
     const ast = parseCypher('MATCH (a:Person) CREATE (a)-[r:FRIEND]->(b:Person) RETURN a, r, b');
     expect(ast.stages.length).toBe(2);
     expect(ast.stages[0]?.type).toBe('MATCH');
@@ -79,10 +79,10 @@ describe('CREATE chain engine', () => {
     graph = new Graph();
   });
 
-  it('creates both nodes and edge from scratch', () => {
+  it('creates both nodes and edge from scratch', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('CREATE (a:Person)-[r:KNOWS]->(b:Person) RETURN a, r, b');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const a = results[0]!.a as any;
     const r = results[0]!.r as CypherEdge[];
@@ -96,12 +96,12 @@ describe('CREATE chain engine', () => {
     expect(countEdges(graph)).toBe(1);
   });
 
-  it('creates edge between existing nodes (MATCH + CREATE)', () => {
+  it('creates edge between existing nodes (MATCH + CREATE)', async () => {
     graph.addNode('alice', { label: 'Person', name: 'Alice' });
     graph.addNode('bob', { label: 'Person', name: 'Bob' });
     const engine = createEngine(graph);
     const ast = parseCypher('MATCH (a:Person {name: "Alice"}) MATCH (b:Person {name: "Bob"}) CREATE (a)-[r:KNOWS]->(b) RETURN r');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const r = results[0]!.r as CypherEdge[];
     expect(r).toHaveLength(1);
@@ -110,11 +110,11 @@ describe('CREATE chain engine', () => {
     expect(countEdges(graph)).toBe(1);
   });
 
-  it('creates target node when source is bound', () => {
+  it('creates target node when source is bound', async () => {
     graph.addNode('alice', { label: 'Person', name: 'Alice' });
     const engine = createEngine(graph);
     const ast = parseCypher('MATCH (a:Person {name: "Alice"}) CREATE (a)-[r:KNOWS]->(b:Person) RETURN b');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const b = results[0]!.b as any;
     expect(b).toBeDefined();
@@ -122,11 +122,11 @@ describe('CREATE chain engine', () => {
     expect(countEdges(graph)).toBe(1);
   });
 
-  it('creates source node when target is bound', () => {
+  it('creates source node when target is bound', async () => {
     graph.addNode('bob', { label: 'Person', name: 'Bob' });
     const engine = createEngine(graph);
     const ast = parseCypher('MATCH (b:Person {name: "Bob"}) CREATE (a:Person)-[r:KNOWS]->(b) RETURN a');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const a = results[0]!.a as any;
     expect(a).toBeDefined();
@@ -134,12 +134,12 @@ describe('CREATE chain engine', () => {
     expect(countEdges(graph)).toBe(1);
   });
 
-  it('respects incoming direction (a)<-[r]-(b)', () => {
+  it('respects incoming direction (a)<-[r]-(b)', async () => {
     graph.addNode('alice', { label: 'Person', name: 'Alice' });
     graph.addNode('bob', { label: 'Person', name: 'Bob' });
     const engine = createEngine(graph);
     const ast = parseCypher('MATCH (a:Person {name: "Alice"}) MATCH (b:Person {name: "Bob"}) CREATE (a)<-[r:KNOWS]-(b) RETURN r');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const r = results[0]!.r as CypherEdge[];
     expect(r).toHaveLength(1);
@@ -149,10 +149,10 @@ describe('CREATE chain engine', () => {
     expect(endpoints.target).toBe('alice');
   });
 
-  it('creates with inline node properties', () => {
+  it('creates with inline node properties', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('CREATE (a:Person {name: "Alice"})-[r:KNOWS]->(b:Person {name: "Bob"}) RETURN a, b');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const a = results[0]!.a as any;
     const b = results[0]!.b as any;
@@ -160,10 +160,10 @@ describe('CREATE chain engine', () => {
     expect(b.name).toBe('Bob');
   });
 
-  it('creates with typed edge and returns edge type', () => {
+  it('creates with typed edge and returns edge type', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('CREATE (a:Person)-[r:KNOWS]->(b:Person) RETURN r');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const r = results[0]!.r as CypherEdge[];
     expect(r).toHaveLength(1);
@@ -173,10 +173,10 @@ describe('CREATE chain engine', () => {
     expect(edgeAttrs.type).toBe('KNOWS');
   });
 
-  it('creates edge without type when no type specified', () => {
+  it('creates edge without type when no type specified', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('CREATE (a:Person)-[r]->(b:Person) RETURN r');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const r = results[0]!.r as CypherEdge[];
     expect(r).toHaveLength(1);
@@ -185,10 +185,10 @@ describe('CREATE chain engine', () => {
     expect(edgeAttrs.type).toBeUndefined();
   });
 
-  it('creates edge with inline properties', () => {
+  it('creates edge with inline properties', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('CREATE (a:Person)-[r:KNOWS {since: 2020, strength: "strong"}]->(b:Person) RETURN r');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const r = results[0]!.r as CypherEdge[];
     expect(r).toHaveLength(1);
@@ -199,12 +199,12 @@ describe('CREATE chain engine', () => {
     expect(edgeAttrs.strength).toBe('strong');
   });
 
-  it('creates undirected edge (a)-[r]-(b)', () => {
+  it('creates undirected edge (a)-[r]-(b)', async () => {
     graph.addNode('alice', { label: 'Person', name: 'Alice' });
     graph.addNode('bob', { label: 'Person', name: 'Bob' });
     const engine = createEngine(graph);
     const ast = parseCypher('MATCH (a:Person {name: "Alice"}) MATCH (b:Person {name: "Bob"}) CREATE (a)-[r:KNOWS]-(b) RETURN r');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const r = results[0]!.r as CypherEdge[];
     expect(r).toHaveLength(1);
@@ -214,7 +214,7 @@ describe('CREATE chain engine', () => {
     expect(endpoints.target).toBe('bob');
   });
 
-  it('creates edge with dynamic properties via FOREACH', () => {
+  it('creates edge with dynamic properties via FOREACH', async () => {
     graph.addNode('alice', { label: 'Person', name: 'Alice' });
     const engine = createEngine(graph);
     // Dynamic edge properties in FOREACH: the edgePropertiesExpr path
@@ -224,7 +224,7 @@ describe('CREATE chain engine', () => {
     const ast = parseCypher(
       'MATCH (a:Person {name: "Alice"}) UNWIND [{name: "Bob"}] AS bInfo FOREACH (dummy IN [1] | CREATE (a)-[r:KNOWS {target: bInfo.name}]->(b:Person {name: bInfo.name}))',
     );
-    engine.execute(ast);
+await engine.execute(ast);
     // Verify edge was created with dynamic property
     expect(countEdges(graph)).toBe(1);
     let edgeId: string | undefined;
@@ -242,19 +242,19 @@ describe('CREATE chain engine', () => {
     expect(targetName).toBe('Bob');
   });
 
-  it('creates self-loop edge when source and target are the same node', () => {
+  it('creates self-loop edge when source and target are the same node', async () => {
     const g = new Graph({ allowSelfLoops: true });
     g.addNode('alice', { label: 'Person', name: 'Alice' });
     const engine = createEngine(g);
     const ast = parseCypher(
       'MATCH (a:Person {name: "Alice"}) CREATE (a)-[r:SELF]->(a) RETURN r',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     expect(countEdges(g)).toBe(1);
   });
 
-  it('creates parallel edges in multi-graph', () => {
+  it('creates parallel edges in multi-graph', async () => {
     const g = new Graph({ multi: true });
     g.addNode('alice', { label: 'Person', name: 'Alice' });
     g.addNode('bob', { label: 'Person', name: 'Bob' });
@@ -263,12 +263,12 @@ describe('CREATE chain engine', () => {
     const ast = parseCypher(
       'MATCH (a:Person {name: "Alice"}) MATCH (b:Person {name: "Bob"}) CREATE (a)-[r:FRIEND]->(b) RETURN r',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     expect(countEdges(g)).toBe(2);
   });
 
-  it('MATCH returns all parallel edges in multi-graph', () => {
+  it('MATCH returns all parallel edges in multi-graph', async () => {
     const g = new Graph({ multi: true });
     g.addNode('alice', { label: 'Person', name: 'Alice' });
     g.addNode('bob', { label: 'Person', name: 'Bob' });
@@ -278,11 +278,11 @@ describe('CREATE chain engine', () => {
     const ast = parseCypher(
       'MATCH (a:Person {name: "Alice"})-[r]->(b:Person {name: "Bob"}) RETURN r',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2);
   });
 
-  it('MATCH with type filter returns matching parallel edges', () => {
+  it('MATCH with type filter returns matching parallel edges', async () => {
     const g = new Graph({ multi: true });
     g.addNode('alice', { label: 'Person', name: 'Alice' });
     g.addNode('bob', { label: 'Person', name: 'Bob' });
@@ -293,11 +293,11 @@ describe('CREATE chain engine', () => {
     const ast = parseCypher(
       'MATCH (a:Person {name: "Alice"})-[r:KNOWS]->(b:Person {name: "Bob"}) RETURN r',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2);
   });
 
-  it('MERGE matches existing edge instead of creating duplicate in multi-graph', () => {
+  it('MERGE matches existing edge instead of creating duplicate in multi-graph', async () => {
     const g = new Graph({ multi: true });
     g.addNode('alice', { label: 'Person', name: 'Alice' });
     g.addNode('bob', { label: 'Person', name: 'Bob' });
@@ -306,13 +306,13 @@ describe('CREATE chain engine', () => {
     const ast = parseCypher(
       'MERGE (a:Person {name: "Alice"})-[r:KNOWS]->(b:Person {name: "Bob"}) RETURN r',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     // MERGE should match the existing edge, not create a new one
     expect(countEdges(g)).toBe(1);
   });
 
-  it('MERGE creates new edge when no matching type exists in multi-graph', () => {
+  it('MERGE creates new edge when no matching type exists in multi-graph', async () => {
     const g = new Graph({ multi: true });
     g.addNode('alice', { label: 'Person', name: 'Alice' });
     g.addNode('bob', { label: 'Person', name: 'Bob' });
@@ -321,13 +321,13 @@ describe('CREATE chain engine', () => {
     const ast = parseCypher(
       'MERGE (a:Person {name: "Alice"})-[r:FRIEND]->(b:Person {name: "Bob"}) RETURN r',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     // MERGE should create a new FRIEND edge alongside the existing KNOWS edge
     expect(countEdges(g)).toBe(2);
   });
 
-  it('DELETE removes a specific edge by ID in multi-graph', () => {
+  it('DELETE removes a specific edge by ID in multi-graph', async () => {
     const g = new Graph({ multi: true });
     g.addNode('alice', { label: 'Person', name: 'Alice' });
     g.addNode('bob', { label: 'Person', name: 'Bob' });
@@ -337,7 +337,7 @@ describe('CREATE chain engine', () => {
     const ast = parseCypher(
       'MATCH (a:Person {name: "Alice"})-[r:KNOWS]->(b:Person {name: "Bob"}) DELETE r RETURN a.name, b.name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     // One KNOWS edge deleted, FRIEND edge remains
     expect(countEdges(g)).toBe(1);
@@ -347,7 +347,7 @@ describe('CREATE chain engine', () => {
     expect(g.getEdgeAttributes(remainingEdgeId!).type).toBe('FRIEND');
   });
 
-  it('DELETE removes all matching parallel edges', () => {
+  it('DELETE removes all matching parallel edges', async () => {
     const g = new Graph({ multi: true });
     g.addNode('alice', { label: 'Person', name: 'Alice' });
     g.addNode('bob', { label: 'Person', name: 'Bob' });
@@ -358,7 +358,7 @@ describe('CREATE chain engine', () => {
     const ast = parseCypher(
       'MATCH (a:Person {name: "Alice"})-[r:KNOWS]->(b:Person {name: "Bob"}) DELETE r RETURN a.name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2); // two KNOWS edges matched
     // Both KNOWS edges deleted, FRIEND remains
     expect(countEdges(g)).toBe(1);

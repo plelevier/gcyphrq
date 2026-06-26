@@ -33,7 +33,7 @@ const graphData = {
   ],
 };
 
-const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name, u.age');
+const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u.name, u.age');
 console.log(results);
 // [ { name: 'Alice', age: 30 }, { name: 'Bob', age: 25 } ]
 ```
@@ -51,7 +51,7 @@ graph.addNode('alice', { label: 'User', name: 'Alice', age: 30 });
 graph.addNode('bob', { label: 'User', name: 'Bob', age: 25 });
 graph.addEdge('alice', 'bob', { type: 'FRIEND' });
 
-const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name, u.age');
+const results = await executeQuery(graph, 'MATCH (u:User) RETURN u.name, u.age');
 console.log(results);
 // [ { name: 'Alice', age: 30 }, { name: 'Bob', age: 25 } ]
 ```
@@ -74,14 +74,14 @@ Execute a Cypher query against a graph and return results as plain JSON. This is
 | `query` | `string` | A Cypher query string |
 | `opts` | [`IndexBuildOptions`](#indexbuildoptions) (optional) | Configuration for label/edge-type property names and warnings |
 
-**Returns:** `ResultRow[]` — array of result rows
+**Returns:** `Promise<ResultRow[]>` — promise resolving to an array of result rows
 
 **Throws:** `GraphError` if graph data is invalid, `Error` if the query is invalid
 
 ```ts
 import { executeQuery } from 'gcyphrq';
 
-const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
+const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 ```
 
 #### Custom Label/Edge-Type Property Names
@@ -91,7 +91,7 @@ By default gcyphrq reads `label` from node attributes and `type` from edge attri
 ```ts
 import { executeQuery } from 'gcyphrq';
 
-const results = executeQuery(graphData, 'MATCH (s:Service) RETURN s.name', {
+const results = await executeQuery(graphData, 'MATCH (s:Service) RETURN s.name', {
   config: { labelProperty: 'kind', edgeTypeProperty: 'rel' },
 });
 ```
@@ -108,7 +108,7 @@ Execute a Cypher query against an existing Graphology `Graph` instance. Indexes 
 | `query` | `string` | A Cypher query string |
 | `opts` | [`IndexBuildOptions`](#indexbuildoptions) (optional) | Configuration for label/edge-type property names and warnings |
 
-**Returns:** `ResultRow[]` — array of result rows
+**Returns:** `Promise<ResultRow[]>` — promise resolving to an array of result rows
 
 **Throws:** `Error` if the query is invalid
 
@@ -121,7 +121,7 @@ graph.addNode('alice', { label: 'User', name: 'Alice' });
 graph.addNode('bob', { label: 'User', name: 'Bob' });
 graph.addEdge('alice', 'bob', { type: 'FRIEND' });
 
-const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name');
+const results = await executeQuery(graph, 'MATCH (u:User) RETURN u.name');
 ```
 
 ---
@@ -266,8 +266,8 @@ The Cypher query engine class. Accepts a `GraphInstance` and executes parsed AST
 
 | Method | Parameters | Returns | Description |
 |---|---|---|---|
-| `execute(ast)` | `ast: AdvancedCypherAST` | `ResultRow[]` | Execute a single parsed AST against the graph |
-| `executeUnion(ast)` | `ast: UnionQueryAST` | `ResultRow[]` | Execute a UNION/UNION ALL AST. Aligns columns by name and deduplicates for `UNION` |
+| `execute(ast)` | `ast: AdvancedCypherAST` | `Promise<ResultRow[]>` | Execute a single parsed AST against the graph |
+| `executeUnion(ast)` | `ast: UnionQueryAST` | `Promise<ResultRow[]>` | Execute a UNION/UNION ALL AST. Aligns columns by name and deduplicates for `UNION` |
 
 ```ts
 import { GraphEngine, buildGraphIndexes, parseCypher } from 'gcyphrq';
@@ -279,7 +279,7 @@ graph.addNode('alice', { label: 'User', name: 'Alice' });
 const indexes = buildGraphIndexes(graph);
 const engine = new GraphEngine(graph, indexes);
 const ast = parseCypher('MATCH (u:User) RETURN u.name');
-const results = engine.execute(ast);
+const results = await engine.execute(ast);
 ```
 
 > **Tip:** For best performance, always pass pre-computed indexes to `GraphEngine`. Without indexes, every label and property lookup triggers a full-graph scan.
@@ -358,7 +358,7 @@ Use `executeQuery` when you have graph data and just need results:
 ```ts
 import { executeQuery } from 'gcyphrq';
 
-const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
+const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 ```
 
 ### Pattern 2: Reusable graph with multiple queries
@@ -371,8 +371,8 @@ import { createGraph, GraphEngine, parseCypher } from 'gcyphrq';
 const graph = createGraph(graphData);
 const engine = new GraphEngine(graph);
 
-const users = engine.execute(parseCypher('MATCH (u:User) RETURN u.name'));
-const counts = engine.execute(parseCypher('MATCH (u:User) RETURN count(u)'));
+const users = await engine.execute(parseCypher('MATCH (u:User) RETURN u.name'));
+const counts = await engine.execute(parseCypher('MATCH (u:User) RETURN count(u)'));
 ```
 
 ### Pattern 3: Programmatic graph construction
@@ -393,7 +393,7 @@ for (const rel of relationships) {
 }
 
 const engine = new GraphEngine(graph);
-const results = engine.execute(parseCypher('MATCH (u:User) RETURN u'));
+const results = await engine.execute(parseCypher('MATCH (u:User) RETURN u'));
 ```
 
 ### Pattern 4: External Graphology graph
@@ -414,13 +414,13 @@ for (const edge of edgesFromDatabase) {
 }
 
 // One-shot query (indexes built automatically)
-const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name');
+const results = await executeQuery(graph, 'MATCH (u:User) RETURN u.name');
 
 // Or with reusable engine and indexes for multiple queries
 const indexes = buildGraphIndexes(graph);
 const engine = new GraphEngine(graph, indexes);
-const users = engine.execute(parseCypher('MATCH (u:User) RETURN u.name'));
-const count = engine.execute(parseCypher('MATCH (u:User) RETURN count(u)'));
+const users = await engine.execute(parseCypher('MATCH (u:User) RETURN u.name'));
+const count = await engine.execute(parseCypher('MATCH (u:User) RETURN count(u)'));
 ```
 
 ### Pattern 5: AST inspection
@@ -444,7 +444,7 @@ Combine results from multiple query branches:
 ```ts
 import { executeQuery } from 'gcyphrq';
 
-const results = executeQuery(graphData,
+const results = await executeQuery(graphData,
   'MATCH (u:User {name: "Alice"}) RETURN u.name UNION ALL MATCH (u:User {name: "Bob"}) RETURN u.name',
 );
 // [ { name: 'Alice' }, { name: 'Bob' } ]
@@ -463,13 +463,13 @@ const graph = createGraph(graphData);
 const engine = new GraphEngine(graph);
 
 // Create a new node
-engine.execute(parseCypher('CREATE (n:User {name: "Charlie"}) RETURN n'));
+await engine.execute(parseCypher('CREATE (n:User {name: "Charlie"}) RETURN n'));
 
 // Update a node
-engine.execute(parseCypher('MATCH (u:User {name: "Alice"}) SET u.age = 31 RETURN u'));
+await engine.execute(parseCypher('MATCH (u:User {name: "Alice"}) SET u.age = 31 RETURN u'));
 
 // Query after mutation
-const results = engine.execute(parseCypher('MATCH (u:User) RETURN u.name, u.age'));
+const results = await engine.execute(parseCypher('MATCH (u:User) RETURN u.name, u.age'));
 ```
 
 ---
@@ -509,6 +509,7 @@ import type {
   SetClause,
   SetItem,
   CallClause,
+  LoadCsvClause,
   NodePattern,
   RelationPattern,
   Direction,
@@ -634,7 +635,8 @@ type Stage =
   | { type: 'MERGE'; clause: MergeClause }
   | { type: 'UNWIND'; clause: UnwindClause }
   | { type: 'FOREACH'; clause: ForeachClause }
-  | { type: 'CALL'; clause: CallClause };
+  | { type: 'CALL'; clause: CallClause }
+  | { type: 'LOAD_CSV'; clause: LoadCsvClause };
 
 interface UnionQueryAST {
   type: 'UnionQuery';
@@ -663,7 +665,7 @@ The library throws two kinds of errors:
 import { executeQuery, GraphError } from 'gcyphrq';
 
 try {
-  const results = executeQuery(graphData, query);
+  const results = await executeQuery(graphData, query);
 } catch (err) {
   if (err instanceof GraphError) {
     // Graph data is invalid
@@ -698,7 +700,7 @@ The library is published as ESM only. In CommonJS projects, use dynamic `import(
 ```js
 async function main() {
   const { executeQuery } = await import('gcyphrq');
-  const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
+  const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
   console.log(results);
 }
 
