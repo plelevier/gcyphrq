@@ -1109,9 +1109,26 @@ When a variable is already bound (via a preceding MATCH), the existing node is r
 
 ### SET
 
+Set properties and/or labels on nodes. Supports multiple operations in a single SET clause using commas.
+
 ```cypher
+-- Set a property
 MATCH (u:User {name: 'Alice'}) SET u.age = 31 RETURN u
-MATCH (u:User {name: 'Alice'}) SET u.tags = ['admin', 'verified'] RETURN u
+
+-- Set a label
+MATCH (u:User {name: 'Alice'}) SET u:Admin RETURN u
+
+-- Set multiple labels
+MATCH (u:User {name: 'Alice'}) SET u:Admin:Verified RETURN u
+
+-- Set label + property in one SET
+MATCH (u:User {name: 'Alice'}) SET u:Admin, u.age = 31 RETURN u
+
+-- Set multiple properties
+MATCH (u:User {name: 'Alice'}) SET u.age = 31, u.active = true RETURN u
+
+-- Set on different variables (via chained MATCH)
+MATCH (a:User {name: 'Alice'}) MATCH (b:User {name: 'Bob'}) SET a:First, b:Second, a.active = true RETURN a.name, b.name
 ```
 
 ### DELETE
@@ -1148,9 +1165,14 @@ Multiple items can be combined in a single REMOVE clause (property and/or label)
 
 Iterate over a list and execute a mutation (SET, CREATE, DELETE, DETACH DELETE, REMOVE) for each element. Unlike UNWIND, FOREACH **does not expand rows** — the input row count is preserved.
 
+The SET clause inside FOREACH supports multiple operations: labels, properties, or both.
+
 ```cypher
 -- Set a property on each element of a list
 MATCH (u:User) FOREACH (x IN u.tags | SET x.processed = true) RETURN u.name
+
+-- Set label + property in one FOREACH
+MATCH (u:User) FOREACH (x IN u.items | SET x:Processed, x.reviewed = true) RETURN u.name
 
 -- Create a node for each element with a dynamic property
 MATCH (u:User) FOREACH (x IN u.tags | CREATE (t:Tag {name: x})) RETURN u.name

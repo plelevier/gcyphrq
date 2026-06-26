@@ -471,6 +471,8 @@ import type {
   WithClause,
   ReturnClause,
   WriteClause,
+  SetClause,
+  SetItem,
   CallClause,
   NodePattern,
   RelationPattern,

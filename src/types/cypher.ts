@@ -145,13 +145,21 @@ export interface DeleteClause {
   detach: boolean;
 }
 
+export interface SetItem {
+  /** Variable name (e.g., "n" in `SET n:Label, n.prop = val`). */
+  variable: string;
+  /** Property name (e.g., "prop" in `SET n.prop = val`). Undefined for label-only. */
+  property: string | undefined;
+  /** Value expression (e.g., `val` in `SET n.prop = val`). Undefined for label-only. */
+  value: Expression | undefined;
+  /** Labels to add (e.g., ["Label"] in `SET n:Label`). Undefined for property-only. */
+  labels: string[] | undefined;
+}
+
 export interface SetClause {
   type: 'SET';
-  variable: string;
-  property: string;
-  value: Expression;
-  /** Labels to add to the node (e.g. `SET n:Label`). Undefined for property-only SET. */
-  labels: string[] | undefined;
+  /** Array of set items (labels and/or properties). Supports multiple operations like `SET n:Label, n.prop = val`. */
+  items: SetItem[];
 }
 
 export interface RemoveItem {

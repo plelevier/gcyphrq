@@ -29,8 +29,8 @@ describe('FOREACH parser', () => {
     }
     expect(clause.innerClause.type).toBe('SET');
     if (clause.innerClause.type === 'SET') {
-      expect(clause.innerClause.variable).toBe('x');
-      expect(clause.innerClause.property).toBe('active');
+      expect(clause.innerClause.items[0]?.variable).toBe('x');
+      expect(clause.innerClause.items[0]?.property).toBe('active');
     }
   });
 
@@ -39,7 +39,7 @@ describe('FOREACH parser', () => {
     const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
     expect(clause.innerClause.type).toBe('SET');
     if (clause.innerClause.type === 'SET') {
-      expect(clause.innerClause.labels).toEqual(['Tag']);
+      expect(clause.innerClause.items[0]?.labels).toEqual(['Tag']);
     }
   });
 

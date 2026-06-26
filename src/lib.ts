@@ -626,6 +626,7 @@ export type {
   CreateClause,
   DeleteClause,
   SetClause,
+  SetItem,
   RemoveClause,
   UnwindClause,
   ForeachClause,

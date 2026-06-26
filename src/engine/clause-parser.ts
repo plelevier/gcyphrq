@@ -717,45 +717,47 @@ export function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | unde
   // SET clause
   const setCtx = findChild(clauseCtx, Ctx.SetClause);
   if (setCtx) {
-    const setItem = findChild(setCtx, Ctx.SetItem);
-    if (!setItem) throw new Error('Failed to parse SET: missing SetItem node in AST.');
+    const setItems = findAllChildren(setCtx, Ctx.SetItem);
+    if (setItems.length === 0) throw new Error('Failed to parse SET: missing SetItem node in AST.');
 
-    const labelsCtx = findChild(setItem, Ctx.NodeLabels);
-    const labelCtxs = labelsCtx ? findAllChildren(labelsCtx, Ctx.NodeLabel) : [];
-    const labels = labelCtxs.length > 0
-      ? labelCtxs.map((lc) => getSymbolicName(findChild(lc, Ctx.LabelName))).filter((l): l is string => !!l)
-      : undefined;
+    const items: import('../types/cypher').SetItem[] = [];
+    for (const setItem of setItems) {
+      const labelsCtx = findChild(setItem, Ctx.NodeLabels);
+      const labelCtxs = labelsCtx ? findAllChildren(labelsCtx, Ctx.NodeLabel) : [];
+      const labels = labelCtxs.length > 0
+        ? labelCtxs.map((lc) => getSymbolicName(findChild(lc, Ctx.LabelName))).filter((l): l is string => !!l)
+        : undefined;
 
-    const propExpr = findChild(setItem, Ctx.PropertyExpression);
-    if (propExpr) {
-      const atom = findChild(propExpr, Ctx.Atom);
-      if (!atom) throw new Error('Failed to parse SET: missing Atom node in AST.');
-      const varCtx = findChild(atom, Ctx.Variable);
-      const variable = getSymbolicName(varCtx);
-      if (!variable) throw new Error('Failed to parse SET: missing variable name.');
+      const propExpr = findChild(setItem, Ctx.PropertyExpression);
+      if (propExpr) {
+        const atom = findChild(propExpr, Ctx.Atom);
+        if (!atom) throw new Error('Failed to parse SET: missing Atom node in AST.');
+        const varCtx = findChild(atom, Ctx.Variable);
+        const variable = getSymbolicName(varCtx);
+        if (!variable) throw new Error('Failed to parse SET: missing variable name.');
 
-      const propLookup = findChild(propExpr, Ctx.PropertyLookup);
-      if (!propLookup) throw new Error('Failed to parse SET: missing PropertyLookup node in AST.');
-      const propKeyCtx = findChild(propLookup, Ctx.PropertyKey);
-      const property = getSymbolicName(propKeyCtx);
-      if (!property) throw new Error('Failed to parse SET: missing property name.');
+        const propLookup = findChild(propExpr, Ctx.PropertyLookup);
+        if (!propLookup) throw new Error('Failed to parse SET: missing PropertyLookup node in AST.');
+        const propKeyCtx = findChild(propLookup, Ctx.PropertyKey);
+        const property = getSymbolicName(propKeyCtx);
+        if (!property) throw new Error('Failed to parse SET: missing property name.');
 
-      const exprCtx = findChild(setItem, Ctx.Expression);
-      const valueExpr = evaluateExpression(exprCtx, extractWhereExpression);
-      if (!valueExpr) {
-        throw new Error(`Failed to parse SET: could not extract value for "${variable}.${property}".`);
+        const exprCtx = findChild(setItem, Ctx.Expression);
+        const valueExpr = evaluateExpression(exprCtx, extractWhereExpression);
+        if (!valueExpr) {
+          throw new Error(`Failed to parse SET: could not extract value for "${variable}.${property}".`);
+        }
+        items.push({ variable, property, value: valueExpr, labels });
+      } else if (labels && labels.length > 0) {
+        const varCtx = findChild(setItem, Ctx.Variable);
+        const variable = getSymbolicName(varCtx);
+        if (!variable) throw new Error('Failed to parse SET: missing variable name.');
+        items.push({ variable, property: undefined, value: undefined, labels });
+      } else {
+        throw new Error('Failed to parse SET: unsupported SET form.');
       }
-      return { type: 'SET' as const, variable, property, value: valueExpr, labels };
     }
-
-    if (labels && labels.length > 0) {
-      const varCtx = findChild(setItem, Ctx.Variable);
-      const variable = getSymbolicName(varCtx);
-      if (!variable) throw new Error('Failed to parse SET: missing variable name.');
-      return { type: 'SET' as const, variable, property: '', value: { type: 'Literal' as const, value: null as CypherLiteral }, labels };
-    }
-
-    throw new Error('Failed to parse SET: unsupported SET form.');
+    return { type: 'SET' as const, items };
   }
 
   // CREATE clause

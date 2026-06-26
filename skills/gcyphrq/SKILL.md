@@ -81,6 +81,8 @@ Service dependencies, blast radius, path tracing, shortest path, infrastructure 
 | CREATE | `CREATE (n:Service {name: "X", type: "RPC"}) RETURN n` |
 | CREATE chain | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) CREATE (a)-[r:DEPENDS_ON]->(b) RETURN r` |
 | SET | `MATCH (n {name: "X"}) SET n.status = "updated" RETURN n` |
+| SET multi-items | `MATCH (n) SET n:Label, n.prop = val, n.count = 5 RETURN n` |
+| FOREACH SET label + property | `MATCH (u) FOREACH (x IN u.items | SET x:Processed, x.reviewed = true) RETURN u` |
 | DELETE | `MATCH (n {name: "X"}) DELETE n` |
 | DETACH DELETE | `MATCH (n {name: "X"}) DETACH DELETE n` |
 | REMOVE | `MATCH (n) REMOVE n:Label, n.prop RETURN n` |
