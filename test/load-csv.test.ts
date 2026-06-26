@@ -158,6 +158,16 @@ describe('LOAD CSV', () => {
       expect(names).toEqual(['Alice', 'Bob', 'Charlie']);
     });
 
+    it('combines LOAD CSV with MATCH (property filter) inside CALL', async () => {
+      const filePath = resolve(__dirname, 'data/people.csv');
+      const ast = parseCypher(`CALL { LOAD CSV WITH HEADERS FROM '${filePath}' AS row MATCH (u:User {name: row.name}) RETURN row.name AS csvName, u.name AS graphName } RETURN csvName, graphName`);
+      const results = await engine.execute(ast);
+      // CSV has Alice, Bob, Charlie — all 3 match graph users by name
+      expect(results.length).toBe(3);
+      const names = results.map((r) => r.csvName).sort();
+      expect(names).toEqual(['Alice', 'Bob', 'Charlie']);
+    });
+
     it('handles CSV with quoted fields', async () => {
       const filePath = resolve(__dirname, 'data/quoted.csv');
       const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row RETURN row.name AS name, row.description AS description`);

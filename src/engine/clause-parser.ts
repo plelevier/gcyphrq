@@ -162,6 +162,17 @@ function describeExpression(expr: Expression): string {
   if (expr.type === 'MapLiteral') {
     return `{${expr.entries.map((e) => `${e.key}: ${describeExpression(e.value)}`).join(', ')}}`;
   }
+  if (expr.type === 'Aggregation') {
+    if (expr.isStar) return 'count(*)';
+    if (expr.expression) return `${expr.aggregationType}(${describeExpression(expr.expression)})`;
+    return `${expr.aggregationType}(${expr.variable ?? ''}${expr.property ? `.${expr.property}` : ''})`;
+  }
+  if (expr.type === 'Reduce') {
+    return 'reduce()';
+  }
+  if (expr.type === 'Case') {
+    return 'case';
+  }
   return '...';
 }
 
