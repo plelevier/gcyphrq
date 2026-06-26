@@ -272,6 +272,76 @@ describe('LOAD CSV', () => {
     });
   });
 
+  // ── Aggregation with expression tests ────────────────────────────────
+
+  describe('aggregations with expression arguments', () => {
+    it('sum with toInteger', async () => {
+      const filePath = resolve(__dirname, 'data/people.csv');
+      const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row RETURN sum(toInteger(row.age)) AS total`);
+      const results = await engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.total).toBe(90);
+    });
+
+    it('avg with toInteger', async () => {
+      const filePath = resolve(__dirname, 'data/people.csv');
+      const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row RETURN avg(toInteger(row.age)) AS avgAge`);
+      const results = await engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.avgAge).toBe(30);
+    });
+
+    it('min with toInteger', async () => {
+      const filePath = resolve(__dirname, 'data/people.csv');
+      const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row RETURN min(toInteger(row.age)) AS minAge`);
+      const results = await engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.minAge).toBe(25);
+    });
+
+    it('max with toInteger', async () => {
+      const filePath = resolve(__dirname, 'data/people.csv');
+      const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row RETURN max(toInteger(row.age)) AS maxAge`);
+      const results = await engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.maxAge).toBe(35);
+    });
+
+    it('collect with toInteger', async () => {
+      const filePath = resolve(__dirname, 'data/people.csv');
+      const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row RETURN collect(toInteger(row.age)) AS ages`);
+      const results = await engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.ages).toEqual([30, 25, 35] as any);
+    });
+
+    it('count(*) with other aggregations', async () => {
+      const filePath = resolve(__dirname, 'data/people.csv');
+      const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row RETURN count(*) AS cnt, sum(toInteger(row.age)) AS total`);
+      const results = await engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.cnt).toBe(3);
+      expect(results[0]!.total).toBe(90);
+    });
+
+    it('WITH grouping with expression aggregation', async () => {
+      const filePath = resolve(__dirname, 'data/people.csv');
+      const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row WITH row.city AS city, sum(toInteger(row.age)) AS totalAge RETURN city, totalAge ORDER BY totalAge DESC`);
+      const results = await engine.execute(ast);
+      expect(results.length).toBe(3);
+      expect(results[0]!.city).toBe('SF');
+      expect(results[0]!.totalAge).toBe(35);
+    });
+
+    it('toLower in aggregation', async () => {
+      const filePath = resolve(__dirname, 'data/people.csv');
+      const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row RETURN collect(toLower(row.name)) AS names`);
+      const results = await engine.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.names).toEqual(['alice', 'bob', 'charlie'] as any);
+    });
+  });
+
   // ── Explain tests ────────────────────────────────────────────────────
 
   describe('explain', () => {

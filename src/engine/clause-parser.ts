@@ -147,6 +147,7 @@ function computeDefaultAlias(expr: Expression): string {
   }
   if (expr.type === 'Aggregation') {
     if (expr.isStar) return 'count(*)';
+    if (expr.expression) return `${expr.aggregationType}(...)`;
     return `${expr.aggregationType}(${expr.variable}${expr.property ? `.${expr.property}` : ''})`;
   }
   if (expr.type === 'Reduce') {

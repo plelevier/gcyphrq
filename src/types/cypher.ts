@@ -237,8 +237,12 @@ export interface MapLiteralExpression {
 export interface AggregationExpression {
   type: 'Aggregation';
   aggregationType: 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COLLECT';
+  /** Variable name for simple property access (e.g., `n.score`). */
   variable: string;
+  /** Property name for simple property access (e.g., `n.score`). */
   property: string | undefined;
+  /** Complex expression argument (e.g., `toInteger(row.latency)`). Mutually exclusive with variable/property. */
+  expression: Expression | undefined;
   distinct: boolean;
   /** True for `count(*)` — counts all rows including nulls. */
   isStar?: boolean;

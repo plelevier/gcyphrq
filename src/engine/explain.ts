@@ -65,7 +65,8 @@ function extractExpressionVariables(expr: Expression | undefined): string[] {
         vars.add(e.variable);
         break;
       case 'Aggregation':
-        vars.add(e.variable);
+        if (e.variable) vars.add(e.variable);
+        if (e.expression) walk(e.expression);
         break;
       case 'ListLiteral':
         e.values.forEach(walk);
@@ -542,7 +543,7 @@ function describeExpression(expr: Expression | undefined): string {
     case 'Literal':
       return JSON.stringify(expr.value);
     case 'Aggregation':
-      const inner = expr.property ? `${expr.variable}.${expr.property}` : (expr.isStar ? '*' : expr.variable);
+      const inner = expr.expression ? describeExpression(expr.expression) : (expr.property ? `${expr.variable}.${expr.property}` : (expr.isStar ? '*' : expr.variable));
       return `${expr.aggregationType.toLowerCase()}(${expr.distinct ? 'DISTINCT ' : ''}${inner})`;
     case 'FunctionCall':
       return `${expr.functionName}(${expr.arguments.map(describeExpression).join(', ')})`;

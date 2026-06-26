@@ -33,7 +33,7 @@ import { isContextChain, materialiseChain, resolveChainValue, type ContextChain,
 import { executeMatch, getMatchingNodeIds, matchNodeCriteria, deepEquals, getNodeLabels } from './match';
 import { evaluateWhere as evaluateWhereCore, isWhereExpression, extractListValues, mapsEqual as mapsEqualImpl, compareValues as compareValuesImpl, compareValuesWithNulls as compareValuesWithNullsImpl, applyOrderByToContexts as applyOrderByToContextsImpl, applyOrderByToRows as applyOrderByToRowsImpl } from './where';
 import { evaluateExpression as evaluateExpressionImpl, evaluateCase as evaluateCaseImpl, evaluateStringFunction as evaluateStringFunctionImpl } from './expression';
-import { containsAggregation, containsAggregationInWhere, collectAggregations, collectAggregationsInWhere, computeAggregations as computeAggregationsImpl } from './aggregation';
+import { containsAggregation, containsAggregationInWhere, collectAggregations, collectAggregationsInWhere, computeAggregations as computeAggregationsImpl, getAggKey } from './aggregation';
 import { executeWrite, executeMerge, applyMergeActions } from './mutation';
 import { evaluatePathExpression as evaluatePathExpressionImpl } from './path-finding';
 import { executeReturn as executeReturnImpl, executeWith as executeWithImpl } from './result';
@@ -364,7 +364,7 @@ export class AdvancedCypherGraphologyEngine {
   /** Evaluate expression that may contain aggregations. */
   private evaluateExpressionWithAggregations(expr: Expression, context: QueryContext, aggResults: Map<string, CypherValue>): CypherValue {
     if (expr.type === 'Aggregation') {
-      const key = `${expr.variable}:${expr.property ?? ''}:${expr.aggregationType}:${expr.distinct}`;
+      const key = `${getAggKey(expr)}:${expr.aggregationType}:${expr.distinct}`;
       return aggResults.get(key) ?? null;
     }
     if (expr.type === 'Reduce') {
