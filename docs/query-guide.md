@@ -486,6 +486,37 @@ MATCH (n) WHERE ANY(x IN [s IN n.scores | s * 2] WHERE x > 150) RETURN n.name
 
 > **Note:** List comprehensions work in `RETURN`, `WHERE`, `WITH`, and `SET` clauses. They can be nested inside functions (e.g., `size([x IN list | ...])`), `reduce()`, and quantifier expressions. The `WHERE` clause inside a comprehension supports all standard WHERE operators (`=`, `>`, `CONTAINS`, `AND`, `OR`, `NOT`, etc.).
 
+#### Strings as character lists
+
+Strings are treated as lists of characters for all list operations. This enables character-level processing:
+
+```cypher
+-- head/last/tail/reverse on strings
+RETURN head('hello') AS first       -- 'h'
+RETURN last('hello') AS last         -- 'o'
+RETURN tail('hello') AS rest         -- 'ello'
+RETURN reverse('hello') AS rev       -- 'olleh'
+
+-- string slicing (returns string)
+RETURN 'hello'[1..3] AS sliced       -- 'el'
+RETURN 'hello'[-1] AS lastChar       -- 'o'
+
+-- list comprehension over string
+RETURN [c IN 'hello' | toUpper(c)]   -- ['H','E','L','L','O']
+
+-- quantifiers over string
+MATCH (n) WHERE ALL(c IN 'abc' WHERE c IN ['a','b','c']) RETURN n.name
+
+-- reduce over string
+RETURN reduce(acc = '', c IN 'hello' | acc + c) -- 'hello'
+
+-- UNWIND string into characters
+UNWIND 'abc' AS ch RETURN ch          -- 3 rows: a, b, c
+
+-- IN operator with string
+MATCH (n) WHERE 'a' IN 'abc' RETURN n.name
+```
+
 ---
 
 ### Scalar functions
@@ -503,10 +534,10 @@ Scalar functions operate on individual values and work in `RETURN`, `WHERE`, `WI
 | `ltrim(x)` | Trim whitespace from left |
 | `rtrim(x)` | Trim whitespace from right |
 | `length(x)` | String character count or list element count |
-| `head(x)` | First element of a list |
-| `last(x)` | Last element of a list |
-| `tail(x)` | All elements except the first |
-| `reverse(x)` | Reverse elements of a list |
+| `head(x)` | First element of a list (or first character of a string) |
+| `last(x)` | Last element of a list (or last character of a string) |
+| `tail(x)` | All elements except the first (or string without first character) |
+| `reverse(x)` | Reverse elements of a list (or reverse a string) |
 | `size(x)` | Number of elements in a list (or string length) |
 | `id(x)` | Node or edge ID |
 | `labels(x)` | Node labels as list |

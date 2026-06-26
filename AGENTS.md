@@ -49,6 +49,7 @@ src/
 **Aggregations:** `count`, `sum`, `avg`, `min`, `max`, `collect`, `count(*)`, `count(DISTINCT)`, `sum(DISTINCT)`, `avg(DISTINCT)`, `collect(DISTINCT)`. `collect()` includes null values.
 **Reduce:** `reduce(initial, var IN list | body)` folds a list with an accumulator. Not itself an aggregation — triggers aggregation only when sub-expressions contain aggregations (e.g., `reduce(..., x IN collect(y) | ...)`). Works in RETURN/WITH.
 **List comprehensions:** `[var IN list [WHERE predicate] | generator]` iterates over a collection, optionally filters with WHERE, transforms each element, and returns a new list. Works in RETURN/WHERE/WITH/SET, nested in functions and other expressions.
+**Strings as char lists:** Strings are treated as lists of characters for `head()`, `last()`, `tail()`, `reverse()`, list slicing, list comprehensions, quantifiers, `reduce()`, `UNWIND`, `FOREACH`, and `IN` operator. `tail()`/`reverse()`/slicing on strings return strings; other operations yield character lists.
 **Quantifiers:** `ALL(x IN list WHERE pred)`, `ANY(x IN list WHERE pred)`, `SINGLE(x IN list WHERE pred)`, `NONE(x IN list WHERE pred)`. Work in WHERE clauses (standalone or combined with AND/OR/NOT). Empty list: ALL/NONE → true (vacuous truth), ANY/SINGLE → false.
 **EXISTS:** `EXISTS(expression)` — true if expression is not null/undefined. Works in WHERE (standalone or with NOT). Supports property access, function calls, list slicing.
 **Arithmetic:** `+` supports string concatenation when both operands are strings.

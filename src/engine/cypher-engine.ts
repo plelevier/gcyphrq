@@ -32,7 +32,7 @@ import type { GraphInstance } from '../graph';
 import { isContextChain, materialiseChain, resolveChainValue, type ContextChain, CHAIN_BASE, CHAIN_OVERRIDES } from './context-chain';
 import { executeMatch, getMatchingNodeIds, matchNodeCriteria, deepEquals, getNodeLabels } from './match';
 import { evaluateWhere as evaluateWhereCore, isWhereExpression, extractListValues, mapsEqual as mapsEqualImpl, compareValues as compareValuesImpl, compareValuesWithNulls as compareValuesWithNullsImpl, applyOrderByToContexts as applyOrderByToContextsImpl, applyOrderByToRows as applyOrderByToRowsImpl } from './where';
-import { evaluateExpression as evaluateExpressionImpl, evaluateCase as evaluateCaseImpl, evaluateStringFunction as evaluateStringFunctionImpl } from './expression';
+import { evaluateExpression as evaluateExpressionImpl, evaluateCase as evaluateCaseImpl, evaluateStringFunction as evaluateStringFunctionImpl, asList } from './expression';
 import { containsAggregation, containsAggregationInWhere, collectAggregations, collectAggregationsInWhere, computeAggregations as computeAggregationsImpl, getAggKey } from './aggregation';
 import { executeWrite, executeMerge, applyMergeActions } from './mutation';
 import { evaluatePathExpression as evaluatePathExpressionImpl } from './path-finding';
@@ -152,13 +152,8 @@ export class AdvancedCypherGraphologyEngine {
       const flat = isContextChain(context) ? materialiseChain(context) : context;
       const listValue = this.evaluateExpression(clause.expression, flat);
       if (listValue === null || listValue === undefined) continue;
-      if (!Array.isArray(listValue)) {
-        const unwoundContext: QueryContext = { ...flat, [clause.variable]: listValue };
-        if (clause.where && !this.evaluateWhere(clause.where, unwoundContext)) continue;
-        outgoingContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: { [clause.variable]: listValue } });
-        continue;
-      }
-      for (const element of listValue) {
+      const list: CypherValue[] = typeof listValue === 'string' ? [...listValue] : Array.isArray(listValue) ? listValue : [listValue];
+      for (const element of list) {
         const unwoundContext: QueryContext = { ...flat, [clause.variable]: element };
         if (clause.where && !this.evaluateWhere(clause.where, unwoundContext)) continue;
         outgoingContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: { [clause.variable]: element } });
@@ -176,8 +171,8 @@ export class AdvancedCypherGraphologyEngine {
     for (const context of materialised) {
       const listValue = this.evaluateExpression(clause.expression, context);
       if (listValue === null || listValue === undefined) continue;
-      if (!Array.isArray(listValue)) continue;
-      for (const element of listValue) {
+      const list: CypherValue[] = typeof listValue === 'string' ? [...listValue] : Array.isArray(listValue) ? listValue : [];
+      for (const element of list) {
         const loopContext: QueryContext = { ...context, [clause.variable]: element };
         this.executeWrite(clause.innerClause, [loopContext]);
       }
@@ -372,8 +367,9 @@ export class AdvancedCypherGraphologyEngine {
       let accumulator = this.evaluateExpressionWithAggregations(expr.initial, context, aggResults);
       if (accumulator === null || accumulator === undefined) return null;
 
-      const list = this.evaluateExpressionWithAggregations(expr.list, context, aggResults);
-      if (!Array.isArray(list)) return accumulator;
+      const listRaw = this.evaluateExpressionWithAggregations(expr.list, context, aggResults);
+      const list = asList(listRaw);
+      if (!list) return accumulator;
 
       for (const element of list) {
         const loopContext: QueryContext = { ...context, [expr.accumulator]: accumulator, [expr.loopVariable]: element };
@@ -394,8 +390,9 @@ export class AdvancedCypherGraphologyEngine {
     }
     if (expr.type === 'ListComprehension') {
       // Evaluate list comprehension with aggregation-aware evaluation
-      const list = this.evaluateExpressionWithAggregations(expr.list, context, aggResults);
-      if (!Array.isArray(list)) return [] as CypherValue;
+      const listRaw = this.evaluateExpressionWithAggregations(expr.list, context, aggResults);
+      const list = asList(listRaw);
+      if (!list) return [] as CypherValue;
 
       const result: CypherValue[] = [];
       for (const element of list) {

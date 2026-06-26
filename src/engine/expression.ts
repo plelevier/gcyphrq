@@ -1,6 +1,17 @@
 import { evaluateArithmeticCore } from '../arithmetic';
 import type { CypherEdge, CypherNode, CypherValue, Expression, GraphConfig, QueryContext, WhereExpression } from '../types/cypher';
 
+/**
+ * Normalize a value for list operations. Strings are treated as lists of characters.
+ * Returns null if the value cannot be treated as a list.
+ */
+export function asList(value: CypherValue): CypherValue[] | null {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') return [...value];
+  return null;
+}
+
 /** Evaluate an expression against a context. */
 export function evaluateExpression(
   expr: Expression,
@@ -33,8 +44,10 @@ export function evaluateExpression(
     return evalFunc(expr.functionName, args);
   }
   if (expr.type === 'ListSlice') {
-    const list = evaluateExpression(expr.list, context, config, evalFunc, evalWhere);
-    if (!Array.isArray(list)) return null;
+    const listRaw = evaluateExpression(expr.list, context, config, evalFunc, evalWhere);
+    const wasString = typeof listRaw === 'string';
+    const list = asList(listRaw);
+    if (!list) return null;
     const startVal = evaluateExpression(expr.start, context, config, evalFunc, evalWhere);
     const endVal = evaluateExpression(expr.end, context, config, evalFunc, evalWhere);
     if (expr.start === expr.end) {
@@ -47,7 +60,9 @@ export function evaluateExpression(
     const end = endVal != null ? Number(endVal) : list.length;
     const adjStart = start < 0 ? Math.max(0, list.length + start) : start;
     const adjEnd = end < 0 ? list.length + end : Math.min(end, list.length);
-    return list.slice(adjStart, adjEnd) as unknown as CypherValue;
+    const sliced = list.slice(adjStart, adjEnd);
+    if (wasString) return sliced.join('') as CypherValue;
+    return sliced as unknown as CypherValue;
   }
   if (expr.type === 'Arithmetic') {
     return evaluateArithmeticCore(expr, (e) => evaluateExpression(e, context, config, evalFunc, evalWhere));
@@ -56,19 +71,19 @@ export function evaluateExpression(
     return evaluateCase(expr, context, config, evalFunc, evalWhere);
   }
   if (expr.type === 'Path') return undefined; // handled separately
-  if (expr.type === 'Reduce') {
-    return evaluateReduce(expr, context, config, evalFunc, evalWhere);
-  }
-  if (expr.type === 'Quantifier') {
-    if (!evalWhere) return undefined;
-    return evaluateQuantifier(expr, context, config, evalFunc, evalWhere);
-  }
   if (expr.type === 'Exists') {
     const value = evaluateExpression(expr.expression, context, config, evalFunc, evalWhere);
     return value !== null && value !== undefined;
   }
   if (expr.type === 'ListComprehension') {
     return evaluateListComprehension(expr, context, config, evalFunc, evalWhere);
+  }
+  if (expr.type === 'Reduce') {
+    return evaluateReduce(expr, context, config, evalFunc, evalWhere);
+  }
+  if (expr.type === 'Quantifier') {
+    if (!evalWhere) return undefined;
+    return evaluateQuantifier(expr, context, config, evalFunc, evalWhere);
   }
   return undefined;
 }
@@ -81,8 +96,9 @@ function evaluateListComprehension(
   evalFunc: (name: string, args: CypherValue[]) => CypherValue,
   evalWhere?: (w: WhereExpression, ctx: QueryContext) => boolean,
 ): CypherValue {
-  const list = evaluateExpression(expr.list, context, config, evalFunc, evalWhere);
-  if (!Array.isArray(list)) return [] as CypherValue;
+  const listRaw = evaluateExpression(expr.list, context, config, evalFunc, evalWhere);
+  const list = asList(listRaw);
+  if (!list) return [] as CypherValue;
 
   const result: CypherValue[] = [];
   for (const element of list) {
@@ -115,8 +131,9 @@ function evaluateReduce(
   let accumulator = evalExpr(expr.initial);
   if (accumulator === null || accumulator === undefined) return null;
 
-  const list = evalExpr(expr.list);
-  if (!Array.isArray(list)) return accumulator;
+  const listRaw = evalExpr(expr.list);
+  const list = asList(listRaw);
+  if (!list) return accumulator;
 
   for (const element of list) {
     const loopContext: QueryContext = { ...context, [expr.accumulator]: accumulator, [expr.loopVariable]: element };
@@ -139,8 +156,9 @@ function evaluateQuantifier(
   evalFunc: (name: string, args: CypherValue[]) => CypherValue,
   evalWhere: (w: WhereExpression, ctx: QueryContext) => boolean,
 ): boolean {
-  const list = evaluateExpression(expr.list, context, config, evalFunc, evalWhere);
-  if (!Array.isArray(list)) return false;
+  const listRaw = evaluateExpression(expr.list, context, config, evalFunc, evalWhere);
+  const list = asList(listRaw);
+  if (!list) return false;
 
   // Empty list semantics:
   // ALL: true (vacuous truth)
@@ -735,9 +753,17 @@ export function evaluateStringFunction(name: string, args: CypherValue[], config
     case 'ltrim': { const val = args[0]; return val == null ? null : String(val).trimStart(); }
     case 'rtrim': { const val = args[0]; return val == null ? null : String(val).trimEnd(); }
     case 'length': { const val = args[0]; if (val == null) return null; if (Array.isArray(val)) return val.length; return String(val).length; }
-    case 'head': { const val = args[0]; if (!Array.isArray(val)) return null; return val.length > 0 ? val[0] : null; }
-    case 'last': { const val = args[0]; if (!Array.isArray(val)) return null; return val.length > 0 ? val[val.length - 1] : null; }
-    case 'tail': { const val = args[0]; if (!Array.isArray(val)) return null; return val.length > 1 ? val.slice(1) : []; }
+    case 'head': { const list = asList(args[0]); if (!list) return null; return list.length > 0 ? list[0] : null; }
+    case 'last': { const list = asList(args[0]); if (!list) return null; return list.length > 0 ? list[list.length - 1] : null; }
+    case 'tail': {
+      const val = args[0];
+      const list = asList(val);
+      if (!list) return null;
+      if (list.length <= 1) return typeof val === 'string' ? '' : [];
+      const sliced = list.slice(1);
+      if (typeof val === 'string') return sliced.join('') as CypherValue;
+      return sliced as unknown as CypherValue;
+    }
     case 'id': { const val = args[0]; if (!val || typeof val !== 'object') return null; return (val as { id?: string }).id ?? null; }
     case 'labels':
     case 'labelsof': {
@@ -756,7 +782,14 @@ export function evaluateStringFunction(name: string, args: CypherValue[], config
     }
     case 'startnode': { const val = args[0]; if (!val || typeof val !== 'object') return null; return (val as CypherEdge).source ?? null; }
     case 'endnode': { const val = args[0]; if (!val || typeof val !== 'object') return null; return (val as CypherEdge).target ?? null; }
-    case 'reverse': { const val = args[0]; if (!Array.isArray(val)) return null; return [...val].reverse() as unknown as CypherValue; }
+    case 'reverse': {
+      const val = args[0];
+      const list = asList(val);
+      if (!list) return null;
+      const reversed = [...list].reverse();
+      if (typeof val === 'string') return reversed.join('') as CypherValue;
+      return reversed as unknown as CypherValue;
+    }
     case 'size': { const val = args[0]; if (val == null) return null; if (Array.isArray(val)) return val.length; return String(val).length; }
     case 'nodes': {
       const val = args[0]; if (!val || typeof val !== 'object') return [];

@@ -119,17 +119,22 @@ export function isWhereExpression(value: Expression | WhereExpression): value is
   return value.type === 'BinaryExpression' || value.type === 'LogicalExpression' || value.type === 'NotExpression' || value.type === 'IsNull' || value.type === 'Quantifier' || value.type === 'Exists' || value.type === 'FunctionCall';
 }
 
-/** Extract list values from expression. */
+/** Extract list values from expression. Strings are treated as lists of characters. */
 export function extractListValues(expr: Expression, evalExpr: (e: Expression) => CypherValue): CypherValue[] {
   if (expr.type === 'ListLiteral') {
     const values: CypherValue[] = [];
     for (const le of expr.values) { values.push(evalExpr(le) as CypherValue); }
     return values;
   }
-  if (expr.type === 'Literal') return [expr.value];
+  if (expr.type === 'Literal') {
+    const val = expr.value;
+    if (typeof val === 'string') return [...val];
+    return [val];
+  }
   if (expr.type === 'PropertyAccess' || expr.type === 'FunctionCall' || expr.type === 'Case' || expr.type === 'ListComprehension') {
     const val = evalExpr(expr);
     if (Array.isArray(val)) return val;
+    if (typeof val === 'string') return [...val];
     if (val !== undefined && val !== null) return [val as CypherValue];
     return [];
   }

@@ -36,24 +36,25 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 
 See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 
-- **Matching:** `MATCH`, `OPTIONAL MATCH`, chained `MATCH` (cartesian product), labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges
+- **Matching:** `MATCH`, `OPTIONAL MATCH`, chained `MATCH` (cartesian), labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges
 - **Filtering:** `WHERE` with `=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `IS NULL`, `AND`/`OR`/`NOT`, map comparison
-- **CASE:** `CASE WHEN cond THEN result` and `CASE expr WHEN val THEN result`. Nested. In RETURN/WHERE/WITH/ORDER BY/SET
+- **CASE:** general (`CASE WHEN cond THEN result`) and simple (`CASE expr WHEN val THEN result`). Nested. In RETURN/WHERE/WITH/ORDER BY/SET
 - **Pipelining:** `WITH` + `count()`, `count(*)`, `sum()`, `avg()`, `min()`, `max()`, `collect()`, `collect(DISTINCT)`, `count(DISTINCT)`, `sum(DISTINCT)`, `avg(DISTINCT)`
-- **UNWIND with WHERE:** filter unwound elements (e.g., `UNWIND list AS x WHERE x > 0`). Supports all WHERE operators (`=`, `>`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IS NULL`, etc.). Can be combined with `WITH` for multi-stage filtering.
-- **ORDER BY NULLS FIRST/LAST:** control null position (e.g., `ORDER BY score NULLS FIRST`). Default: `NULLS LAST` for ASC, `NULLS FIRST` for DESC. Works in RETURN and WITH.
-- **Reduce:** `reduce(init, var IN list | body)` folds a list. Not itself an aggregation — triggers grouping only when sub-expressions contain aggregations (e.g., `reduce(..., x IN collect(y) | ...)`)
-- **UNION/UNION ALL:** combine results from multiple branches (each ending with `RETURN`), ORDER BY/SKIP/LIMIT on combined result
-- **Scalar functions:** 40+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `labels` (sole RETURN item only), `labelsOf` (everywhere), `nodes` (sole RETURN item only), `relationships` (sole RETURN item only), etc.)
+- **UNWIND with WHERE:** filter unwound elements (`UNWIND list AS x WHERE x > 0`). Supports all WHERE operators. Combine with `WITH` for multi-stage filtering.
+- **ORDER BY NULLS FIRST/LAST:** default `NULLS LAST` for ASC, `NULLS FIRST` for DESC. Works in RETURN and WITH.
+- **Reduce:** `reduce(init, var IN list | body)`. Not itself an aggregation — triggers grouping only when sub-expressions contain aggregations.
+- **UNION/UNION ALL:** each branch must end with `RETURN`. ORDER BY/SKIP/LIMIT on combined result.
+- **Scalar functions:** 40+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `labels` (sole RETURN only), `labelsOf` (everywhere), `nodes`/`relationships` (sole RETURN only), etc.)
 - **Temporal functions:** `timestamp()`, `datetime()`, `date()`, `time()`, `localdatetime()`, `localtime()`, `datetimewithtimezone()`, `timewithzone()`, `duration()`. Extractors: `year()`, `month()`, `day()`, `hour()`, `minute()`, `second()`, `millisecond()`, `timezone()`, `epochseconds()`, `epochmillisecond()`, `totalSeconds()`, `totalMinutes()`. Temporal comparison in WHERE/ORDER BY is chronological and timezone-aware.
-- **Path expressions:** `shortestPath((a)-[*]->(b))` returns single shortest path (BFS); `allShortestPaths((a)-[*]->(b))` returns all minimum-length paths. Supports type filtering (`[:TYPE*]`), direction (`->`, `<-`, `-`), and depth bounds (`*min..max`). Variables must be bound in query context.
-- **Arithmetic:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`, parentheses. `+` concatenates strings. Null propagation, div/mod by zero → null
-- **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices
-- **Quantifiers:** `ALL/ANY/SINGLE/NONE(x IN list WHERE pred)` in WHERE (standalone or with AND/OR/NOT). Empty list: ALL/NONE → true, ANY/SINGLE → false.
+- **Path expressions:** `shortestPath((a)-[*]->(b))` (single BFS); `allShortestPaths((a)-[*]->(b))` (all min-length). Supports type filtering (`[:TYPE*]`), direction (`->`, `<-`, `-`), depth bounds (`*min..max`). Variables must be bound.
+- **Arithmetic:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`. `+` concatenates strings. Null propagation, div/mod by zero → null.
+- **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices.
+- **Quantifiers:** `ALL/ANY/SINGLE/NONE(x IN list WHERE pred)`. Empty list: ALL/NONE → true, ANY/SINGLE → false.
+- **Strings as char lists:** `head()`, `last()`, `tail()`, `reverse()`, slicing, comprehensions, quantifiers, `reduce()`, `UNWIND`, `FOREACH`, `IN`. `tail()`/`reverse()`/slicing on strings return strings; others yield char lists.
 - **EXISTS:** `EXISTS(expr)` — true if not null/undefined. Use with `NOT` in WHERE.
-- **Mutations:** `CREATE` (single node or chain `(a)-[r:TYPE]->(b)`), `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `MERGE` (in-memory only). MERGE: supports WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE. CREATE chain: reuses bound nodes, creates unbound ones.
-- **CALL { ... } subqueries:** inline (reference outer variables), YIELD filtering, nested, CREATE/SET/DELETE inside, ORDER BY inside. Stored procedures (`CALL db.xxx()`) not supported.
-- **LOAD CSV:** `LOAD CSV [WITH HEADERS] FROM 'source' AS var`. Supports local file paths and HTTP/HTTPS URLs. With HEADERS: each row is a `{ headerName: value }` map. Without: each row is a string array. Supports FIELDS TERMINATED BY and OPTIONALLY ENCLOSED BY for custom delimiters. Works inside CALL subqueries. Combines with MATCH, WHERE, CREATE, aggregations (including complex expressions like `sum(toInteger(row.amount))`).
+- **Mutations:** `CREATE` (single node or chain `(a)-[r:TYPE]->(b)`), `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `MERGE` (in-memory). MERGE: WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE.
+- **CALL { ... } subqueries:** inline (reference outer vars), YIELD filtering, nested, CREATE/SET/DELETE inside, ORDER BY inside. Stored procedures not supported.
+- **LOAD CSV:** `LOAD CSV [WITH HEADERS] FROM 'source' AS var`. Local files and HTTP/HTTPS. With HEADERS: `{ headerName: value }` map; without: string array. `FIELDS TERMINATED BY`, `OPTIONALLY ENCLOSED BY`. Works inside CALL. Combines with MATCH, WHERE, CREATE, aggregations.
 - **Not supported:** stored procedures, APOC, regex in WHERE
 - **Notes:** `startnode()`/`endnode()` return string IDs; `avg()`/`min()`/`max()` return null on empty sets
 
@@ -90,54 +91,37 @@ Service dependencies, blast radius, path tracing, shortest path, infrastructure 
 | MERGE | `MERGE (n:User {name: "Alice"}) ON CREATE SET n.createdAt = 0 RETURN n` |
 | UNION ALL | `MATCH (u:User) RETURN u.name UNION ALL MATCH (u:Admin) RETURN u.name` |
 | Arithmetic | `MATCH (n) RETURN n.price * n.qty AS total, n.price * 2 + n.shipping AS cost` |
-| CASE | `MATCH (n) RETURN n.name, CASE WHEN n.type = "RPC" THEN "svc" ELSE "other" END AS cat` |
-| CASE simple | `MATCH (n) RETURN n.name, CASE n.type WHEN "RPC" THEN "svc" ELSE "other" END AS cat` |
+| CASE (general + simple) | `MATCH (n) RETURN n.name, CASE WHEN n.type = "RPC" THEN "svc" ELSE "other" END AS cat` |
 | CASE in ORDER BY | `MATCH (n) RETURN n.name ORDER BY CASE n.type WHEN "RPC" THEN 0 ELSE 1 END` |
 | Path variable | `MATCH path=(a)-[r]->(b) RETURN path` |
-| Path nodes | `MATCH path=(a)-[r]->(b) RETURN nodes(path)` |
-| Path relationships | `MATCH path=(a)-[r]->(b) RETURN relationships(path)` |
+| Path nodes/relationships | `MATCH path=(a)-[r]->(b) RETURN nodes(path), relationships(path)` |
 | labels function | `MATCH (n) RETURN labels(n)` |
 | CALL subquery | `CALL { MATCH (n:Person) RETURN n.name AS name }` |
 | CALL with outer var | `MATCH (a:Person) CALL { MATCH (a)-[:FRIEND]->(b) RETURN b.name AS friend } RETURN a.name, friend` |
-| CALL with YIELD | `CALL { MATCH (n:Person) RETURN n.name AS name, n.age AS age } YIELD name RETURN name` |
-| CALL with YIELD+WHERE | `CALL { MATCH (n:Person) RETURN n.name AS name } YIELD name WHERE name <> "Bob" RETURN name` |
+| CALL with YIELD(+WHERE) | `CALL { MATCH (n:Person) RETURN n.name AS name, n.age AS age } YIELD name WHERE name <> "Bob" RETURN name` |
 | CALL with WHERE | `CALL { MATCH (n:Person) RETURN n.age AS age } WHERE age > 28 RETURN age` |
 | Nested CALL | `CALL { CALL { MATCH (n:Person) RETURN n.name AS name } RETURN name }` |
 | Shortest path | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) RETURN shortestPath((a)-[*]->(b)) AS path` |
-| Shortest path (typed) | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) RETURN shortestPath((a)-[:TCP*]->(b)) AS path` |
-| All shortest paths | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) RETURN allShortestPaths((a)-[*]->(b)) AS paths` |
-| Shortest path (undirected) | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) RETURN shortestPath((a)-[*]-(b)) AS path` |
+| Shortest path (typed/directed) | `RETURN shortestPath((a)-[:TCP*]->(b))` or `allShortestPaths((a)-[*]-(b))` |
 | count(*) | `MATCH (n) RETURN count(*) AS total` |
-| collect | `MATCH (u:User) RETURN collect(u.name) AS names` |
-| collect DISTINCT | `MATCH (u:User) RETURN collect(DISTINCT u.dept) AS uniqueDepts` |
-| reduce | `MATCH (u:User) RETURN reduce(total = 0, x IN [1,2,3] | total + x) AS sum` |
+| collect / collect DISTINCT | `MATCH (u:User) RETURN collect(u.name) AS names, collect(DISTINCT u.dept) AS depts` |
+| reduce | `RETURN reduce(total = 0, x IN [1,2,3] | total + x) AS sum` |
 | reduce + collect | `MATCH (u:User) RETURN reduce(total = 0, x IN collect(u.age) | total + x) AS totalAge` |
 | quantifiers | `MATCH (n) WHERE ALL/ANY/SINGLE/NONE(x IN n.tags WHERE x = "a") RETURN n` |
 | EXISTS | `MATCH (n) WHERE EXISTS(n.prop) OR NOT EXISTS(n.prop) RETURN n` |
-| UNWIND WHERE | `UNWIND [1,2,3,4,5] AS x WHERE x > 3 RETURN x` |
-| UNWIND WHERE + WITH | `UNWIND [1,2,3,4,5] AS x WHERE x > 1 WITH x WHERE x < 5 RETURN x` |
-| ORDER BY NULLS FIRST | `MATCH (n) RETURN n.name, n.score ORDER BY n.score NULLS FIRST` |
-| LOAD CSV | `LOAD CSV WITH HEADERS FROM 'file.csv' AS row RETURN row.name, row.age` |
-| LOAD CSV (no headers) | `LOAD CSV FROM 'file.csv' AS row RETURN row[0] AS name, row[1] AS age` |
+| UNWIND WHERE (+WITH) | `UNWIND [1,2,3,4,5] AS x WHERE x > 1 WITH x WHERE x < 5 RETURN x` |
+| ORDER BY NULLS FIRST/LAST | `MATCH (n) RETURN n.name, n.score ORDER BY n.score NULLS FIRST` |
+| LOAD CSV | `LOAD CSV [WITH HEADERS] FROM 'file.csv' AS row RETURN row.name, row.age` |
 | LOAD CSV + MATCH | `LOAD CSV WITH HEADERS FROM 'users.csv' AS row MATCH (u:User {name: row.name}) RETURN row.name, u` |
 | LOAD CSV + CREATE | `LOAD CSV WITH HEADERS FROM 'people.csv' AS row CREATE (p:Person {name: row.name}) RETURN p` |
-| LOAD CSV (custom delimiter) | `LOAD CSV FROM 'data.tsv' AS row FIELDS TERMINATED BY '\t' RETURN row` |
+| LOAD CSV (custom delim) | `LOAD CSV FROM 'data.tsv' AS row FIELDS TERMINATED BY '\t' RETURN row` |
 | LOAD CSV inside CALL | `CALL { LOAD CSV WITH HEADERS FROM 'data.csv' AS row RETURN row.name AS name } RETURN name` |
 | EXPLAIN | `gcyphrq --explain -e 'MATCH (u:User) RETURN u'` |
-| ORDER BY NULLS LAST | `MATCH (n) RETURN n.name, n.score ORDER BY n.score DESC NULLS LAST` |
-| timestamp | `RETURN timestamp() AS ts` |
-| datetime | `RETURN datetime() AS dt, datetime(2023, 6, 15, 14, 30, 45) AS dt2` |
-| date | `RETURN date() AS d, date(2023, 6, 15) AS d2` |
-| time | `RETURN time() AS t, time(14, 30, 45) AS t2` |
-| localdatetime | `RETURN localdatetime() AS dt, localdatetime(2023, 6, 15, 14, 30, 45) AS dt2` |
-| localtime | `RETURN localtime() AS t, localtime(14, 30, 45) AS t2` |
-| duration | `RETURN duration({hours: 1, minutes: 30}) AS dur, duration('P1Y2M3DT4H5M6S') AS dur2` |
-| year/month/day | `RETURN year(n.createdAt) AS y, month(n.createdAt) AS m, day(n.createdAt) AS d` |
-| hour/minute/second | `RETURN hour(n.createdAt) AS h, minute(n.createdAt) AS min, second(n.createdAt) AS s` |
-| timezone | `RETURN timezone('2023-06-15T14:30:45+02:00') AS tz` |
-| epochseconds | `RETURN epochseconds(n.createdAt) AS epoch` |
-| temporal WHERE | `MATCH (n) WHERE n.createdAt > '2023-01-01T00:00:00.000Z' RETURN n` |
-| temporal ORDER BY | `MATCH (n) RETURN n.name ORDER BY n.createdAt DESC` |
+| timestamp/datetime/date | `RETURN timestamp() AS ts, datetime(2023,6,15,14,30,45) AS dt, date(2023,6,15) AS d` |
+| time/localdatetime/localtime | `RETURN time(14,30,45) AS t, localdatetime() AS dt, localtime() AS lt` |
+| duration | `RETURN duration({hours:1, minutes:30}) AS dur, duration('P1Y2M3DT4H5M6S') AS dur2` |
+| temporal extractors | `RETURN year(n.createdAt) AS y, month(n.createdAt) AS m, epochseconds(n.createdAt) AS epoch` |
+| temporal WHERE/ORDER BY | `MATCH (n) WHERE n.createdAt > '2023-01-01T00:00:00.000Z' RETURN n.name ORDER BY n.createdAt DESC` |
 
 See `references/queries.md` for more patterns.
 
