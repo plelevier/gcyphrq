@@ -62,7 +62,7 @@ export class AdvancedCypherGraphologyEngine {
 
     for (const stage of ast.stages) {
       if (stage.type === 'MATCH') {
-        const result = executeMatch(this.graph, this.indexes, this.config, stage.clause, contexts, (w, c) => this.evaluateWhere(w, c), this.warnedNoLabels, this.warnedNoEdgeTypes, this.onWarning);
+        const result = executeMatch(this.graph, this.indexes, this.config, stage.clause, contexts, (w, c) => this.evaluateWhere(w, c), this.warnedNoLabels, this.warnedNoEdgeTypes, this.onWarning, (e, c) => this.evaluateExpression(e, c));
         contexts = result.contexts;
         this.warnedNoLabels = result.warnedNoLabels;
         this.warnedNoEdgeTypes = result.warnedNoEdgeTypes;

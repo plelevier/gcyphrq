@@ -141,14 +141,38 @@ export function extractMatchClause(clauseCtx: ParseTreeNode): MatchClause {
 
 // ── Projection helpers ───────────────────────────────────────────────────────
 
+/** Minimal expression description for default alias generation. */
+function describeExpression(expr: Expression): string {
+  if (expr.type === 'PropertyAccess') {
+    return expr.property ? `${expr.variable}.${expr.property}` : expr.variable;
+  }
+  if (expr.type === 'Literal') {
+    return JSON.stringify(expr.value);
+  }
+  if (expr.type === 'FunctionCall') {
+    return `${expr.functionName}(${expr.arguments.map(describeExpression).join(', ')})`;
+  }
+  if (expr.type === 'Arithmetic') {
+    if (!expr.left) return `${expr.operator === 'UNARY_MINUS' ? '-' : '+'}${describeExpression(expr.right)}`;
+    return `${describeExpression(expr.left)} ${expr.operator} ${describeExpression(expr.right)}`;
+  }
+  if (expr.type === 'ListLiteral') {
+    return `[${expr.values.map(describeExpression).join(', ')}]`;
+  }
+  if (expr.type === 'MapLiteral') {
+    return `{${expr.entries.map((e) => `${e.key}: ${describeExpression(e.value)}`).join(', ')}}`;
+  }
+  return '...';
+}
+
 function computeDefaultAlias(expr: Expression): string {
   if (expr.type === 'PropertyAccess') {
     return expr.property ?? expr.variable;
   }
   if (expr.type === 'Aggregation') {
     if (expr.isStar) return 'count(*)';
-    if (expr.expression) return `${expr.aggregationType}(...)`;
-    return `${expr.aggregationType}(${expr.variable}${expr.property ? `.${expr.property}` : ''})`;
+    if (expr.expression) return `${expr.aggregationType}(${describeExpression(expr.expression)})`;
+    return `${expr.aggregationType}(${expr.variable ?? ''}${expr.property ? `.${expr.property}` : ''})`;
   }
   if (expr.type === 'Reduce') {
     return `reduce()`;

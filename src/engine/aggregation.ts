@@ -73,7 +73,7 @@ export function getAggKey(expr: AggregationExpression): string {
   if (expr.expression) {
     return `__expr__:${JSON.stringify(expr.expression)}`;
   }
-  return `${expr.variable}:${expr.property ?? ''}`;
+  return `${expr.variable ?? ''}:${expr.property ?? ''}`;
 }
 
 /** Evaluate the value for an aggregation across a single row. */
@@ -86,7 +86,7 @@ function evalAggValue(
   if (expr.expression) {
     return evalExpr(expr.expression, row);
   }
-  const baseVal = row[expr.variable];
+  const baseVal = expr.variable ? row[expr.variable] : undefined;
   return (expr.property ? (baseVal as CypherNode | undefined)?.[expr.property] : baseVal) as CypherValue | undefined;
 }
 

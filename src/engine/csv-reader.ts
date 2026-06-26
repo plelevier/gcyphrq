@@ -94,6 +94,7 @@ export function parseCsv(text: string, options: CsvParseOptions = {}): string[][
 
 /**
  * Read a CSV file from the filesystem and return parsed rows.
+ * Paths are resolved relative to the current working directory.
  */
 export function readCsvFile(source: string, options: CsvParseOptions = {}): string[][] {
   const resolvedPath = resolve(source);
@@ -103,7 +104,7 @@ export function readCsvFile(source: string, options: CsvParseOptions = {}): stri
   } catch (err: unknown) {
     const error = err as NodeJS.ErrnoException;
     if (error.code === 'ENOENT') {
-      throw new Error(`CSV file not found: ${source}`);
+      throw new Error(`CSV file not found: ${source} (resolved to: ${resolvedPath})`);
     }
     throw new Error(`Failed to read CSV file: ${error.message}`);
   }

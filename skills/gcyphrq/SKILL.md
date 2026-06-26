@@ -119,7 +119,7 @@ Service dependencies, blast radius, path tracing, shortest path, infrastructure 
 | ORDER BY NULLS FIRST | `MATCH (n) RETURN n.name, n.score ORDER BY n.score NULLS FIRST` |
 | LOAD CSV | `LOAD CSV WITH HEADERS FROM 'file.csv' AS row RETURN row.name, row.age` |
 | LOAD CSV (no headers) | `LOAD CSV FROM 'file.csv' AS row RETURN row[0] AS name, row[1] AS age` |
-| LOAD CSV + MATCH | `LOAD CSV WITH HEADERS FROM 'users.csv' AS row MATCH (u:User) WHERE u.name = row.name RETURN row.name, u` |
+| LOAD CSV + MATCH | `LOAD CSV WITH HEADERS FROM 'users.csv' AS row MATCH (u:User {name: row.name}) RETURN row.name, u` |
 | LOAD CSV + CREATE | `LOAD CSV WITH HEADERS FROM 'people.csv' AS row CREATE (p:Person {name: row.name}) RETURN p` |
 | LOAD CSV (custom delimiter) | `LOAD CSV FROM 'data.tsv' AS row FIELDS TERMINATED BY '\t' RETURN row` |
 | LOAD CSV inside CALL | `CALL { LOAD CSV WITH HEADERS FROM 'data.csv' AS row RETURN row.name AS name } RETURN name` |

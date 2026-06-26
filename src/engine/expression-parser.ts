@@ -616,7 +616,7 @@ export function evaluateExpressionFromAtom(
           return {
             type: 'Aggregation' as const,
             aggregationType: funcName.toUpperCase() as 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COLLECT',
-            variable: '',
+            variable: null,
             property: undefined,
             expression: innerExpr,
             distinct: !!hasDistinct,

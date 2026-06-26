@@ -148,14 +148,14 @@ describe('LOAD CSV', () => {
       expect(results[0]!.name).toBe('Alice');
     });
 
-    it('combines LOAD CSV with MATCH + WHERE', async () => {
+    it('combines LOAD CSV with MATCH (property filter)', async () => {
       const filePath = resolve(__dirname, 'data/people.csv');
-      const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row MATCH (u:User) WHERE u.name = row.name RETURN row.name AS csvName, u.name AS graphName`);
+      const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row MATCH (u:User {name: row.name}) RETURN row.name AS csvName, u.name AS graphName`);
       const results = await engine.execute(ast);
-      // Alice is in both CSV and graph
-      const aliceMatch = results.find((r) => r.csvName === 'Alice');
-      expect(aliceMatch).toBeDefined();
-      expect(aliceMatch!.graphName).toBe('Alice');
+      // CSV has Alice, Bob, Charlie — all 3 match graph users by name
+      expect(results.length).toBe(3);
+      const names = results.map((r) => r.csvName).sort();
+      expect(names).toEqual(['Alice', 'Bob', 'Charlie']);
     });
 
     it('handles CSV with quoted fields', async () => {
@@ -170,7 +170,7 @@ describe('LOAD CSV', () => {
 
     it('throws error for non-existent file', async () => {
       const ast = parseCypher("LOAD CSV FROM '/nonexistent/file.csv' AS row RETURN row");
-      await expect(engine.execute(ast)).rejects.toThrow('CSV file not found');
+      await expect(engine.execute(ast)).rejects.toThrow(/CSV file not found.*resolved to/);
     });
 
     it('uses toInteger to convert string numbers', async () => {

@@ -237,8 +237,8 @@ export interface MapLiteralExpression {
 export interface AggregationExpression {
   type: 'Aggregation';
   aggregationType: 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COLLECT';
-  /** Variable name for simple property access (e.g., `n.score`). */
-  variable: string;
+  /** Variable name for simple property access (e.g., `n.score`). Null when expression is used. */
+  variable: string | null;
   /** Property name for simple property access (e.g., `n.score`). */
   property: string | undefined;
   /** Complex expression argument (e.g., `toInteger(row.latency)`). Mutually exclusive with variable/property. */
