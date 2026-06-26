@@ -2,6 +2,7 @@
 
 import { parseCypher as _parseCypher } from './engine/cypher-parser';
 import { AdvancedCypherGraphologyEngine } from './engine/cypher-engine';
+import { explainQuery as _explainQuery } from './engine/explain';
 import { buildGraphIndexesFromData, buildGraphIndexesFromGraph } from './indexes';
 import { Graph, wrapExternalGraph, type GraphInstance, type GraphType } from './graph';
 import { DEFAULT_CONFIG } from './types/cypher';
@@ -485,6 +486,34 @@ export function parseCypher(query: string): CypherAST {
 }
 
 /**
+ * Generate an explain plan for a Cypher query without executing it.
+ *
+ * Walks the parsed AST and produces a structured plan showing query stages,
+ * variable bindings, and descriptions. Useful for debugging and understanding
+ * how a query will be executed.
+ *
+ * @example
+ * ```ts
+ * import { explainQuery } from 'gcyphrq';
+ *
+ * const plan = explainQuery('MATCH (u:User) RETURN u');
+ * console.log(JSON.stringify(plan, null, 2));
+ * // {
+ * //   query: 'MATCH (u:User) RETURN u',
+ * //   stages: [
+ * //     { index: 0, type: 'MATCH', description: 'MATCH (u:User)', variables: ['u'] },
+ * //     { index: 1, type: 'RETURN', description: 'RETURN u', variables: ['u'] }
+ * //   ],
+ * //   finalVariables: ['u']
+ * // }
+ * ```
+ */
+export function explainQuery(query: string): { query: string; union?: boolean; stages: Array<{ index: number; type: string; description: string; variables: string[]; details?: Record<string, unknown> }>; finalVariables: string[] } {
+  const ast = _parseCypher(query);
+  return _explainQuery(query, ast);
+}
+
+/**
  * Execute a Cypher query against a graph and return results as plain JSON.
  *
  * This is the simplest way to use gcyphrq. Indexes are built automatically.
@@ -626,6 +655,7 @@ export type {
   CreateClause,
   DeleteClause,
   SetClause,
+  SetItem,
   RemoveClause,
   UnwindClause,
   ForeachClause,
@@ -650,3 +680,6 @@ export type {
   CypherValue,
   CypherLiteral,
 } from './types/cypher';
+
+// Re-export explain types
+export type { ExplainPlan, ExplainStage } from './engine/explain';

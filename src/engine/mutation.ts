@@ -73,42 +73,48 @@ export function executeWrite(
       }
     }
   } else if (clause.type === 'SET') {
-    if (clause.labels && clause.labels.length > 0) {
-      for (const context of materialised) {
-        const target = context[clause.variable] as CypherNode | undefined;
-        if (target && target.id && graph.hasNode(target.id)) {
-          const nodeId = target.id; const attrs = graph.getNodeAttributes(nodeId);
-          const currentRaw = attrs[config.labelProperty];
-          const existingLabels = typeof currentRaw === 'string' ? [currentRaw] : Array.isArray(currentRaw) ? currentRaw.filter((l: unknown): l is string => typeof l === 'string') : [];
-          const merged = [...new Set([...existingLabels, ...clause.labels])];
-          if (merged.length === 0) { /* no-op */ }
-          else if (merged.length === 1) graph.setNodeAttribute(nodeId, config.labelProperty, merged[0]);
-          else graph.setNodeAttribute(nodeId, config.labelProperty, merged);
+    for (const item of clause.items) {
+      if (item.labels && item.labels.length > 0) {
+        for (const context of materialised) {
+          const target = context[item.variable] as CypherNode | undefined;
+          if (target && target.id && graph.hasNode(target.id)) {
+            const nodeId = target.id; const attrs = graph.getNodeAttributes(nodeId);
+            const currentRaw = attrs[config.labelProperty];
+            const existingLabels = typeof currentRaw === 'string' ? [currentRaw] : Array.isArray(currentRaw) ? currentRaw.filter((l: unknown): l is string => typeof l === 'string') : [];
+            const merged = [...new Set([...existingLabels, ...item.labels])];
+            if (merged.length === 0) { /* no-op */ }
+            else if (merged.length === 1) graph.setNodeAttribute(nodeId, config.labelProperty, merged[0]);
+            else graph.setNodeAttribute(nodeId, config.labelProperty, merged);
+          }
+        }
+      }
+      if (item.property && item.value) {
+        const nodeIds = new Set<string>(); const edgeIds = new Set<string>();
+        for (const context of materialised) {
+          const target = context[item.variable] as CypherNode | CypherEdge | undefined;
+          if (target && target.id) { if (graph.hasNode(target.id)) nodeIds.add(target.id); else if (graph.hasEdge(target.id)) edgeIds.add(target.id); }
+        }
+        for (const nodeId of nodeIds) {
+          const ctx = materialised.find((c) => { const t = c[item.variable] as CypherNode | CypherEdge | undefined; return t && t.id === nodeId; });
+          const evaluatedValue = ctx ? evalExpr(item.value, ctx) : undefined;
+          graph.setNodeAttribute(nodeId, item.property, evaluatedValue);
+        }
+        for (const edgeId of edgeIds) {
+          const ctx = materialised.find((c) => { const t = c[item.variable] as CypherNode | CypherEdge | undefined; return t && t.id === edgeId; });
+          const evaluatedValue = ctx ? evalExpr(item.value, ctx) : undefined;
+          graph.setEdgeAttribute(edgeId, item.property, evaluatedValue);
         }
       }
     }
-    if (clause.property) {
-      const nodeIds = new Set<string>(); const edgeIds = new Set<string>();
+    // Refresh context for all variables referenced in SET items
+    const allVariables = new Set(clause.items.map((item) => item.variable));
+    for (const variable of allVariables) {
       for (const context of materialised) {
-        const target = context[clause.variable] as CypherNode | CypherEdge | undefined;
-        if (target && target.id) { if (graph.hasNode(target.id)) nodeIds.add(target.id); else if (graph.hasEdge(target.id)) edgeIds.add(target.id); }
-      }
-      for (const nodeId of nodeIds) {
-        const ctx = materialised.find((c) => { const t = c[clause.variable] as CypherNode | CypherEdge | undefined; return t && t.id === nodeId; });
-        const evaluatedValue = ctx ? evalExpr(clause.value, ctx) : undefined;
-        graph.setNodeAttribute(nodeId, clause.property, evaluatedValue);
-      }
-      for (const edgeId of edgeIds) {
-        const ctx = materialised.find((c) => { const t = c[clause.variable] as CypherNode | CypherEdge | undefined; return t && t.id === edgeId; });
-        const evaluatedValue = ctx ? evalExpr(clause.value, ctx) : undefined;
-        graph.setEdgeAttribute(edgeId, clause.property, evaluatedValue);
-      }
-    }
-    for (const context of materialised) {
-      const target = context[clause.variable] as CypherNode | CypherEdge | undefined;
-      if (target && target.id) {
-        if (graph.hasNode(target.id)) context[clause.variable] = { id: target.id, ...graph.getNodeAttributes(target.id) } as CypherNode;
-        else if (graph.hasEdge(target.id)) { const edgeInfo = graph.getEdgeEndpoints(target.id); context[clause.variable] = { id: target.id, source: edgeInfo.source, target: edgeInfo.target, ...graph.getEdgeAttributes(target.id) } as CypherEdge; }
+        const target = context[variable] as CypherNode | CypherEdge | undefined;
+        if (target && target.id) {
+          if (graph.hasNode(target.id)) context[variable] = { id: target.id, ...graph.getNodeAttributes(target.id) } as CypherNode;
+          else if (graph.hasEdge(target.id)) { const edgeInfo = graph.getEdgeEndpoints(target.id); context[variable] = { id: target.id, source: edgeInfo.source, target: edgeInfo.target, ...graph.getEdgeAttributes(target.id) } as CypherEdge; }
+        }
       }
     }
   } else if (clause.type === 'DELETE') {

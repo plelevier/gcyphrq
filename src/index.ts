@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { GraphError, createGraph, parseCypher, GraphEngine, buildGraphIndexes } from './lib';
+import { GraphError, createGraph, parseCypher, GraphEngine, buildGraphIndexes, explainQuery } from './lib';
 import type { GraphInput } from './lib';
 import { runInstall } from './install';
 
@@ -23,7 +23,8 @@ Options:
   -nl, --node-label-property-name <prop>    Node attribute key to use as Cypher label (default: "label")
   -et, --edge-type-property-name <prop>     Edge attribute key to use as Cypher relationship type (default: "type")
   --format <graph|rows>  Output format: "graph" (Graphology JSON, default) or "rows" (result rows)
-  --install <mode>       Install the gcyphrq skill for AI coding agents. Mode: "global" (symlinks) or "local" (copies into current directory)
+  --explain              Show the query execution plan instead of executing. Does not require a graph file (-g is optional)
+  --install-skill <mode> Install the gcyphrq skill for AI coding agents. Mode: "global" (symlinks) or "local" (copies into current directory)
   -v, --version          Show version number
   -h, --help             Show this help message
 
@@ -49,8 +50,8 @@ Examples:
   gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service {type: "RPC"}) RETURN s.name'
   gcyphrq -g my-graph.json -nl kind -et rel -e 'MATCH (n:Service) RETURN n'
   cat my-graph.json | gcyphrq -g - -e 'MATCH (n) RETURN n'
-  gcyphrq --install global      # Install skill globally (symlinks)
-  gcyphrq --install local       # Install skill in current project (copies)
+  gcyphrq --install-skill global      # Install skill globally (symlinks)
+  gcyphrq --install-skill local       # Install skill in current project (copies)
 `;
 
 function printHelp(): void {
@@ -69,13 +70,14 @@ type ParsedArgs = {
   labelProperty: string | undefined;
   edgeTypeProperty: string | undefined;
   format: 'graph' | 'rows' | undefined;
+  explain: boolean;
   help: boolean;
   version: boolean;
   install: 'global' | 'local' | undefined;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
-  const args: ParsedArgs = { expr: undefined, graph: undefined, labelProperty: undefined, edgeTypeProperty: undefined, format: undefined, help: false, version: false, install: undefined };
+  const args: ParsedArgs = { expr: undefined, graph: undefined, labelProperty: undefined, edgeTypeProperty: undefined, format: undefined, explain: false, help: false, version: false, install: undefined };
   let exprFlag: string | null = null;
   let graphFlag: string | null = null;
   let labelFlag: string | null = null;
@@ -96,9 +98,9 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
 
-    if (arg === '--install') {
+    if (arg === '--install-skill') {
       if (i + 1 >= argv.length) {
-        throw new GraphError('The --install option requires a value ("global" or "local").');
+        throw new GraphError('The --install-skill option requires a value ("global" or "local").');
       }
       const mode = argv[++i]!;
       if (mode !== 'global' && mode !== 'local') {
@@ -153,6 +155,11 @@ function parseArgs(argv: string[]): ParsedArgs {
       }
       typeFlag = arg;
       args.edgeTypeProperty = argv[++i]!;
+      continue;
+    }
+
+    if (arg === '--explain') {
+      args.explain = true;
       continue;
     }
 
@@ -333,7 +340,7 @@ async function main(): Promise<void> {
 
     if (args.install) {
       if (args.expr || args.graph) {
-        throw new GraphError('--install cannot be combined with -e/--expr or -g/--graph.');
+        throw new GraphError('--install-skill cannot be combined with -e/--expr or -g/--graph.');
       }
 
       await runInstall(args.install, process.cwd());
@@ -346,8 +353,17 @@ async function main(): Promise<void> {
       throw new GraphError('Missing required option: -e, --expr <query>\n\nUse "gcyphrq --help" for usage information.');
     }
 
-    if (!args.graph) {
+    if (!args.graph && !args.explain) {
       throw new GraphError('Missing required option: -g, --graph <file>\n\nUse "gcyphrq --help" for usage information.');
+    }
+
+    // ── Explain mode (no graph needed) ─────────────────────────────────
+
+    if (args.explain) {
+      const ast = parseCypher(args.expr);
+      const plan = explainQuery(args.expr, ast);
+      console.log(JSON.stringify(plan, null, 2));
+      process.exit(0);
     }
 
     // Load graph data

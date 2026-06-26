@@ -31,13 +31,13 @@ The easiest way is to use the built-in install command. It detects your installe
 
 ```bash
 # Install globally (symlinks in agent config directories)
-gcyphrq --install global
+gcyphrq --install-skill global
 
 # Install locally (copies into current directory)
-gcyphrq --install local
+gcyphrq --install-skill local
 ```
 
-The `--install` command:
+The `--install-skill` command:
 - Detects which agents are installed on your system
 - Creates symlinks (global) or copies (local) the skill content
 - Generates `CLAUDE.md` / `AGENTS.md` reference files for Claude Code and OpenCode

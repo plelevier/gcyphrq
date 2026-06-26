@@ -27,11 +27,12 @@ gcyphrq [options]
 | `-nl, --node-label-property-name <prop>` | Node attribute key to use as Cypher label (default: `"label"`) |
 | `-et, --edge-type-property-name <prop>` | Edge attribute key to use as Cypher relationship type (default: `"type"`) |
 | `--format <graph\|rows>` | Output format: `graph` (default) or `rows`. Note: when returning only scalar values (property access, aggregations), the CLI auto-falls back to `rows` regardless of this setting |
-| `--install <mode>` | Install the gcyphrq skill for AI coding agents. Mode: `global` (symlinks) or `local` (copies into current directory) |
+| `--explain` | Show the query execution plan instead of executing. Does not require a graph file (`-g` is optional) |
+| `--install-skill <mode>` | Install the gcyphrq skill for AI coding agents. Mode: `global` (symlinks) or `local` (copies into current directory) |
 | `-v, --version` | Show version number |
 | `-h, --help` | Show help message |
 
-Either `-e` + `-g` (query mode) or `--install <mode>` (install mode) is required. These modes are mutually exclusive. The tool exits with code 1 and prints to stderr if no valid mode is provided.
+Either `-e` + `-g` (query mode) or `--install-skill <mode>` (install mode) is required. These modes are mutually exclusive. The tool exits with code 1 and prints to stderr if no valid mode is provided.
 
 ## Loading a Graph
 
@@ -140,6 +141,26 @@ gcyphrq -g graph.json -e 'MATCH (n) RETURN n' \
 - Path structure (variable-length path edges are flattened into a set)
 - Aggregation results (`count()`, `avg()`, etc. — always returned as rows)
 
+## Explain Mode
+
+Use `--explain` to show the query execution plan instead of executing the query. This is useful for debugging and understanding how a query will be processed.
+
+```bash
+gcyphrq --explain -e 'MATCH (u:User)-[r:FRIEND]->(f:User) RETURN u, f'
+```
+
+Output is a JSON object with:
+- `query` — the original query string
+- `stages` — array of query stages (MATCH, WITH, RETURN, etc.) with their type, description, variables, and details
+- `finalVariables` — variables bound at the end of the query
+- `union` — `true` if this is a UNION query
+
+No graph file is required (`-g` is optional in explain mode):
+
+```bash
+gcyphrq --explain -e 'MATCH (u:User) RETURN u'
+```
+
 ## Error Handling
 
 All errors are printed to **stderr** with an `Error: ` prefix, and the process exits with code 1:
@@ -205,13 +226,13 @@ Install the gcyphrq skill for AI coding agents (pi, Claude Code, OpenCode):
 
 ```bash
 # Install globally (symlinks in agent config directories)
-gcyphrq --install global
+gcyphrq --install-skill global
 
 # Install locally (copies into current directory)
-gcyphrq --install local
+gcyphrq --install-skill local
 ```
 
-The `--install` command detects which agents are installed on your system and sets up the skill for each one. See the [Skill Guide](skill) for details.
+The `--install-skill` command detects which agents are installed on your system and sets up the skill for each one. See the [Skill Guide](skill) for details.
 
 ## Running without installing
 

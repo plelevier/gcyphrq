@@ -145,13 +145,21 @@ export interface DeleteClause {
   detach: boolean;
 }
 
+export interface SetItem {
+  /** Variable name (e.g., "n" in `SET n:Label, n.prop = val`). */
+  variable: string;
+  /** Property name (e.g., "prop" in `SET n.prop = val`). Undefined for label-only. */
+  property: string | undefined;
+  /** Value expression (e.g., `val` in `SET n.prop = val`). Undefined for label-only. */
+  value: Expression | undefined;
+  /** Labels to add (e.g., ["Label"] in `SET n:Label`). Undefined for property-only. */
+  labels: string[] | undefined;
+}
+
 export interface SetClause {
   type: 'SET';
-  variable: string;
-  property: string;
-  value: Expression;
-  /** Labels to add to the node (e.g. `SET n:Label`). Undefined for property-only SET. */
-  labels: string[] | undefined;
+  /** Array of set items (labels and/or properties). Supports multiple operations like `SET n:Label, n.prop = val`. */
+  items: SetItem[];
 }
 
 export interface RemoveItem {
@@ -329,7 +337,20 @@ export interface ExistsExpression {
   expression: Expression;
 }
 
-export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression | PathExpression | ReduceExpression | QuantifierExpression | ExistsExpression;
+/** A list comprehension: `[var IN list [WHERE predicate] | generator]`. */
+export interface ListComprehensionExpression {
+  type: 'ListComprehension';
+  /** Loop variable name (e.g., "x" in `x IN n.tags`). */
+  loopVariable: string;
+  /** List expression to iterate over (e.g., `n.tags`). */
+  list: Expression;
+  /** Optional WHERE predicate (undefined for simple comprehension without WHERE). */
+  predicate: WhereExpression | undefined;
+  /** Generator expression (after the `|`). */
+  generator: Expression;
+}
+
+export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression | PathExpression | ReduceExpression | QuantifierExpression | ExistsExpression | ListComprehensionExpression;
 
 export interface BinaryExpression {
   type: 'BinaryExpression';
@@ -356,7 +377,7 @@ export interface IsNullExpression {
   negated: boolean; // true for IS NOT NULL, false for IS NULL
 }
 
-export type WhereExpression = BinaryExpression | LogicalExpression | NotExpression | IsNullExpression | QuantifierExpression | ExistsExpression;
+export type WhereExpression = BinaryExpression | LogicalExpression | NotExpression | IsNullExpression | QuantifierExpression | ExistsExpression | FunctionCallExpression;
 
 export interface Projection {
   expression: Expression;
@@ -375,6 +396,8 @@ export interface WithClause {
 export interface OrderByItem {
   expression: Expression;
   direction: 'ASC' | 'DESC';
+  /** NULLS FIRST / NULLS LAST control. Undefined means default (NULLS LAST for ASC, NULLS FIRST for DESC). */
+  nullsDirection: 'NULLS FIRST' | 'NULLS LAST' | undefined;
 }
 
 export interface ReturnClause {
@@ -388,6 +411,8 @@ export interface UnwindClause {
   type: 'UNWIND';
   expression: Expression;
   variable: string;
+  /** Optional WHERE filter applied after unwinding (e.g., `UNWIND list AS x WHERE x > 0`). */
+  where: WhereExpression | undefined;
 }
 
 export interface ForeachClause {

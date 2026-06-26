@@ -175,6 +175,41 @@ if (ast.type === 'Query') {
 
 ---
 
+### `explainQuery(query)`
+
+Generate an explain plan for a Cypher query without executing it. Walks the parsed AST and produces a structured plan showing query stages, variable bindings, and descriptions.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `query` | `string` | A Cypher query string |
+
+**Returns:** `ExplainPlan` — structured plan with stages and variable bindings
+
+```ts
+import { explainQuery } from 'gcyphrq';
+
+const plan = explainQuery('MATCH (u:User)-[r:FRIEND]->(f:User) RETURN u, f');
+console.log(JSON.stringify(plan, null, 2));
+// {
+//   query: 'MATCH (u:User)-[r:FRIEND]->(f:User) RETURN u, f',
+//   stages: [
+//     { index: 0, type: 'MATCH', description: '...', variables: ['u', 'f', 'r'], details: {...} },
+//     { index: 1, type: 'RETURN', description: '...', variables: ['u', 'f'], details: {...} }
+//   ],
+//   finalVariables: ['u', 'f']
+// }
+```
+
+The plan includes:
+- `query` — the original query string
+- `stages` — array of query stages (MATCH, WITH, RETURN, etc.) with type, description, variables, and details
+- `finalVariables` — variables bound at the end of the query
+- `union` — `true` if this is a UNION query
+
+---
+
 ### `buildGraphIndexes`
 
 Build pre-computed indexes for fast query execution. Pass the returned indexes to `GraphEngine` for O(1) label, property, and edge-type lookups instead of full-graph scans.
@@ -471,6 +506,8 @@ import type {
   WithClause,
   ReturnClause,
   WriteClause,
+  SetClause,
+  SetItem,
   CallClause,
   NodePattern,
   RelationPattern,
@@ -484,6 +521,7 @@ import type {
   BinaryExpression,
   Projection,
   OrderByItem,
+  UnwindClause,
 
   // Result types
   ResultRow,

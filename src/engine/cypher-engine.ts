@@ -30,7 +30,7 @@ import type { GraphInstance } from '../graph';
 
 import { isContextChain, materialiseChain, resolveChainValue, type ContextChain, CHAIN_BASE, CHAIN_OVERRIDES } from './context-chain';
 import { executeMatch, getMatchingNodeIds, matchNodeCriteria, deepEquals, getNodeLabels } from './match';
-import { evaluateWhere as evaluateWhereCore, isWhereExpression, extractListValues, mapsEqual as mapsEqualImpl, compareValues as compareValuesImpl, applyOrderByToContexts as applyOrderByToContextsImpl, applyOrderByToRows as applyOrderByToRowsImpl } from './where';
+import { evaluateWhere as evaluateWhereCore, isWhereExpression, extractListValues, mapsEqual as mapsEqualImpl, compareValues as compareValuesImpl, compareValuesWithNulls as compareValuesWithNullsImpl, applyOrderByToContexts as applyOrderByToContextsImpl, applyOrderByToRows as applyOrderByToRowsImpl } from './where';
 import { evaluateExpression as evaluateExpressionImpl, evaluateCase as evaluateCaseImpl, evaluateStringFunction as evaluateStringFunctionImpl } from './expression';
 import { containsAggregation, containsAggregationInWhere, collectAggregations, collectAggregationsInWhere, computeAggregations as computeAggregationsImpl } from './aggregation';
 import { executeWrite, executeMerge, applyMergeActions } from './mutation';
@@ -133,7 +133,7 @@ export class AdvancedCypherGraphologyEngine {
       results = deduped;
     }
 
-    if (ast.orderBy && ast.orderBy.length > 0) results = this.applyOrderByToRows(results, ast.orderBy);
+    if (ast.orderBy && ast.orderBy.length > 0) results = this.applyOrderByToRowsWithNulls(results, ast.orderBy);
     if (ast.skip !== undefined && ast.skip !== null) results = results.slice(ast.skip);
     if (ast.limit !== undefined && ast.limit !== null) results = results.slice(0, ast.limit);
 
@@ -149,10 +149,14 @@ export class AdvancedCypherGraphologyEngine {
       const listValue = this.evaluateExpression(clause.expression, flat);
       if (listValue === null || listValue === undefined) continue;
       if (!Array.isArray(listValue)) {
+        const unwoundContext: QueryContext = { ...flat, [clause.variable]: listValue };
+        if (clause.where && !this.evaluateWhere(clause.where, unwoundContext)) continue;
         outgoingContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: { [clause.variable]: listValue } });
         continue;
       }
       for (const element of listValue) {
+        const unwoundContext: QueryContext = { ...flat, [clause.variable]: element };
+        if (clause.where && !this.evaluateWhere(clause.where, unwoundContext)) continue;
         outgoingContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: { [clause.variable]: element } });
       }
     }
@@ -363,6 +367,27 @@ export class AdvancedCypherGraphologyEngine {
     if (expr.type === 'Case') {
       return this.evaluateCaseWithAggregations(expr, context, aggResults);
     }
+    if (expr.type === 'ListComprehension') {
+      // Evaluate list comprehension with aggregation-aware evaluation
+      const list = this.evaluateExpressionWithAggregations(expr.list, context, aggResults);
+      if (!Array.isArray(list)) return [] as CypherValue;
+
+      const result: CypherValue[] = [];
+      for (const element of list) {
+        const loopContext: QueryContext = { ...context, [expr.loopVariable]: element };
+
+        // If there's a WHERE predicate, skip elements that don't match
+        if (expr.predicate) {
+          const predicateResult = this.evaluateWhereWithAggregations(expr.predicate, loopContext, aggResults);
+          if (!predicateResult) continue;
+        }
+
+        const genValue = this.evaluateExpressionWithAggregations(expr.generator, loopContext, aggResults);
+        result.push(genValue as CypherValue);
+      }
+
+      return result as CypherValue;
+    }
     return this.evaluateExpression(expr, context) ?? null;
   }
 
@@ -421,11 +446,35 @@ export class AdvancedCypherGraphologyEngine {
     return applyOrderByToRowsImpl(rows, orderBy, (e, c) => this.evaluateExpression(e, c));
   }
 
+  private applyOrderByToRowsWithNulls(rows: ResultRow[], orderBy: OrderByItem[]): ResultRow[] {
+    const keyed = rows.map((row) => {
+      const ctx: QueryContext = {};
+      for (const [key, val] of Object.entries(row)) ctx[key] = val;
+      return { row, keys: orderBy.map((item) => this.evaluateExpression(item.expression, ctx)) };
+    });
+
+    keyed.sort((a, b) => {
+      for (let i = 0; i < orderBy.length; i++) {
+        const item = orderBy[i];
+        if (!item) continue;
+        const cmp = this.compareValuesWithNulls(a.keys[i], b.keys[i], item);
+        if (cmp !== 0) return cmp;
+      }
+      return 0;
+    });
+
+    return keyed.map((k) => k.row);
+  }
+
   private applyOrderByToContexts(contexts: QueryContext[], orderBy: OrderByItem[]): QueryContext[] {
     return applyOrderByToContextsImpl(contexts, orderBy, (e, c) => this.evaluateExpression(e, c));
   }
 
   private compareValues(a: CypherValue | undefined, b: CypherValue | undefined): number {
     return compareValuesImpl(a, b);
+  }
+
+  private compareValuesWithNulls(a: CypherValue | undefined, b: CypherValue | undefined, item: OrderByItem): number {
+    return compareValuesWithNullsImpl(a, b, item);
   }
 }

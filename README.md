@@ -50,7 +50,7 @@ Options:
   -e, --expr <query>     Cypher query expression (required for queries)
   -g, --graph <file>     Path to a JSON graph file (or "-" to read from stdin)
   --format <graph|rows>  Output format: "graph" (default) or "rows"
-  --install <mode>       Install the gcyphrq skill for AI coding agents. Mode: "global" (symlinks) or "local" (copies into current directory)
+  --install-skill <mode> Install the gcyphrq skill for AI coding agents. Mode: "global" (symlinks) or "local" (copies into current directory)
   -v, --version          Show version number
   -h, --help             Show this help message
 ```
@@ -100,13 +100,13 @@ The easiest way is to use the built-in install command. It detects your installe
 
 ```bash
 # Install globally (symlinks in agent config directories)
-gcyphrq --install global
+gcyphrq --install-skill global
 
 # Install locally (copies into current directory)
-gcyphrq --install local
+gcyphrq --install-skill local
 ```
 
-The `--install` command detects which agents are installed on your system and sets up the skill for each one. For Claude Code and OpenCode it also generates the `CLAUDE.md` / `AGENTS.md` reference files.
+The `--install-skill` command detects which agents are installed on your system and sets up the skill for each one. For Claude Code and OpenCode it also generates the `CLAUDE.md` / `AGENTS.md` reference files.
 
 ### Manual Installation
 

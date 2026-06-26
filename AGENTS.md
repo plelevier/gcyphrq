@@ -14,7 +14,7 @@ npm test           # Run tests (vitest)
 npx tsx src/index.ts -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s'
 ```
 
-Both `-e` (query) and `-g` (graph file or `-` for stdin) are required.
+Both `-e` (query) and `-g` (graph file or `-` for stdin) are required. Use `--explain` with `-e` only (no graph needed) to show the query execution plan.
 
 ## Architecture
 
@@ -41,15 +41,21 @@ src/
 
 ## Supported Cypher
 
-**Clauses:** MATCH (`:A`, `:A:B` AND, `:A|B` OR, `:!A`), `MATCH path=(a)-[r]->(b)` path variable binding, OPTIONAL MATCH, chained MATCH (`MATCH (a) MATCH (b)` cartesian product), MERGE (single node + chains, WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE), variable-length `*min..max`, directional edges (`->`, `<-`, `-`), RETURN (property access, aliases), RETURN DISTINCT, WITH + grouping, UNWIND, FOREACH (SET, CREATE, DELETE, DETACH DELETE, REMOVE on nodes and edges), CREATE (single node or chain `(a)-[r:TYPE]->(b)` with directional edges), SET/DELETE/REMOVE (`REMOVE n:Label` partial, `REMOVE n.prop`), DETACH DELETE, ORDER BY (multi, ASC/DESC), SKIP, LIMIT, UNION/UNION ALL (each branch must end with RETURN, ORDER BY/SKIP/LIMIT apply to combined result), `CASE ... WHEN ... END` (general and simple forms, nested, in RETURN/WHERE/WITH/ORDER BY/SET), `CALL { ... }` subqueries (inline, YIELD, nested, with CREATE/SET/DELETE inside).
+**Clauses:** MATCH (`:A`, `:A:B` AND, `:A|B` OR, `:!A`), `MATCH path=(a)-[r]->(b)` path variable binding, OPTIONAL MATCH, chained MATCH (`MATCH (a) MATCH (b)` cartesian product), MERGE (single node + chains, WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE), variable-length `*min..max`, directional edges (`->`, `<-`, `-`), RETURN (property access, aliases), RETURN DISTINCT, WITH + grouping, UNWIND, FOREACH (SET (labels + properties), CREATE, DELETE, DETACH DELETE, REMOVE on nodes and edges), CREATE (single node or chain `(a)-[r:TYPE]->(b)` with directional edges), SET/DELETE/REMOVE (`REMOVE n:Label` partial, `REMOVE n.prop`), DETACH DELETE, ORDER BY (multi, ASC/DESC), SKIP, LIMIT, UNION/UNION ALL (each branch must end with RETURN, ORDER BY/SKIP/LIMIT apply to combined result), `CASE ... WHEN ... END` (general and simple forms, nested, in RETURN/WHERE/WITH/ORDER BY/SET), `CALL { ... }` subqueries (inline, YIELD, nested, with CREATE/SET/DELETE inside).
+
+- **UNWIND with WHERE:** filter unwound elements (e.g., `UNWIND list AS x WHERE x > 0`). Supports all WHERE operators. Can combine with `WITH` for multi-stage filtering.
+- **ORDER BY NULLS FIRST/LAST:** control null position (e.g., `ORDER BY score NULLS FIRST`). Default: `NULLS LAST` for ASC, `NULLS FIRST` for DESC. Works in RETURN and WITH.
 
 **Aggregations:** `count`, `sum`, `avg`, `min`, `max`, `collect`, `count(*)`, `count(DISTINCT)`, `sum(DISTINCT)`, `avg(DISTINCT)`, `collect(DISTINCT)`. `collect()` includes null values.
 **Reduce:** `reduce(initial, var IN list | body)` folds a list with an accumulator. Not itself an aggregation — triggers aggregation only when sub-expressions contain aggregations (e.g., `reduce(..., x IN collect(y) | ...)`). Works in RETURN/WITH.
+**List comprehensions:** `[var IN list [WHERE predicate] | generator]` iterates over a collection, optionally filters with WHERE, transforms each element, and returns a new list. Works in RETURN/WHERE/WITH/SET, nested in functions and other expressions.
 **Quantifiers:** `ALL(x IN list WHERE pred)`, `ANY(x IN list WHERE pred)`, `SINGLE(x IN list WHERE pred)`, `NONE(x IN list WHERE pred)`. Work in WHERE clauses (standalone or combined with AND/OR/NOT). Empty list: ALL/NONE → true (vacuous truth), ANY/SINGLE → false.
 **EXISTS:** `EXISTS(expression)` — true if expression is not null/undefined. Works in WHERE (standalone or with NOT). Supports property access, function calls, list slicing.
 **Arithmetic:** `+` supports string concatenation when both operands are strings.
 
-**Scalar functions:** 29+ (`toLower`, `toUpper`, `substring`, `split`, `repl`, `trim`, `ltrim`, `rtrim`, `length`, `head`, `last`, `tail`, `reverse`, `size`, `id`, `labels`, `labelsOf`, `nodes`, `relationships`, `reltype`, `startnode`, `endnode`, `coalesce`, `toString`, `toInteger`, `toFloat`, `exists`). Work in RETURN/WHERE/WITH/ORDER BY, nested supported. Note: `repl`/`reltype` (not `replace`/`type`) — ANTLR4 reserved. `labels(n)` works as sole RETURN item only (ANTLR4 keyword limitation); use `labelsOf(n)` everywhere else. `nodes(path)`/`relationships(path)` extract from path variables (sole RETURN item only). `startnode()`/`endnode()` return string IDs. `labels()`, `nodes()`, `relationships()` do not support `AS` aliases (ANTLR4 grammar limitation).
+**Scalar functions:** 40+ (`toLower`, `toUpper`, `substring`, `split`, `repl`, `trim`, `ltrim`, `rtrim`, `length`, `head`, `last`, `tail`, `reverse`, `size`, `keys`, `id`, `labels`, `labelsOf`, `nodes`, `relationships`, `reltype`, `startnode`, `endnode`, `coalesce`, `toString`, `toInteger`, `toInt`, `toFloat`, `toBoolean`, `exists`). Work in RETURN/WHERE/WITH/ORDER BY, nested supported. Note: `repl`/`reltype` (not `replace`/`type`) — ANTLR4 reserved. `labels(n)` works as sole RETURN item only (ANTLR4 keyword limitation); use `labelsOf(n)` everywhere else. `nodes(path)`/`relationships(path)` extract from path variables (sole RETURN item only). `startnode()`/`endnode()` return string IDs. `labels()`, `nodes()`, `relationships()` do not support `AS` aliases (ANTLR4 grammar limitation).
+
+**Temporal functions:** `timestamp()`, `datetime()`, `date()`, `time()`, `localdatetime()`, `localtime()`, `datetimewithtimezone()`, `timewithzone()`, `duration()`. Extractors: `year()`, `month()`, `day()`, `hour()`, `minute()`, `second()`, `millisecond()`, `timezone()`, `epochseconds()`, `epochmillisecond()`, `totalSeconds()`, `totalMinutes()`. Constructors accept components, maps, strings, or epoch numbers. Temporal comparison in WHERE/ORDER BY uses epoch-based chronological ordering (timezone-aware).
 
 **Path expressions:** `shortestPath((a)-[*]->(b))` returns the single shortest path (unweighted BFS); `allShortestPaths((a)-[*]->(b))` returns all paths of minimum length. Support type filtering (`[:TYPE*]`), direction (`->`, `<-`, `-`), and variable-length bounds (`*min..max`). Variables `a`/`b` must be bound in the query context. Uses `graphology-shortest-path` library.
 
