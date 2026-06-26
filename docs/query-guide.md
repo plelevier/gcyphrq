@@ -1649,6 +1649,7 @@ RETURN name
 - Quoted fields are supported (commas, escaped quotes, newlines within quotes).
 - UTF-8 BOM is automatically stripped.
 - Multiple LOAD CSV clauses are supported (each produces a cartesian product with existing contexts).
+- **MATCH property filters** like `MATCH (u:User {name: row.name})` do not evaluate LOAD CSV variables — they match all nodes. Use `MATCH (u:User) WHERE u.name = row.name` instead.
 
 ---
 

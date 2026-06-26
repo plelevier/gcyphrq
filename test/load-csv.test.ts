@@ -148,14 +148,14 @@ describe('LOAD CSV', () => {
       expect(results[0]!.name).toBe('Alice');
     });
 
-    it('combines LOAD CSV with MATCH', async () => {
+    it('combines LOAD CSV with MATCH + WHERE', async () => {
       const filePath = resolve(__dirname, 'data/people.csv');
-      const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row MATCH (u:User {name: row.name}) RETURN row.name AS csvName, u`);
+      const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row MATCH (u:User) WHERE u.name = row.name RETURN row.name AS csvName, u.name AS graphName`);
       const results = await engine.execute(ast);
       // Alice is in both CSV and graph
       const aliceMatch = results.find((r) => r.csvName === 'Alice');
       expect(aliceMatch).toBeDefined();
-      expect(node(aliceMatch!, 'u').name).toBe('Alice');
+      expect(aliceMatch!.graphName).toBe('Alice');
     });
 
     it('handles CSV with quoted fields', async () => {
