@@ -62,6 +62,10 @@ description: A Cypher graph query engine for in-memory graphs built on Grapholog
     <h3>📞 CALL Subqueries</h3>
     <p>Inline subqueries with <code>CALL { ... }</code> syntax. Reference outer variables, use <code>YIELD</code> to filter exposed columns, and nest subqueries.</p>
   </div>
+  <div class="feature-card">
+    <h3>📄 LOAD CSV</h3>
+    <p>Import data from CSV files or HTTP/HTTPS URLs. Supports <code>WITH HEADERS</code>, custom delimiters, and works with <code>CREATE</code>, <code>MATCH</code>, and aggregations.</p>
+  </div>
 </div>
 
 ---
@@ -112,7 +116,7 @@ const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 | `SKIP` / `LIMIT` | <span class="badge badge-success">✅</span> |
 | `shortestPath((a)-[*]->(b))` / `allShortestPaths((a)-[*]->(b))` path expressions | <span class="badge badge-success">✅</span> |
 | `CALL { ... }` subqueries (inline, YIELD, nested) | <span class="badge badge-success">✅</span> |
-| `LOAD CSV` (file paths, HTTP/HTTPS URLs, WITH HEADERS) | <span class="badge badge-success">✅</span> |
+| `LOAD CSV` (file paths, HTTP/HTTPS URLs, WITH HEADERS, custom delimiters) | <span class="badge badge-success">✅</span> |
 | Stored procedures, APOC | <span class="badge badge-danger">❌</span> |
 
 ## Example Graphs

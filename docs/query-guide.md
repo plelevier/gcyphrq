@@ -1554,11 +1554,12 @@ Each row is a map: `{ name: "Alice", age: "30", ... }`.
 
 ### Combining with MATCH
 
-Load CSV data and match against graph nodes:
+Load CSV data and match against graph nodes. Use `WHERE` to filter on CSV variables (MATCH property filters like `{name: row.name}` match all nodes when the value comes from a LOAD CSV context):
 
 ```cypher
 LOAD CSV WITH HEADERS FROM 'users.csv' AS row
-MATCH (u:User {name: row.name})
+MATCH (u:User)
+WHERE u.name = row.name
 RETURN row.name AS csvName, u
 ```
 

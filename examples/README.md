@@ -31,6 +31,19 @@ The `options` field can be omitted — defaults to a directed graph.
 | `social-graph.json` | A small social network with three users connected by `FRIEND` relationships |
 | `cloud-infra.json` | A full startup cloud infrastructure — 51 nodes, 142 edges — with RPC services, message queues, databases, workers, monitoring, and external APIs |
 
+## CSV Examples
+
+The `csv/` subdirectory contains sample CSV files for use with `LOAD CSV`:
+
+| File | Description |
+|---|---|
+| `csv/services.csv` | 9 services with name, type, team, status |
+| `csv/dependencies.csv` | 10 dependencies with source, target, protocol, latency |
+
+```bash
+# Build a graph entirely from CSV
+echo '{"nodes":[],"edges":[]}' | gcyphrq -g - -e "CALL { LOAD CSV WITH HEADERS FROM 'examples/csv/services.csv' AS s CREATE (:Service {name: s.name, type: s.type}) RETURN count(*) AS _ } MATCH (s:Service) RETURN s.name"
+
 ## Usage
 
 ```bash

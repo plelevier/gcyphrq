@@ -312,7 +312,7 @@ describe('LOAD CSV', () => {
       const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row RETURN collect(toInteger(row.age)) AS ages`);
       const results = await engine.execute(ast);
       expect(results.length).toBe(1);
-      expect(results[0]!.ages).toEqual([30, 25, 35] as any);
+      expect(results[0]!.ages).toEqual([30, 25, 35]);
     });
 
     it('count(*) with other aggregations', async () => {
@@ -338,7 +338,7 @@ describe('LOAD CSV', () => {
       const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row RETURN collect(toLower(row.name)) AS names`);
       const results = await engine.execute(ast);
       expect(results.length).toBe(1);
-      expect(results[0]!.names).toEqual(['alice', 'bob', 'charlie'] as any);
+      expect(results[0]!.names).toEqual(['alice', 'bob', 'charlie']);
     });
   });
 
