@@ -1,0 +1,11 @@
+source,target,protocol,latency_ms
+api-gateway,user-service,http,12
+api-gateway,order-service,http,24
+api-gateway,inventory-service,http,8
+order-service,payment-service,gRPC,45
+order-service,inventory-service,gRPC,15
+order-service,notification-service,async,5
+payment-service,postgres-db,tcp,3
+inventory-service,redis-cache,tcp,1
+inventory-service,postgres-db,tcp,4
+notification-service,sqs-queue,tcp,2

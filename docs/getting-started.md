@@ -127,78 +127,59 @@ console.log(results);
 
 ## Loading Data from CSV
 
-Load data from CSV files and combine it with graph queries. Example CSV files are bundled in `examples/csv/`.
+Import CSV data into your graph and query it with Cypher. Example CSV files are bundled in `examples/csv/`.
 
-### `users.csv` — Node data
+### The CSV files
 
-```
-name,age,city
-Alice,30,NYC
-Bob,25,LA
-Charlie,35,SF
-```
-
-### `friendships.csv` — Edge data
+`examples/csv/services.csv` — A microservice topology (nodes):
 
 ```
-source,target,since
-Alice,Bob,2020
-Bob,Charlie,2021
-Alice,Charlie,2019
+name,type,team,status
+api-gateway,service,platform,active
+user-service,service,identity,active
+order-service,service,commerce,active
+payment-service,service,payments,active
+inventory-service,service,commerce,active
+notification-service,service,platform,active
+postgres-db,database,platform,active
+redis-cache,cache,platform,active
+sqs-queue,queue,platform,active
 ```
 
-### `products.csv` — Product catalog
+`examples/csv/dependencies.csv` — Service-to-service call dependencies (edges):
 
 ```
-id,name,price,category
-1,Widget,9.99,gadgets
-2,Gizmo,24.99,gadgets
-3,Hammer,14.99,tools
-4,Saw,29.99,tools
-5,Screwdriver,7.99,tools
+source,target,protocol,latency_ms
+api-gateway,user-service,http,12
+api-gateway,order-service,http,24
+api-gateway,inventory-service,http,8
+order-service,payment-service,gRPC,45
+order-service,inventory-service,gRPC,15
+order-service,notification-service,async,5
+payment-service,postgres-db,tcp,3
+inventory-service,redis-cache,tcp,1
+inventory-service,postgres-db,tcp,4
+notification-service,sqs-queue,tcp,2
 ```
 
-### `orders.csv` — Order data
+### Import nodes from CSV
 
-```
-orderId,productId,quantity
-101,1,3
-102,2,1
-103,3,2
-104,5,5
-105,1,1
-```
-
-### Example queries
-
-**Load and transform CSV data:**
+Create a `Service` node for each row in the CSV:
 
 ```bash
-gcyphrq -g examples/social-graph.json -e "LOAD CSV WITH HEADERS FROM 'examples/csv/users.csv' AS row RETURN row.name AS name, toInteger(row.age) AS age, row.city AS city"
+gcyphrq -g examples/social-graph.json -e "LOAD CSV WITH HEADERS FROM 'examples/csv/services.csv' AS row CREATE (:Service {name: row.name, type: row.type, team: row.team, status: row.status}) RETURN row.name AS imported, row.type AS type"
 ```
 
-**Create nodes from CSV:**
+### Query and transform CSV data
+
+Use LOAD CSV to read, filter, and aggregate data without creating nodes:
 
 ```bash
-gcyphrq -g examples/social-graph.json -e "LOAD CSV WITH HEADERS FROM 'examples/csv/users.csv' AS row CREATE (:User {name: row.name, age: toInteger(row.age)}) RETURN row.name AS created"
-```
+# Filter services by team
+gcyphrq -g examples/social-graph.json -e "LOAD CSV WITH HEADERS FROM 'examples/csv/services.csv' AS row WITH row WHERE row.team = 'platform' RETURN row.name AS service, row.type AS type"
 
-**Load CSV inside a CALL subquery:**
-
-```bash
-gcyphrq -g examples/social-graph.json -e "CALL { LOAD CSV WITH HEADERS FROM 'examples/csv/products.csv' AS row RETURN row.name AS name, toFloat(row.price) AS price } RETURN name, price ORDER BY price"
-```
-
-**Aggregate from CSV data:**
-
-```bash
-gcyphrq -g examples/cloud-infra.json -e "LOAD CSV WITH HEADERS FROM 'examples/csv/orders.csv' AS row RETURN toInteger(row.orderId) AS orderId, toInteger(row.quantity) AS quantity"
-```
-
-**Filter CSV data with WHERE:**
-
-```bash
-gcyphrq -g examples/social-graph.json -e "LOAD CSV WITH HEADERS FROM 'examples/csv/products.csv' AS row WITH row WHERE toFloat(row.price) > 10 RETURN row.name AS product, toFloat(row.price) AS price"
+# Count dependencies by protocol
+gcyphrq -g examples/social-graph.json -e "LOAD CSV WITH HEADERS FROM 'examples/csv/dependencies.csv' AS row WITH row.protocol AS protocol, count(*) AS calls RETURN protocol, calls ORDER BY calls DESC"
 ```
 
 See the [Query Guide — LOAD CSV]({{ '/query-guide/' | relative_url }}#load-csv) for full syntax reference, including `FIELDS TERMINATED BY` and `OPTIONALLY ENCLOSED BY`.
