@@ -53,7 +53,7 @@ See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 - **EXISTS:** `EXISTS(expr)` — true if not null/undefined. Use with `NOT` in WHERE.
 - **Mutations:** `CREATE` (single node or chain `(a)-[r:TYPE]->(b)`), `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `MERGE` (in-memory only). MERGE: supports WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE. CREATE chain: reuses bound nodes, creates unbound ones.
 - **CALL { ... } subqueries:** inline (reference outer variables), YIELD filtering, nested, CREATE/SET/DELETE inside, ORDER BY inside. Stored procedures (`CALL db.xxx()`) not supported.
-- **LOAD CSV:** `LOAD CSV [WITH HEADERS] FROM 'source' AS var`. Supports local file paths and HTTP/HTTPS URLs. With HEADERS: each row is a `{ headerName: value }` map. Without: each row is a string array. Supports FIELDS TERMINATED BY and OPTIONALLY ENCLOSED BY for custom delimiters. Works inside CALL subqueries. Combines with MATCH, WHERE, CREATE, aggregations.
+- **LOAD CSV:** `LOAD CSV [WITH HEADERS] FROM 'source' AS var`. Supports local file paths and HTTP/HTTPS URLs. With HEADERS: each row is a `{ headerName: value }` map. Without: each row is a string array. Supports FIELDS TERMINATED BY and OPTIONALLY ENCLOSED BY for custom delimiters. Works inside CALL subqueries. Combines with MATCH, WHERE, CREATE, aggregations (including complex expressions like `sum(toInteger(row.amount))`).
 - **Not supported:** stored procedures, APOC, regex in WHERE
 - **Notes:** `startnode()`/`endnode()` return string IDs; `avg()`/`min()`/`max()` return null on empty sets
 

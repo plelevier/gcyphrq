@@ -1589,6 +1589,15 @@ LOAD CSV WITH HEADERS FROM 'data.csv' AS row
 RETURN count(*) AS total, collect(row.name) AS names
 ```
 
+Aggregations accept function arguments for type conversion and transformation:
+
+```cypher
+LOAD CSV WITH HEADERS FROM 'data.csv' AS row
+RETURN sum(toInteger(row.amount)) AS total,
+       avg(toFloat(row.score)) AS avgScore,
+       collect(toLower(row.name)) AS names
+```
+
 ### Supported sources
 
 - **Local file paths**: `LOAD CSV FROM 'data/file.csv' AS row` (resolved relative to CWD)
