@@ -32,7 +32,7 @@ import type { GraphInstance } from '../graph';
 import { isContextChain, materialiseChain, resolveChainValue, type ContextChain, CHAIN_BASE, CHAIN_OVERRIDES } from './context-chain';
 import { executeMatch, getMatchingNodeIds, matchNodeCriteria, deepEquals, getNodeLabels } from './match';
 import { evaluateWhere as evaluateWhereCore, isWhereExpression, extractListValues, mapsEqual as mapsEqualImpl, compareValues as compareValuesImpl, compareValuesWithNulls as compareValuesWithNullsImpl, applyOrderByToContexts as applyOrderByToContextsImpl, applyOrderByToRows as applyOrderByToRowsImpl } from './where';
-import { evaluateExpression as evaluateExpressionImpl, evaluateCase as evaluateCaseImpl, evaluateStringFunction as evaluateStringFunctionImpl } from './expression';
+import { evaluateExpression as evaluateExpressionImpl, evaluateCase as evaluateCaseImpl, evaluateStringFunction as evaluateStringFunctionImpl, asList } from './expression';
 import { containsAggregation, containsAggregationInWhere, collectAggregations, collectAggregationsInWhere, computeAggregations as computeAggregationsImpl, getAggKey } from './aggregation';
 import { executeWrite, executeMerge, applyMergeActions } from './mutation';
 import { evaluatePathExpression as evaluatePathExpressionImpl } from './path-finding';
@@ -356,14 +356,6 @@ export class AdvancedCypherGraphologyEngine {
     return evaluateArithmeticCore(expr, evalOperand);
   }
 
-  /** Normalize a value for list operations. Strings are treated as lists of characters. */
-  private asList(value: CypherValue): CypherValue[] | null {
-    if (value === null || value === undefined) return null;
-    if (Array.isArray(value)) return value;
-    if (typeof value === 'string') return [...value];
-    return null;
-  }
-
   /** Evaluate expression that may contain aggregations. */
   private evaluateExpressionWithAggregations(expr: Expression, context: QueryContext, aggResults: Map<string, CypherValue>): CypherValue {
     if (expr.type === 'Aggregation') {
@@ -376,7 +368,7 @@ export class AdvancedCypherGraphologyEngine {
       if (accumulator === null || accumulator === undefined) return null;
 
       const listRaw = this.evaluateExpressionWithAggregations(expr.list, context, aggResults);
-      const list = this.asList(listRaw);
+      const list = asList(listRaw);
       if (!list) return accumulator;
 
       for (const element of list) {
@@ -399,7 +391,7 @@ export class AdvancedCypherGraphologyEngine {
     if (expr.type === 'ListComprehension') {
       // Evaluate list comprehension with aggregation-aware evaluation
       const listRaw = this.evaluateExpressionWithAggregations(expr.list, context, aggResults);
-      const list = this.asList(listRaw);
+      const list = asList(listRaw);
       if (!list) return [] as CypherValue;
 
       const result: CypherValue[] = [];

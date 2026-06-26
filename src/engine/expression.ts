@@ -5,7 +5,7 @@ import type { CypherEdge, CypherNode, CypherValue, Expression, GraphConfig, Quer
  * Normalize a value for list operations. Strings are treated as lists of characters.
  * Returns null if the value cannot be treated as a list.
  */
-function asList(value: CypherValue): CypherValue[] | null {
+export function asList(value: CypherValue): CypherValue[] | null {
   if (value === null || value === undefined) return null;
   if (Array.isArray(value)) return value;
   if (typeof value === 'string') return [...value];
