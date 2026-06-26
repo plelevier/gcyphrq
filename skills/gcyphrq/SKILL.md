@@ -50,6 +50,7 @@ See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 - **Arithmetic:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`, parentheses. `+` concatenates strings. Null propagation, div/mod by zero → null
 - **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices
 - **Quantifiers:** `ALL/ANY/SINGLE/NONE(x IN list WHERE pred)` in WHERE (standalone or with AND/OR/NOT). Empty list: ALL/NONE → true, ANY/SINGLE → false.
+- **Strings as char lists:** Strings are treated as lists of characters for `head()`, `last()`, `tail()`, `reverse()`, list slicing, list comprehensions, quantifiers, `reduce()`, `UNWIND`, `FOREACH`, and `IN` operator. `tail()`/`reverse()`/slicing on strings return strings; other ops yield character lists.
 - **EXISTS:** `EXISTS(expr)` — true if not null/undefined. Use with `NOT` in WHERE.
 - **Mutations:** `CREATE` (single node or chain `(a)-[r:TYPE]->(b)`), `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `MERGE` (in-memory only). MERGE: supports WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE. CREATE chain: reuses bound nodes, creates unbound ones.
 - **CALL { ... } subqueries:** inline (reference outer variables), YIELD filtering, nested, CREATE/SET/DELETE inside, ORDER BY inside. Stored procedures (`CALL db.xxx()`) not supported.

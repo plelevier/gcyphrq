@@ -152,13 +152,8 @@ export class AdvancedCypherGraphologyEngine {
       const flat = isContextChain(context) ? materialiseChain(context) : context;
       const listValue = this.evaluateExpression(clause.expression, flat);
       if (listValue === null || listValue === undefined) continue;
-      if (!Array.isArray(listValue)) {
-        const unwoundContext: QueryContext = { ...flat, [clause.variable]: listValue };
-        if (clause.where && !this.evaluateWhere(clause.where, unwoundContext)) continue;
-        outgoingContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: { [clause.variable]: listValue } });
-        continue;
-      }
-      for (const element of listValue) {
+      const list: CypherValue[] = typeof listValue === 'string' ? [...listValue] : Array.isArray(listValue) ? listValue : [listValue];
+      for (const element of list) {
         const unwoundContext: QueryContext = { ...flat, [clause.variable]: element };
         if (clause.where && !this.evaluateWhere(clause.where, unwoundContext)) continue;
         outgoingContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: { [clause.variable]: element } });
@@ -176,8 +171,8 @@ export class AdvancedCypherGraphologyEngine {
     for (const context of materialised) {
       const listValue = this.evaluateExpression(clause.expression, context);
       if (listValue === null || listValue === undefined) continue;
-      if (!Array.isArray(listValue)) continue;
-      for (const element of listValue) {
+      const list: CypherValue[] = typeof listValue === 'string' ? [...listValue] : Array.isArray(listValue) ? listValue : [];
+      for (const element of list) {
         const loopContext: QueryContext = { ...context, [clause.variable]: element };
         this.executeWrite(clause.innerClause, [loopContext]);
       }
@@ -361,6 +356,14 @@ export class AdvancedCypherGraphologyEngine {
     return evaluateArithmeticCore(expr, evalOperand);
   }
 
+  /** Normalize a value for list operations. Strings are treated as lists of characters. */
+  private asList(value: CypherValue): CypherValue[] | null {
+    if (value === null || value === undefined) return null;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') return [...value];
+    return null;
+  }
+
   /** Evaluate expression that may contain aggregations. */
   private evaluateExpressionWithAggregations(expr: Expression, context: QueryContext, aggResults: Map<string, CypherValue>): CypherValue {
     if (expr.type === 'Aggregation') {
@@ -372,8 +375,9 @@ export class AdvancedCypherGraphologyEngine {
       let accumulator = this.evaluateExpressionWithAggregations(expr.initial, context, aggResults);
       if (accumulator === null || accumulator === undefined) return null;
 
-      const list = this.evaluateExpressionWithAggregations(expr.list, context, aggResults);
-      if (!Array.isArray(list)) return accumulator;
+      const listRaw = this.evaluateExpressionWithAggregations(expr.list, context, aggResults);
+      const list = this.asList(listRaw);
+      if (!list) return accumulator;
 
       for (const element of list) {
         const loopContext: QueryContext = { ...context, [expr.accumulator]: accumulator, [expr.loopVariable]: element };
@@ -394,8 +398,9 @@ export class AdvancedCypherGraphologyEngine {
     }
     if (expr.type === 'ListComprehension') {
       // Evaluate list comprehension with aggregation-aware evaluation
-      const list = this.evaluateExpressionWithAggregations(expr.list, context, aggResults);
-      if (!Array.isArray(list)) return [] as CypherValue;
+      const listRaw = this.evaluateExpressionWithAggregations(expr.list, context, aggResults);
+      const list = this.asList(listRaw);
+      if (!list) return [] as CypherValue;
 
       const result: CypherValue[] = [];
       for (const element of list) {
