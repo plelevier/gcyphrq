@@ -127,62 +127,13 @@ console.log(results);
 
 ## Loading Data from CSV
 
-Import CSV data into your graph and query it with Cypher. Example CSV files are bundled in `examples/csv/`.
-
-### The CSV files
-
-`examples/csv/services.csv` — A microservice topology (nodes):
-
-```
-name,type,team,status
-api-gateway,service,platform,active
-user-service,service,identity,active
-order-service,service,commerce,active
-payment-service,service,payments,active
-inventory-service,service,commerce,active
-notification-service,service,platform,active
-postgres-db,database,platform,active
-redis-cache,cache,platform,active
-sqs-queue,queue,platform,active
-```
-
-`examples/csv/dependencies.csv` — Service-to-service call dependencies (edges):
-
-```
-source,target,protocol,latency_ms
-api-gateway,user-service,http,12
-api-gateway,order-service,http,24
-api-gateway,inventory-service,http,8
-order-service,payment-service,gRPC,45
-order-service,inventory-service,gRPC,15
-order-service,notification-service,async,5
-payment-service,postgres-db,tcp,3
-inventory-service,redis-cache,tcp,1
-inventory-service,postgres-db,tcp,4
-notification-service,sqs-queue,tcp,2
-```
-
-### Import nodes from CSV
-
-Create a `Service` node for each row in the CSV:
+Build a full graph from CSV files — one for nodes, one for edges — using `LOAD CSV` with `CALL { ... }` subqueries. Example CSV files are bundled in `examples/csv/`.
 
 ```bash
-gcyphrq -g examples/social-graph.json -e "LOAD CSV WITH HEADERS FROM 'examples/csv/services.csv' AS row CREATE (:Service {name: row.name, type: row.type, team: row.team, status: row.status}) RETURN row.name AS imported, row.type AS type"
+gcyphrq -g examples/social-graph.json -e "CALL { LOAD CSV WITH HEADERS FROM 'examples/csv/services.csv' AS s CREATE (:Service {name: s.name, type: s.type, team: s.team, status: s.status}) RETURN count(*) AS nodes } WITH nodes CALL { LOAD CSV WITH HEADERS FROM 'examples/csv/dependencies.csv' AS d MATCH (src:Service) MATCH (tgt:Service) WHERE src.name = d.source AND tgt.name = d.target CREATE (src)-[:DEPENDS_ON {protocol: d.protocol, latency: toInteger(d.latency_ms)}]->(tgt) RETURN count(*) AS edges } RETURN nodes, edges"
 ```
 
-### Query and transform CSV data
-
-Use LOAD CSV to read, filter, and aggregate data without creating nodes:
-
-```bash
-# Filter services by team
-gcyphrq -g examples/social-graph.json -e "LOAD CSV WITH HEADERS FROM 'examples/csv/services.csv' AS row WITH row WHERE row.team = 'platform' RETURN row.name AS service, row.type AS type"
-
-# Count dependencies by protocol
-gcyphrq -g examples/social-graph.json -e "LOAD CSV WITH HEADERS FROM 'examples/csv/dependencies.csv' AS row WITH row.protocol AS protocol, count(*) AS calls RETURN protocol, calls ORDER BY calls DESC"
-```
-
-See the [Query Guide — LOAD CSV]({{ '/query-guide/' | relative_url }}#load-csv) for full syntax reference, including `FIELDS TERMINATED BY` and `OPTIONALLY ENCLOSED BY`.
+See the [Query Guide — LOAD CSV]({{ '/query-guide/' | relative_url }}#load-csv) for full syntax reference.
 
 ## Next Steps
 
