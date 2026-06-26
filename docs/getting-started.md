@@ -125,6 +125,84 @@ console.log(results);
 // [ { name: 'Alice', age: 30 }, { name: 'Bob', age: 25 } ]
 ```
 
+## Loading Data from CSV
+
+Load data from CSV files and combine it with graph queries. Example CSV files are bundled in `examples/csv/`.
+
+### `users.csv` — Node data
+
+```
+name,age,city
+Alice,30,NYC
+Bob,25,LA
+Charlie,35,SF
+```
+
+### `friendships.csv` — Edge data
+
+```
+source,target,since
+Alice,Bob,2020
+Bob,Charlie,2021
+Alice,Charlie,2019
+```
+
+### `products.csv` — Product catalog
+
+```
+id,name,price,category
+1,Widget,9.99,gadgets
+2,Gizmo,24.99,gadgets
+3,Hammer,14.99,tools
+4,Saw,29.99,tools
+5,Screwdriver,7.99,tools
+```
+
+### `orders.csv` — Order data
+
+```
+orderId,productId,quantity
+101,1,3
+102,2,1
+103,3,2
+104,5,5
+105,1,1
+```
+
+### Example queries
+
+**Load and transform CSV data:**
+
+```bash
+gcyphrq -g examples/social-graph.json -e "LOAD CSV WITH HEADERS FROM 'examples/csv/users.csv' AS row RETURN row.name AS name, toInteger(row.age) AS age, row.city AS city"
+```
+
+**Create nodes from CSV:**
+
+```bash
+gcyphrq -g examples/social-graph.json -e "LOAD CSV WITH HEADERS FROM 'examples/csv/users.csv' AS row CREATE (:User {name: row.name, age: toInteger(row.age)}) RETURN row.name AS created"
+```
+
+**Load CSV inside a CALL subquery:**
+
+```bash
+gcyphrq -g examples/social-graph.json -e "CALL { LOAD CSV WITH HEADERS FROM 'examples/csv/products.csv' AS row RETURN row.name AS name, toFloat(row.price) AS price } RETURN name, price ORDER BY price"
+```
+
+**Aggregate from CSV data:**
+
+```bash
+gcyphrq -g examples/cloud-infra.json -e "LOAD CSV WITH HEADERS FROM 'examples/csv/orders.csv' AS row RETURN toInteger(row.orderId) AS orderId, toInteger(row.quantity) AS quantity"
+```
+
+**Filter CSV data with WHERE:**
+
+```bash
+gcyphrq -g examples/social-graph.json -e "LOAD CSV WITH HEADERS FROM 'examples/csv/products.csv' AS row WITH row WHERE toFloat(row.price) > 10 RETURN row.name AS product, toFloat(row.price) AS price"
+```
+
+See the [Query Guide — LOAD CSV]({{ '/query-guide/' | relative_url }}#load-csv) for full syntax reference, including `FIELDS TERMINATED BY` and `OPTIONALLY ENCLOSED BY`.
+
 ## Next Steps
 
 - **[CLI Reference]({{ '/cli/' | relative_url }})** — Full documentation of CLI options and usage patterns
