@@ -1529,6 +1529,61 @@ If an outer row produces zero inner rows, it is dropped (matching Neo4j semantic
 
 ---
 
+## EXPLAIN
+
+Use `EXPLAIN` to inspect the query execution plan without running the query. This is useful for debugging and understanding how a query will be processed.
+
+### CLI
+
+Use the `--explain` flag (no graph file needed):
+
+```bash
+gcyphrq --explain -e 'MATCH (u:User)-[r:FRIEND]->(f:User) RETURN u, f'
+```
+
+Output is JSON with query stages, variable bindings, and details:
+
+```json
+{
+  "query": "MATCH (u:User)-[r:FRIEND]->(f:User) RETURN u, f",
+  "stages": [
+    {
+      "index": 0,
+      "type": "MATCH",
+      "description": "MATCH (u:User)-->[r:FRIEND]-->(f:User)",
+      "variables": ["u", "f", "r"],
+      "details": { "pattern": "(u:User)-->[r:FRIEND]-->(f:User)", "optional": false }
+    },
+    {
+      "index": 1,
+      "type": "RETURN",
+      "description": "RETURN u, f",
+      "variables": ["u", "f"],
+      "details": { "projections": [...] }
+    }
+  ],
+  "finalVariables": ["u", "f"]
+}
+```
+
+### Library API
+
+```ts
+import { explainQuery } from 'gcyphrq';
+
+const plan = explainQuery('MATCH (u:User) RETURN u');
+console.log(JSON.stringify(plan, null, 2));
+```
+
+### What EXPLAIN shows
+
+- **Stages** — each query stage (MATCH, WITH, RETURN, FOREACH, etc.) in execution order
+- **Variables** — which variables are bound by each stage
+- **Details** — stage-specific information (patterns, projections, aggregations, ORDER BY, LIMIT, etc.)
+- **Final variables** — variables available in the final result
+
+---
+
 ## Unsupported Features
 
 The following Cypher features are **not** supported by the engine:

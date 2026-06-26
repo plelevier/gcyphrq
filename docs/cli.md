@@ -27,6 +27,7 @@ gcyphrq [options]
 | `-nl, --node-label-property-name <prop>` | Node attribute key to use as Cypher label (default: `"label"`) |
 | `-et, --edge-type-property-name <prop>` | Edge attribute key to use as Cypher relationship type (default: `"type"`) |
 | `--format <graph\|rows>` | Output format: `graph` (default) or `rows`. Note: when returning only scalar values (property access, aggregations), the CLI auto-falls back to `rows` regardless of this setting |
+| `--explain` | Show the query execution plan instead of executing. Does not require a graph file (`-g` is optional) |
 | `--install-skill <mode>` | Install the gcyphrq skill for AI coding agents. Mode: `global` (symlinks) or `local` (copies into current directory) |
 | `-v, --version` | Show version number |
 | `-h, --help` | Show help message |
@@ -139,6 +140,26 @@ gcyphrq -g graph.json -e 'MATCH (n) RETURN n' \
 - Row cardinality and pairing (deduplication collapses duplicates)
 - Path structure (variable-length path edges are flattened into a set)
 - Aggregation results (`count()`, `avg()`, etc. — always returned as rows)
+
+## Explain Mode
+
+Use `--explain` to show the query execution plan instead of executing the query. This is useful for debugging and understanding how a query will be processed.
+
+```bash
+gcyphrq --explain -e 'MATCH (u:User)-[r:FRIEND]->(f:User) RETURN u, f'
+```
+
+Output is a JSON object with:
+- `query` — the original query string
+- `stages` — array of query stages (MATCH, WITH, RETURN, etc.) with their type, description, variables, and details
+- `finalVariables` — variables bound at the end of the query
+- `union` — `true` if this is a UNION query
+
+No graph file is required (`-g` is optional in explain mode):
+
+```bash
+gcyphrq --explain -e 'MATCH (u:User) RETURN u'
+```
 
 ## Error Handling
 

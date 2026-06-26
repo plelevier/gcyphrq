@@ -116,6 +116,7 @@ Service dependencies, blast radius, path tracing, shortest path, infrastructure 
 | UNWIND WHERE | `UNWIND [1,2,3,4,5] AS x WHERE x > 3 RETURN x` |
 | UNWIND WHERE + WITH | `UNWIND [1,2,3,4,5] AS x WHERE x > 1 WITH x WHERE x < 5 RETURN x` |
 | ORDER BY NULLS FIRST | `MATCH (n) RETURN n.name, n.score ORDER BY n.score NULLS FIRST` |
+| EXPLAIN | `gcyphrq --explain -e 'MATCH (u:User) RETURN u'` |
 | ORDER BY NULLS LAST | `MATCH (n) RETURN n.name, n.score ORDER BY n.score DESC NULLS LAST` |
 | timestamp | `RETURN timestamp() AS ts` |
 | datetime | `RETURN datetime() AS dt, datetime(2023, 6, 15, 14, 30, 45) AS dt2` |

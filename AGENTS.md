@@ -14,7 +14,7 @@ npm test           # Run tests (vitest)
 npx tsx src/index.ts -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s'
 ```
 
-Both `-e` (query) and `-g` (graph file or `-` for stdin) are required.
+Both `-e` (query) and `-g` (graph file or `-` for stdin) are required. Use `--explain` with `-e` only (no graph needed) to show the query execution plan.
 
 ## Architecture
 
