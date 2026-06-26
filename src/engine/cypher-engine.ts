@@ -239,7 +239,7 @@ export class AdvancedCypherGraphologyEngine {
     for (const stage of innerAST.stages) {
       if (stage.type === 'MATCH') {
         const chainContexts: (QueryContext | ContextChain)[] = contexts.map((c) => c);
-        const matched = executeMatch(this.graph, this.indexes, this.config, stage.clause, chainContexts, (w, c) => this.evaluateWhere(w, c), this.warnedNoLabels, this.warnedNoEdgeTypes, this.onWarning);
+        const matched = executeMatch(this.graph, this.indexes, this.config, stage.clause, chainContexts, (w, c) => this.evaluateWhere(w, c), this.warnedNoLabels, this.warnedNoEdgeTypes, this.onWarning, (e, c) => this.evaluateExpression(e, c));
         contexts = matched.contexts.map((c) => materialiseChain(c));
         this.warnedNoLabels = matched.warnedNoLabels;
         this.warnedNoEdgeTypes = matched.warnedNoEdgeTypes;
