@@ -509,6 +509,7 @@ import type {
   SetClause,
   SetItem,
   CallClause,
+  LoadCsvClause,
   NodePattern,
   RelationPattern,
   Direction,
@@ -634,7 +635,8 @@ type Stage =
   | { type: 'MERGE'; clause: MergeClause }
   | { type: 'UNWIND'; clause: UnwindClause }
   | { type: 'FOREACH'; clause: ForeachClause }
-  | { type: 'CALL'; clause: CallClause };
+  | { type: 'CALL'; clause: CallClause }
+  | { type: 'LOAD_CSV'; clause: LoadCsvClause };
 
 interface UnionQueryAST {
   type: 'UnionQuery';

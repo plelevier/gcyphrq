@@ -14,13 +14,13 @@ const graphData = {
 };
 
 describe('keys() function', () => {
-  it('returns keys of a map literal', () => {
-    const results = executeQuery(graphData, 'RETURN keys({a: 1, b: 2, c: 3}) AS keys');
+  it('returns keys of a map literal', async () => {
+    const results = await executeQuery(graphData, 'RETURN keys({a: 1, b: 2, c: 3}) AS keys');
     expect(results[0]!.keys).toEqual(['a', 'b', 'c']);
   });
 
-  it('returns keys of a node (property access)', () => {
-    const results = executeQuery(
+  it('returns keys of a node (property access)', async () => {
+    const results = await executeQuery(
       graphData,
       'MATCH (n) WHERE n.name = "Alice" RETURN keys(n) AS keys ORDER BY keys[0]'
     );
@@ -31,8 +31,8 @@ describe('keys() function', () => {
     expect(keys).toContain('score');
   });
 
-  it('returns keys of a map in WHERE clause', () => {
-    const results = executeQuery(
+  it('returns keys of a map in WHERE clause', async () => {
+    const results = await executeQuery(
       graphData,
       'RETURN "name" IN keys({name: "Alice", age: 30}) AS found'
     );
@@ -40,33 +40,33 @@ describe('keys() function', () => {
     expect(results).toEqual([{ found: 'name' }]);
   });
 
-  it('returns null for null input', () => {
-    const results = executeQuery(graphData, 'RETURN keys(null) AS keys');
+  it('returns null for null input', async () => {
+    const results = await executeQuery(graphData, 'RETURN keys(null) AS keys');
     expect(results).toEqual([{ keys: null }]);
   });
 
-  it('returns null for non-map input', () => {
-    const results = executeQuery(graphData, 'RETURN keys(42) AS keys');
+  it('returns null for non-map input', async () => {
+    const results = await executeQuery(graphData, 'RETURN keys(42) AS keys');
     expect(results).toEqual([{ keys: null }]);
   });
 
-  it('returns null for list input', () => {
-    const results = executeQuery(graphData, 'RETURN keys([1, 2, 3]) AS keys');
+  it('returns null for list input', async () => {
+    const results = await executeQuery(graphData, 'RETURN keys([1, 2, 3]) AS keys');
     expect(results).toEqual([{ keys: null }]);
   });
 
-  it('returns empty list for empty map', () => {
-    const results = executeQuery(graphData, 'RETURN keys({}) AS keys');
+  it('returns empty list for empty map', async () => {
+    const results = await executeQuery(graphData, 'RETURN keys({}) AS keys');
     expect(results).toEqual([{ keys: [] }]);
   });
 
-  it('works with nested maps', () => {
-    const results = executeQuery(graphData, 'RETURN keys({outer: {inner: 1}, other: 2}) AS keys');
+  it('works with nested maps', async () => {
+    const results = await executeQuery(graphData, 'RETURN keys({outer: {inner: 1}, other: 2}) AS keys');
     expect(results[0]!.keys).toEqual(['outer', 'other']);
   });
 
-  it('works in WITH clause', () => {
-    const results = executeQuery(
+  it('works in WITH clause', async () => {
+    const results = await executeQuery(
       graphData,
       'MATCH (n) WITH n.name AS name, keys({a: 1, b: 2}) AS k WITH name, k WHERE size(k) > 1 RETURN name, k'
     );
@@ -76,56 +76,56 @@ describe('keys() function', () => {
 });
 
 describe('toBoolean() function', () => {
-  it('converts boolean true', () => {
-    const results = executeQuery(graphData, 'RETURN toBoolean(true) AS result');
+  it('converts boolean true', async () => {
+    const results = await executeQuery(graphData, 'RETURN toBoolean(true) AS result');
     expect(results).toEqual([{ result: true }]);
   });
 
-  it('converts boolean false', () => {
-    const results = executeQuery(graphData, 'RETURN toBoolean(false) AS result');
+  it('converts boolean false', async () => {
+    const results = await executeQuery(graphData, 'RETURN toBoolean(false) AS result');
     expect(results).toEqual([{ result: false }]);
   });
 
-  it('converts non-zero number to true', () => {
-    const results = executeQuery(graphData, 'RETURN toBoolean(1) AS result');
+  it('converts non-zero number to true', async () => {
+    const results = await executeQuery(graphData, 'RETURN toBoolean(1) AS result');
     expect(results).toEqual([{ result: true }]);
   });
 
-  it('converts zero to false', () => {
-    const results = executeQuery(graphData, 'RETURN toBoolean(0) AS result');
+  it('converts zero to false', async () => {
+    const results = await executeQuery(graphData, 'RETURN toBoolean(0) AS result');
     expect(results).toEqual([{ result: false }]);
   });
 
-  it('converts negative number to true', () => {
-    const results = executeQuery(graphData, 'RETURN toBoolean(-1) AS result');
+  it('converts negative number to true', async () => {
+    const results = await executeQuery(graphData, 'RETURN toBoolean(-1) AS result');
     expect(results).toEqual([{ result: true }]);
   });
 
-  it('converts empty string to false', () => {
-    const results = executeQuery(graphData, "RETURN toBoolean('') AS result");
+  it('converts empty string to false', async () => {
+    const results = await executeQuery(graphData, "RETURN toBoolean('') AS result");
     expect(results).toEqual([{ result: false }]);
   });
 
-  it('converts non-empty string to true', () => {
-    const results = executeQuery(graphData, "RETURN toBoolean('yes') AS result");
+  it('converts non-empty string to true', async () => {
+    const results = await executeQuery(graphData, "RETURN toBoolean('yes') AS result");
     expect(results).toEqual([{ result: true }]);
   });
 
-  it('converts null to null', () => {
-    const results = executeQuery(graphData, 'RETURN toBoolean(null) AS result');
+  it('converts null to null', async () => {
+    const results = await executeQuery(graphData, 'RETURN toBoolean(null) AS result');
     expect(results).toEqual([{ result: null }]);
   });
 
-  it('converts node property', () => {
-    const results = executeQuery(
+  it('converts node property', async () => {
+    const results = await executeQuery(
       graphData,
       'MATCH (n) WHERE n.name = "Alice" RETURN toBoolean(n.active) AS active'
     );
     expect(results).toEqual([{ active: true }]);
   });
 
-  it('works in WHERE clause', () => {
-    const results = executeQuery(
+  it('works in WHERE clause', async () => {
+    const results = await executeQuery(
       graphData,
       'MATCH (n) WHERE toBoolean(n.active) = true RETURN n.name AS name'
     );
@@ -133,76 +133,76 @@ describe('toBoolean() function', () => {
     expect(names).toEqual(['Alice', 'Charlie']);
   });
 
-  it('works with NOT in WHERE clause', () => {
-    const results = executeQuery(
+  it('works with NOT in WHERE clause', async () => {
+    const results = await executeQuery(
       graphData,
       'MATCH (n) WHERE NOT toBoolean(n.active) = true RETURN n.name AS name'
     );
     expect(results).toEqual([{ name: 'Bob' }]);
   });
 
-  it('converts list to true', () => {
-    const results = executeQuery(graphData, 'RETURN toBoolean([1, 2, 3]) AS result');
+  it('converts list to true', async () => {
+    const results = await executeQuery(graphData, 'RETURN toBoolean([1, 2, 3]) AS result');
     expect(results).toEqual([{ result: true }]);
   });
 
-  it('converts empty list to true', () => {
-    const results = executeQuery(graphData, 'RETURN toBoolean([]) AS result');
+  it('converts empty list to true', async () => {
+    const results = await executeQuery(graphData, 'RETURN toBoolean([]) AS result');
     expect(results).toEqual([{ result: true }]);
   });
 
-  it('converts map to true', () => {
-    const results = executeQuery(graphData, 'RETURN toBoolean({a: 1}) AS result');
+  it('converts map to true', async () => {
+    const results = await executeQuery(graphData, 'RETURN toBoolean({a: 1}) AS result');
     expect(results).toEqual([{ result: true }]);
   });
 
-  it('converts float to true', () => {
-    const results = executeQuery(graphData, 'MATCH (n) WHERE n.name = "Alice" RETURN toBoolean(n.score) AS result');
+  it('converts float to true', async () => {
+    const results = await executeQuery(graphData, 'MATCH (n) WHERE n.name = "Alice" RETURN toBoolean(n.score) AS result');
     expect(results).toEqual([{ result: true }]);
   });
 });
 
 describe('toInt() function', () => {
-  it('converts integer to integer', () => {
-    const results = executeQuery(graphData, 'RETURN toInt(42) AS result');
+  it('converts integer to integer', async () => {
+    const results = await executeQuery(graphData, 'RETURN toInt(42) AS result');
     expect(results).toEqual([{ result: 42 }]);
   });
 
-  it('converts float to integer (truncates)', () => {
-    const results = executeQuery(graphData, 'MATCH (n) WHERE n.name = "Alice" RETURN toInt(n.score) AS result');
+  it('converts float to integer (truncates)', async () => {
+    const results = await executeQuery(graphData, 'MATCH (n) WHERE n.name = "Alice" RETURN toInt(n.score) AS result');
     expect(results).toEqual([{ result: 95 }]);
   });
 
-  it('converts negative float to integer (truncates)', () => {
-    const results = executeQuery(graphData, 'MATCH (n) WHERE n.name = "Alice" RETURN toInt(-n.score) AS result');
+  it('converts negative float to integer (truncates)', async () => {
+    const results = await executeQuery(graphData, 'MATCH (n) WHERE n.name = "Alice" RETURN toInt(-n.score) AS result');
     expect(results).toEqual([{ result: -95 }]);
   });
 
-  it('converts numeric string to integer', () => {
-    const results = executeQuery(graphData, "RETURN toInt('42') AS result");
+  it('converts numeric string to integer', async () => {
+    const results = await executeQuery(graphData, "RETURN toInt('42') AS result");
     expect(results).toEqual([{ result: 42 }]);
   });
 
-  it('converts string with decimals to integer', () => {
-    const results = executeQuery(graphData, "RETURN toInt('3.14') AS result");
+  it('converts string with decimals to integer', async () => {
+    const results = await executeQuery(graphData, "RETURN toInt('3.14') AS result");
     expect(results).toEqual([{ result: 3 }]);
   });
 
-  it('converts null to null', () => {
-    const results = executeQuery(graphData, 'RETURN toInt(null) AS result');
+  it('converts null to null', async () => {
+    const results = await executeQuery(graphData, 'RETURN toInt(null) AS result');
     expect(results).toEqual([{ result: null }]);
   });
 
-  it('converts node property', () => {
-    const results = executeQuery(
+  it('converts node property', async () => {
+    const results = await executeQuery(
       graphData,
       'MATCH (n) WHERE n.name = "Alice" RETURN toInt(n.score) AS intScore'
     );
     expect(results).toEqual([{ intScore: 95 }]);
   });
 
-  it('works in WHERE clause', () => {
-    const results = executeQuery(
+  it('works in WHERE clause', async () => {
+    const results = await executeQuery(
       graphData,
       'MATCH (n) WHERE toInt(n.age) > 28 RETURN n.name AS name'
     );
@@ -210,71 +210,71 @@ describe('toInt() function', () => {
     expect(names).toEqual(['Alice', 'Charlie']);
   });
 
-  it('works with arithmetic', () => {
-    const results = executeQuery(graphData, 'MATCH (n) WHERE n.name = "Alice" RETURN toInt(n.score) + toInt(n.age) AS result');
+  it('works with arithmetic', async () => {
+    const results = await executeQuery(graphData, 'MATCH (n) WHERE n.name = "Alice" RETURN toInt(n.score) + toInt(n.age) AS result');
     expect(results).toEqual([{ result: 125 }]);
   });
 });
 
 describe('size() function (existing, verify)', () => {
-  it('returns size of list', () => {
-    const results = executeQuery(graphData, 'RETURN size([1, 2, 3]) AS size');
+  it('returns size of list', async () => {
+    const results = await executeQuery(graphData, 'RETURN size([1, 2, 3]) AS size');
     expect(results).toEqual([{ size: 3 }]);
   });
 
-  it('returns size of string', () => {
-    const results = executeQuery(graphData, "RETURN size('hello') AS size");
+  it('returns size of string', async () => {
+    const results = await executeQuery(graphData, "RETURN size('hello') AS size");
     expect(results).toEqual([{ size: 5 }]);
   });
 
-  it('returns size of empty list', () => {
-    const results = executeQuery(graphData, 'RETURN size([]) AS size');
+  it('returns size of empty list', async () => {
+    const results = await executeQuery(graphData, 'RETURN size([]) AS size');
     expect(results).toEqual([{ size: 0 }]);
   });
 
-  it('returns null for null input', () => {
-    const results = executeQuery(graphData, 'RETURN size(null) AS size');
+  it('returns null for null input', async () => {
+    const results = await executeQuery(graphData, 'RETURN size(null) AS size');
     expect(results).toEqual([{ size: null }]);
   });
 });
 
 describe('toInteger() function (existing, verify)', () => {
-  it('converts integer to integer', () => {
-    const results = executeQuery(graphData, 'RETURN toInteger(42) AS result');
+  it('converts integer to integer', async () => {
+    const results = await executeQuery(graphData, 'RETURN toInteger(42) AS result');
     expect(results).toEqual([{ result: 42 }]);
   });
 
-  it('converts float to integer (truncates)', () => {
-    const results = executeQuery(graphData, 'MATCH (n) WHERE n.name = "Alice" RETURN toInteger(n.score) AS result');
+  it('converts float to integer (truncates)', async () => {
+    const results = await executeQuery(graphData, 'MATCH (n) WHERE n.name = "Alice" RETURN toInteger(n.score) AS result');
     expect(results).toEqual([{ result: 95 }]);
   });
 
-  it('converts null to null', () => {
-    const results = executeQuery(graphData, 'RETURN toInteger(null) AS result');
+  it('converts null to null', async () => {
+    const results = await executeQuery(graphData, 'RETURN toInteger(null) AS result');
     expect(results).toEqual([{ result: null }]);
   });
 });
 
 describe('toFloat() function (existing, verify)', () => {
-  it('converts integer to float', () => {
-    const results = executeQuery(graphData, 'RETURN toFloat(42) AS result');
+  it('converts integer to float', async () => {
+    const results = await executeQuery(graphData, 'RETURN toFloat(42) AS result');
     expect(results).toEqual([{ result: 42 }]);
   });
 
-  it('converts float to float', () => {
-    const results = executeQuery(graphData, 'MATCH (n) WHERE n.name = "Alice" RETURN toFloat(n.score) AS result');
+  it('converts float to float', async () => {
+    const results = await executeQuery(graphData, 'MATCH (n) WHERE n.name = "Alice" RETURN toFloat(n.score) AS result');
     expect(results).toEqual([{ result: 95.5 }]);
   });
 
-  it('converts null to null', () => {
-    const results = executeQuery(graphData, 'RETURN toFloat(null) AS result');
+  it('converts null to null', async () => {
+    const results = await executeQuery(graphData, 'RETURN toFloat(null) AS result');
     expect(results).toEqual([{ result: null }]);
   });
 });
 
 describe('reltype() function (existing, verify)', () => {
-  it('returns relationship type', () => {
-    const results = executeQuery(
+  it('returns relationship type', async () => {
+    const results = await executeQuery(
       graphData,
       'MATCH (a)-[r]->(b) RETURN reltype(r) AS type'
     );
@@ -284,26 +284,26 @@ describe('reltype() function (existing, verify)', () => {
 });
 
 describe('Combined new functions', () => {
-  it('keys with size', () => {
-    const results = executeQuery(graphData, 'RETURN size(keys({a: 1, b: 2, c: 3})) AS count');
+  it('keys with size', async () => {
+    const results = await executeQuery(graphData, 'RETURN size(keys({a: 1, b: 2, c: 3})) AS count');
     expect(results).toEqual([{ count: 3 }]);
   });
 
-  it('toBoolean with keys', () => {
-    const results = executeQuery(
+  it('toBoolean with keys', async () => {
+    const results = await executeQuery(
       graphData,
       'MATCH (n) WHERE toBoolean(size(keys({a: 1})) > 0) RETURN n.name AS name'
     );
     expect(results.length).toBe(3);
   });
 
-  it('toInt with toBoolean', () => {
-    const results = executeQuery(graphData, 'MATCH (n) WHERE n.name = "Alice" RETURN toBoolean(toInt(n.score) > 90) AS result');
+  it('toInt with toBoolean', async () => {
+    const results = await executeQuery(graphData, 'MATCH (n) WHERE n.name = "Alice" RETURN toBoolean(toInt(n.score) > 90) AS result');
     expect(results).toEqual([{ result: true }]);
   });
 
-  it('keys in list comprehension', () => {
-    const results = executeQuery(
+  it('keys in list comprehension', async () => {
+    const results = await executeQuery(
       graphData,
       'RETURN [k IN keys({a: 1, b: 2, c: 3}) | k] AS allKeys'
     );

@@ -112,6 +112,7 @@ const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 | `SKIP` / `LIMIT` | <span class="badge badge-success">✅</span> |
 | `shortestPath((a)-[*]->(b))` / `allShortestPaths((a)-[*]->(b))` path expressions | <span class="badge badge-success">✅</span> |
 | `CALL { ... }` subqueries (inline, YIELD, nested) | <span class="badge badge-success">✅</span> |
+| `LOAD CSV` (file paths, HTTP/HTTPS URLs, WITH HEADERS) | <span class="badge badge-success">✅</span> |
 | Stored procedures, APOC | <span class="badge badge-danger">❌</span> |
 
 ## Example Graphs

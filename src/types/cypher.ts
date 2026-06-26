@@ -445,6 +445,28 @@ export interface CallClause {
   yieldVariables: string[] | undefined;
 }
 
+// ── LOAD CSV clause types ────────────────────────────────────────────────────
+
+/**
+ * A LOAD CSV clause: `LOAD CSV [WITH HEADERS] FROM 'source' AS row`.
+ *
+ * With HEADERS: each row is a map { headerName: value }.
+ * Without HEADERS: each row is an array of strings [value0, value1, ...].
+ */
+export interface LoadCsvClause {
+  type: 'LOAD_CSV';
+  /** Source path or URL (e.g., "file.csv", "https://example.com/data.csv"). */
+  source: string;
+  /** Whether the CSV has a header row. */
+  withHeaders: boolean;
+  /** Variable name bound to each row (e.g., "row" in `AS row`). */
+  variable: string;
+  /** Field separator character (default: ","). */
+  fieldTerminator?: string | undefined;
+  /** Quote character for enclosed fields (default: '"'). */
+  enclosedBy?: string | undefined;
+}
+
 export type Stage =
   | { type: 'MATCH'; clause: MatchClause }
   | { type: 'WITH'; clause: WithClause }
@@ -452,7 +474,8 @@ export type Stage =
   | { type: 'MERGE'; clause: MergeClause }
   | { type: 'UNWIND'; clause: UnwindClause }
   | { type: 'FOREACH'; clause: ForeachClause }
-  | { type: 'CALL'; clause: CallClause };
+  | { type: 'CALL'; clause: CallClause }
+  | { type: 'LOAD_CSV'; clause: LoadCsvClause };
 
 export interface AdvancedCypherAST {
   type: 'Query';

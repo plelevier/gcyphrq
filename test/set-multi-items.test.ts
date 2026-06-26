@@ -15,7 +15,7 @@ function createEngine(graph: GraphInstance) {
 // ── Parser tests ─────────────────────────────────────────────────────────────
 
 describe('SET multi-items parser', () => {
-  it('parses SET with label only', () => {
+  it('parses SET with label only', async () => {
     const ast = parseCypher('MATCH (n) SET n:Label RETURN n');
     const clause = (ast.stages[1]! as { type: 'WRITE'; clause: SetClause }).clause;
     expect(clause.type).toBe('SET');
@@ -25,7 +25,7 @@ describe('SET multi-items parser', () => {
     expect(clause.items[0]?.property).toBeUndefined();
   });
 
-  it('parses SET with property only', () => {
+  it('parses SET with property only', async () => {
     const ast = parseCypher('MATCH (n) SET n.prop = val RETURN n');
     const clause = (ast.stages[1]! as { type: 'WRITE'; clause: SetClause }).clause;
     expect(clause.type).toBe('SET');
@@ -36,7 +36,7 @@ describe('SET multi-items parser', () => {
     expect(clause.items[0]?.labels).toBeUndefined();
   });
 
-  it('parses SET with label + property', () => {
+  it('parses SET with label + property', async () => {
     const ast = parseCypher('MATCH (n) SET n:Label, n.prop = val RETURN n');
     const clause = (ast.stages[1]! as { type: 'WRITE'; clause: SetClause }).clause;
     expect(clause.type).toBe('SET');
@@ -45,7 +45,7 @@ describe('SET multi-items parser', () => {
     expect(clause.items[1]?.property).toBe('prop');
   });
 
-  it('parses SET with property + label (reversed)', () => {
+  it('parses SET with property + label (reversed)', async () => {
     const ast = parseCypher('MATCH (n) SET n.prop = val, n:Label RETURN n');
     const clause = (ast.stages[1]! as { type: 'WRITE'; clause: SetClause }).clause;
     expect(clause.type).toBe('SET');
@@ -54,7 +54,7 @@ describe('SET multi-items parser', () => {
     expect(clause.items[1]?.labels).toEqual(['Label']);
   });
 
-  it('parses SET with multiple properties', () => {
+  it('parses SET with multiple properties', async () => {
     const ast = parseCypher('MATCH (n) SET n.prop1 = val1, n.prop2 = val2 RETURN n');
     const clause = (ast.stages[1]! as { type: 'WRITE'; clause: SetClause }).clause;
     expect(clause.type).toBe('SET');
@@ -63,7 +63,7 @@ describe('SET multi-items parser', () => {
     expect(clause.items[1]?.property).toBe('prop2');
   });
 
-  it('parses SET with label + multiple properties', () => {
+  it('parses SET with label + multiple properties', async () => {
     const ast = parseCypher('MATCH (n) SET n:Label, n.prop1 = val1, n.prop2 = val2 RETURN n');
     const clause = (ast.stages[1]! as { type: 'WRITE'; clause: SetClause }).clause;
     expect(clause.type).toBe('SET');
@@ -73,7 +73,7 @@ describe('SET multi-items parser', () => {
     expect(clause.items[2]?.property).toBe('prop2');
   });
 
-  it('parses SET with multiple labels', () => {
+  it('parses SET with multiple labels', async () => {
     const ast = parseCypher('MATCH (n) SET n:Label1:Label2 RETURN n');
     const clause = (ast.stages[1]! as { type: 'WRITE'; clause: SetClause }).clause;
     expect(clause.type).toBe('SET');
@@ -92,10 +92,10 @@ describe('SET multi-items engine', () => {
     graph.addNode('n1', { label: 'Node', name: 'Alice' });
   });
 
-  it('sets label and property in one SET', () => {
+  it('sets label and property in one SET', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('MATCH (n:Node) SET n:NewLabel, n.active = true RETURN n.name AS name');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const attrs = graph.getNodeAttributes('n1');
     expect(Array.isArray(attrs.label)).toBe(true);
@@ -103,10 +103,10 @@ describe('SET multi-items engine', () => {
     expect(attrs.active).toBe(true);
   });
 
-  it('sets property and label in reversed order', () => {
+  it('sets property and label in reversed order', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('MATCH (n:Node) SET n.active = true, n:NewLabel RETURN n.name AS name');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const attrs = graph.getNodeAttributes('n1');
     expect(Array.isArray(attrs.label)).toBe(true);
@@ -114,10 +114,10 @@ describe('SET multi-items engine', () => {
     expect(attrs.active).toBe(true);
   });
 
-  it('sets multiple properties', () => {
+  it('sets multiple properties', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('MATCH (n:Node) SET n.active = true, n.count = 5, n.status = "done" RETURN n.name AS name');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const attrs = graph.getNodeAttributes('n1');
     expect(attrs.active).toBe(true);
@@ -125,10 +125,10 @@ describe('SET multi-items engine', () => {
     expect(attrs.status).toBe('done');
   });
 
-  it('sets label + multiple properties', () => {
+  it('sets label + multiple properties', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('MATCH (n:Node) SET n:NewLabel, n.active = true, n.count = 5 RETURN n.name AS name');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const attrs = graph.getNodeAttributes('n1');
     expect(Array.isArray(attrs.label)).toBe(true);
@@ -137,10 +137,10 @@ describe('SET multi-items engine', () => {
     expect(attrs.count).toBe(5);
   });
 
-  it('sets multiple labels', () => {
+  it('sets multiple labels', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('MATCH (n:Node) SET n:Label1:Label2 RETURN n.name AS name');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const attrs = graph.getNodeAttributes('n1');
     expect(Array.isArray(attrs.label)).toBe(true);
@@ -148,7 +148,7 @@ describe('SET multi-items engine', () => {
     expect(attrs.label).toContain('Label2');
   });
 
-  it('sets on different variables via chained MATCH', () => {
+  it('sets on different variables via chained MATCH', async () => {
     graph.addNode('n2', { label: 'Node', name: 'Bob' });
     const engine = createEngine(graph);
     const ast = parseCypher(
@@ -156,7 +156,7 @@ describe('SET multi-items engine', () => {
       'SET a:First, b:Second, a.active = true, b.active = false ' +
       'RETURN a.name AS aName, b.name AS bName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const attrs1 = graph.getNodeAttributes('n1');
     const attrs2 = graph.getNodeAttributes('n2');
@@ -185,12 +185,12 @@ describe('FOREACH with SET multi-items', () => {
     ]);
   });
 
-  it('FOREACH SET label + property', () => {
+  it('FOREACH SET label + property', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.items | SET x:Processed, x.reviewed = true) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const attrs1 = graph.getNodeAttributes('i1');
     const attrs2 = graph.getNodeAttributes('i2');
@@ -202,12 +202,12 @@ describe('FOREACH with SET multi-items', () => {
     expect(attrs2.reviewed).toBe(true);
   });
 
-  it('FOREACH SET property + label (reversed)', () => {
+  it('FOREACH SET property + label (reversed)', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.items | SET x.reviewed = true, x:Processed) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const attrs1 = graph.getNodeAttributes('i1');
     expect(Array.isArray(attrs1.label)).toBe(true);
@@ -215,12 +215,12 @@ describe('FOREACH with SET multi-items', () => {
     expect(attrs1.reviewed).toBe(true);
   });
 
-  it('FOREACH SET label + multiple properties', () => {
+  it('FOREACH SET label + multiple properties', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.items | SET x:Processed, x.reviewed = true, x.count = 10) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const attrs1 = graph.getNodeAttributes('i1');
     expect(Array.isArray(attrs1.label)).toBe(true);
@@ -229,7 +229,7 @@ describe('FOREACH with SET multi-items', () => {
     expect(attrs1.count).toBe(10);
   });
 
-  it('FOREACH SET label on collected nodes via WITH', () => {
+  it('FOREACH SET label on collected nodes via WITH', async () => {
     graph = new Graph();
     graph.addNode('u1', { label: 'User', name: 'Alice' });
     graph.addNode('i1', { label: 'Item', name: 'first' });
@@ -244,7 +244,7 @@ describe('FOREACH with SET multi-items', () => {
       'FOREACH (x IN items | SET x:Processed, x.reviewed = true) ' +
       'RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const attrs1 = graph.getNodeAttributes('i1');
     const attrs2 = graph.getNodeAttributes('i2');
@@ -256,7 +256,7 @@ describe('FOREACH with SET multi-items', () => {
     expect(attrs2.reviewed).toBe(true);
   });
 
-  it('FOREACH SET on relationship objects', () => {
+  it('FOREACH SET on relationship objects', async () => {
     graph = new Graph();
     graph.addNode('a', { label: 'A', name: 'Alice' });
     graph.addNode('b', { label: 'B', name: 'Bob' });
@@ -269,43 +269,43 @@ describe('FOREACH with SET multi-items', () => {
     const ast = parseCypher(
       'MATCH (a:A) FOREACH (r IN a.rels | SET r.active = true, r.updated = true) RETURN a.name AS name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const edgeAttrs = graph.getEdgeAttributes('r1');
     expect(edgeAttrs.active).toBe(true);
     expect(edgeAttrs.updated).toBe(true);
   });
 
-  it('FOREACH with empty list (no-op)', () => {
+  it('FOREACH with empty list (no-op)', async () => {
     graph.setNodeAttribute('u1', 'items', []);
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.items | SET x:Processed, x.reviewed = true) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     // Labels should not be modified
     const attrs1 = graph.getNodeAttributes('i1');
     expect(attrs1.label).toBe('Item');
   });
 
-  it('FOREACH with null list (no-op)', () => {
+  it('FOREACH with null list (no-op)', async () => {
     graph.setNodeAttribute('u1', 'items', null);
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.items | SET x:Processed, x.reviewed = true) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
   });
 
-  it('FOREACH preserves row count (not expanded like UNWIND)', () => {
+  it('FOREACH preserves row count (not expanded like UNWIND)', async () => {
     graph.addNode('u2', { label: 'User', name: 'Bob', items: ['a', 'b', 'c'] });
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (u:User) FOREACH (x IN u.items | SET x.marked = true) RETURN u.name AS userName',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     // 2 input rows → 2 output rows
     expect(results.length).toBe(2);
   });
@@ -321,10 +321,10 @@ describe('SET multi-items edge cases', () => {
     graph.addNode('n1', { label: 'Node', name: 'Alice' });
   });
 
-  it('SET with duplicate label (idempotent)', () => {
+  it('SET with duplicate label (idempotent)', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('MATCH (n:Node) SET n:Node, n.active = true RETURN n.name AS name');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const attrs = graph.getNodeAttributes('n1');
     // 'Node' should appear only once (stored as string since it's the only label)
@@ -332,10 +332,10 @@ describe('SET multi-items edge cases', () => {
     expect(attrs.active).toBe(true);
   });
 
-  it('SET with dynamic value expression', () => {
+  it('SET with dynamic value expression', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('MATCH (n:Node) SET n:NewLabel, n.doubled = n.name * 2 RETURN n.name AS name');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const attrs = graph.getNodeAttributes('n1');
     expect(Array.isArray(attrs.label)).toBe(true);
@@ -343,20 +343,20 @@ describe('SET multi-items edge cases', () => {
     // name is "Alice" (string), so * 2 should be null or NaN
   });
 
-  it('SET with literal value', () => {
+  it('SET with literal value', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher("MATCH (n:Node) SET n:NewLabel, n.count = 42, n.status = 'active' RETURN n.name AS name");
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const attrs = graph.getNodeAttributes('n1');
     expect(attrs.count).toBe(42);
     expect(attrs.status).toBe('active');
   });
 
-  it('SET on non-existent node (no-op, no crash)', () => {
+  it('SET on non-existent node (no-op, no crash)', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('MATCH (n:NonExistent) SET n:NewLabel, n.active = true RETURN n');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(0);
   });
 });

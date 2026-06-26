@@ -544,9 +544,9 @@ export function explainQuery(query: string): { query: string; union?: boolean; s
  * @throws {GraphError} If graph data is invalid
  * @throws {Error} If the query is invalid or cannot be executed
  */
-export function executeQuery(graph: GraphInstance, query: string, opts?: IndexBuildOptions): ResultRow[];
-export function executeQuery(graphData: GraphInput, query: string, opts?: IndexBuildOptions): ResultRow[];
-export function executeQuery(graphOrData: GraphInstance | GraphInput, query: string, opts?: IndexBuildOptions): ResultRow[] {
+export function executeQuery(graph: GraphInstance, query: string, opts?: IndexBuildOptions): Promise<ResultRow[]>;
+export function executeQuery(graphData: GraphInput, query: string, opts?: IndexBuildOptions): Promise<ResultRow[]>;
+export async function executeQuery(graphOrData: GraphInstance | GraphInput, query: string, opts?: IndexBuildOptions): Promise<ResultRow[]> {
   const graph = isGraphInstance(graphOrData)
     ? (graphOrData instanceof Graph ? graphOrData : wrapExternalGraph(graphOrData as any))
     : (() => {
@@ -558,9 +558,9 @@ export function executeQuery(graphOrData: GraphInstance | GraphInput, query: str
   const engine = new AdvancedCypherGraphologyEngine(graph, indexes, opts?.onWarning);
   const ast = _parseCypher(query);
   if (ast.type === 'UnionQuery') {
-    return engine.executeUnion(ast);
+    return await engine.executeUnion(ast);
   }
-  return engine.execute(ast);
+  return await engine.execute(ast);
 }
 
 /** Type guard to distinguish a GraphInstance from a GraphInput data object. */
@@ -660,6 +660,7 @@ export type {
   UnwindClause,
   ForeachClause,
   CallClause,
+  LoadCsvClause,
   NodePattern,
   LabelExpression,
   RelationPattern,

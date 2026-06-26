@@ -9,6 +9,7 @@ import type {
   MergeClause,
   MergeAction,
   CallClause,
+  LoadCsvClause,
 } from '../types/cypher';
 import type { ParseTreeNode } from 'antlr4';
 import {
@@ -264,7 +265,7 @@ function extractNullsDirections(query: string): { cleanedQuery: string; nullsDir
     let depth = 0;
     let end = orderByStart + match[0].length;
     while (end < query.length) {
-      const ch = query[end];
+      const ch = query[end]!;
       if (ch === '(') depth++;
       else if (ch === ')') depth--;
       else if (depth === 0 && /\s/.test(ch)) {
@@ -739,13 +740,92 @@ export function extractSingleQuery(
   return { type: 'Query', stages, return: returnClause };
 }
 
+// ── LOAD CSV extraction (ANTLR4 workaround) ──────────────────────────────────
+
+/**
+ * Extract LOAD CSV clauses from the raw query text.
+ * LOAD CSV is not part of the ANTLR4 grammar, so we extract it via regex,
+ * strip it from the query before ANTLR4 parsing, and inject it as stages.
+ *
+ * Returns { loadCsvClauses, cleanedQuery } where cleanedQuery has LOAD CSV removed.
+ */
+function extractLoadCsvClauses(query: string): { loadCsvClauses: LoadCsvClause[]; cleanedQuery: string } {
+  const loadCsvClauses: LoadCsvClause[] = [];
+  let cleanedQuery = query;
+
+  // Match: LOAD CSV [WITH HEADERS] FROM 'source' AS variable [FIELDS TERMINATED BY 'char'] [OPTIONALLY ENCLOSED BY 'char']
+  const regex = /LOAD\s+CSV\s+(WITH\s+HEADERS\s+)?FROM\s+(['"])(.*?)\2\s+AS\s+(\w+)(?:\s+FIELDS\s+TERMINATED\s+BY\s+(['"])(.*?)\5)?(?:\s+OPTIONALLY\s+ENCLOSED\s+BY\s+(['"])(.*?)\7)?/gi;
+  let match;
+
+  // Collect all CALL { ... } brace ranges to skip LOAD CSV inside them
+  const callBraceRanges: Array<{ start: number; end: number }> = [];
+  const callRegex = /CALL\s*\{/gi;
+  let callMatch;
+  while ((callMatch = callRegex.exec(query)) !== null) {
+    const braceStart = callMatch.index! + callMatch[0]!.length - 1; // position of '{'
+    let depth = 1;
+    let end = braceStart + 1;
+    while (end < query.length && depth > 0) {
+      if (query[end] === '{') depth++;
+      else if (query[end] === '}') depth--;
+      end++;
+    }
+    if (depth === 0) callBraceRanges.push({ start: braceStart, end: end });
+  }
+
+  const isInsideCall = (pos: number): boolean => {
+    for (const range of callBraceRanges) {
+      if (pos > range.start && pos < range.end) return true;
+    }
+    return false;
+  };
+
+  // Collect all matches first
+  const matches: Array<{ start: number; end: number; withHeaders: boolean; source: string; variable: string; fieldTerminator?: string | undefined; enclosedBy?: string | undefined }> = [];
+  while ((match = regex.exec(query)) !== null) {
+    // Skip LOAD CSV inside CALL { ... } blocks
+    if (isInsideCall(match.index!)) continue;
+    matches.push({
+      start: match.index!,
+      end: match.index! + match[0]!.length,
+      withHeaders: !!match[1],
+      source: match[3]!,
+      variable: match[4]!,
+      fieldTerminator: match[6] || undefined,
+      enclosedBy: match[8] || undefined,
+    });
+  }
+
+  // Build clauses and cleaned query (process from end to preserve positions)
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const m = matches[i]!;
+    loadCsvClauses.unshift({
+      type: 'LOAD_CSV',
+      source: m.source,
+      withHeaders: m.withHeaders,
+      variable: m.variable,
+      fieldTerminator: m.fieldTerminator,
+      enclosedBy: m.enclosedBy,
+    });
+    cleanedQuery = cleanedQuery.slice(0, m.start) + cleanedQuery.slice(m.end);
+  }
+
+  // Trim leading whitespace that may remain after removal
+  cleanedQuery = cleanedQuery.trimStart();
+
+  return { loadCsvClauses, cleanedQuery };
+}
+
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 export function parseCypher(query: string): CypherAST {
   ensureContextNamesValid();
 
+  // Pre-process: extract LOAD CSV clauses before ANTLR4 parsing
+  const { loadCsvClauses, cleanedQuery: loadCsvCleanedQuery } = extractLoadCsvClauses(query);
+
   // Pre-process: extract NULLS FIRST/LAST before ANTLR4 parsing
-  const { cleanedQuery, nullsDirections } = extractNullsDirections(query);
+  const { cleanedQuery, nullsDirections } = extractNullsDirections(loadCsvCleanedQuery);
 
   const chars = antlr4.CharStreams.fromString(cleanedQuery);
   const lexer = new CypherLexer(chars);
@@ -825,6 +905,11 @@ export function parseCypher(query: string): CypherAST {
         }
       }
 
+      // Inject LOAD CSV stages at the beginning of the first branch
+      if (loadCsvClauses.length > 0 && branches.length > 0) {
+        const loadCsvStages = loadCsvClauses.map((c) => ({ type: 'LOAD_CSV' as const, clause: c }));
+        branches[0]!.stages = [...loadCsvStages, ...branches[0]!.stages];
+      }
       syntheticParseCache.clear();
       return { type: 'UnionQuery', branches, unionTypes, orderBy: unionOrderBy, skip: unionSkip, limit: unionLimit };
     }
@@ -833,10 +918,17 @@ export function parseCypher(query: string): CypherAST {
   const singleQuery = findChild(regularQuery, Ctx.SingleQuery);
   if (!singleQuery) {
     syntheticParseCache.clear();
-    return { type: 'Query', stages: [], return: undefined };
+    // Inject LOAD CSV stages even for empty queries
+    const loadCsvStages = loadCsvClauses.map((c) => ({ type: 'LOAD_CSV' as const, clause: c }));
+    return { type: 'Query', stages: loadCsvStages, return: undefined };
   }
 
   const result = extractSingleQuery(singleQuery, query, parseCypher, nullsDirections);
+  // Inject LOAD CSV stages at the beginning
+  if (loadCsvClauses.length > 0) {
+    const loadCsvStages = loadCsvClauses.map((c) => ({ type: 'LOAD_CSV' as const, clause: c }));
+    result.stages = [...loadCsvStages, ...result.stages];
+  }
   syntheticParseCache.clear();
   return result;
 }

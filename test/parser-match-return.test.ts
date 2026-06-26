@@ -38,7 +38,7 @@ describe('parseCypher - MATCH / RETURN / WITH / WRITE', () => {
       const ast = parseCypher('MATCH (a:User) OPTIONAL MATCH (a)-[r:FRIEND]->(b:User) RETURN a, b') as AdvancedCypherAST;
       expect(ast.stages).toHaveLength(2);
       expect(ast.stages[0]?.type).toBe('MATCH');
-      expect(ast.stages[1]?.clause?.optional).toBe(true);
+      expect((ast.stages[1]?.clause as any)?.optional).toBe(true);
     });
 
     it('parses MATCH with multiple labels (AND)', () => {

@@ -15,7 +15,7 @@ function createEngine(graph: GraphInstance) {
 // ── Parser tests ─────────────────────────────────────────────────────────────
 
 describe('CALL parser', () => {
-  it('parses basic CALL with MATCH inside', () => {
+  it('parses basic CALL with MATCH inside', async () => {
     const ast = parseCypher('CALL { MATCH (n:Person) RETURN n.name AS name }');
     expect(ast.stages.length).toBe(1);
     expect(ast.stages[0]?.type).toBe('CALL');
@@ -28,19 +28,19 @@ describe('CALL parser', () => {
     expect(clause.innerQuery.return?.projections[0]?.alias).toBe('name');
   });
 
-  it('parses CALL with YIELD', () => {
+  it('parses CALL with YIELD', async () => {
     const ast = parseCypher('CALL { MATCH (n:Person) RETURN n, n.name } YIELD name');
     const clause = (ast.stages[0]! as { type: 'CALL'; clause: CallClause }).clause;
     expect(clause.yieldVariables).toEqual(['name']);
   });
 
-  it('parses CALL with multiple YIELD variables', () => {
+  it('parses CALL with multiple YIELD variables', async () => {
     const ast = parseCypher('CALL { MATCH (n) RETURN n, n.name, n.age } YIELD name, age');
     const clause = (ast.stages[0]! as { type: 'CALL'; clause: CallClause }).clause;
     expect(clause.yieldVariables).toEqual(['name', 'age']);
   });
 
-  it('parses CALL followed by RETURN', () => {
+  it('parses CALL followed by RETURN', async () => {
     const ast = parseCypher('CALL { MATCH (n:Person) RETURN n.name AS name } RETURN name');
     expect(ast.stages.length).toBe(1);
     expect(ast.stages[0]?.type).toBe('CALL');
@@ -48,7 +48,7 @@ describe('CALL parser', () => {
     expect(ast.return?.projections[0]?.alias).toBe('name');
   });
 
-  it('parses CALL with multiple inner clauses', () => {
+  it('parses CALL with multiple inner clauses', async () => {
     const ast = parseCypher('CALL { MATCH (n:Person) WITH n WHERE n.age > 20 RETURN n.name AS name }');
     const clause = (ast.stages[0]! as { type: 'CALL'; clause: CallClause }).clause;
     expect(clause.innerQuery.stages.length).toBe(2);
@@ -56,7 +56,7 @@ describe('CALL parser', () => {
     expect(clause.innerQuery.stages[1]?.type).toBe('WITH');
   });
 
-  it('parses CALL before MATCH', () => {
+  it('parses CALL before MATCH', async () => {
     const ast = parseCypher('CALL { MATCH (n:Person) RETURN n.name AS name } MATCH (m:Movie) RETURN name, m');
     expect(ast.stages.length).toBe(2);
     expect(ast.stages[0]?.type).toBe('CALL');
@@ -76,36 +76,36 @@ describe('CALL engine: basic', () => {
     graph.addNode('p3', { label: 'Person', name: 'Charlie', age: 35 });
   });
 
-  it('executes basic CALL with MATCH inside', () => {
+  it('executes basic CALL with MATCH inside', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('CALL { MATCH (n:Person) RETURN n.name AS name }');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(3);
     const names = results.map((r) => r['name'] as string).sort();
     expect(names).toEqual(['Alice', 'Bob', 'Charlie']);
   });
 
-  it('CALL with WHERE filter inside', () => {
+  it('CALL with WHERE filter inside', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('CALL { MATCH (n:Person) WHERE n.age > 28 RETURN n.name AS name }');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2);
     const names = results.map((r) => r['name'] as string).sort();
     expect(names).toEqual(['Alice', 'Charlie']);
   });
 
-  it('CALL with aggregation inside', () => {
+  it('CALL with aggregation inside', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('CALL { MATCH (n:Person) RETURN count(n) AS total }');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     expect(results[0]?.['total']).toBe(3);
   });
 
-  it('CALL with aggregation and non-aggregation inside', () => {
+  it('CALL with aggregation and non-aggregation inside', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('CALL { MATCH (n:Person) RETURN count(n) AS total, min(n.age) AS minAge }');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     expect(results[0]?.['total']).toBe(3);
     expect(results[0]?.['minAge']).toBe(25);
@@ -127,23 +127,23 @@ describe('CALL engine: inline subquery', () => {
     graph.addEdge('b', 'c', { type: 'FRIEND' });
   });
 
-  it('inline CALL can reference outer variable', () => {
+  it('inline CALL can reference outer variable', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (a:Person {name: "Alice"}) CALL { MATCH (a)-[:FRIEND]->(b) RETURN b.name AS friend } RETURN friend',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2);
     const friends = results.map((r) => r['friend'] as string).sort();
     expect(friends).toEqual(['Bob', 'Charlie']);
   });
 
-  it('row expansion: 1 outer row produces multiple inner rows', () => {
+  it('row expansion: 1 outer row produces multiple inner rows', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (a:Person {name: "Alice"}) CALL { MATCH (a)-[:FRIEND]->(b) RETURN b.name AS friend } RETURN a.name AS person, friend',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2);
     // Both rows should have the outer variable bound
     for (const row of results) {
@@ -151,24 +151,24 @@ describe('CALL engine: inline subquery', () => {
     }
   });
 
-  it('multiple outer rows each expanded by inner query', () => {
+  it('multiple outer rows each expanded by inner query', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (a:Person) CALL { MATCH (a)-[:FRIEND]->(b) RETURN b.name AS friend } RETURN a.name AS person, friend',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     // Alice→Bob, Alice→Charlie (2), Bob→Charlie (1), Charlie→nobody (0) = 3 total
     expect(results.length).toBe(3);
   });
 
-  it('outer variable not matched by inner query drops the row', () => {
+  it('outer variable not matched by inner query drops the row', async () => {
     // Add an isolated person with no friends
     graph.addNode('d', { label: 'Person', name: 'Diana' });
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (a:Person) CALL { MATCH (a)-[:FRIEND]->(b) RETURN b.name AS friend } RETURN a.name AS person, friend',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     // Diana has no friends, so her row is dropped
     const persons = results.map((r) => r['person'] as string);
     expect(persons).not.toContain('Diana');
@@ -186,12 +186,12 @@ describe('CALL engine: YIELD', () => {
     graph.addNode('p2', { label: 'Person', name: 'Bob', age: 25 });
   });
 
-  it('YIELD restricts which variables are exposed', () => {
+  it('YIELD restricts which variables are exposed', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { MATCH (n:Person) RETURN n, n.name AS name, n.age AS age } YIELD name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2);
     // Only 'name' should be in the result, not 'age' or 'n'
     for (const row of results) {
@@ -201,12 +201,12 @@ describe('CALL engine: YIELD', () => {
     }
   });
 
-  it('YIELD with multiple variables', () => {
+  it('YIELD with multiple variables', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { MATCH (n:Person) RETURN n.name AS name, n.age AS age } YIELD name, age',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2);
     for (const row of results) {
       expect(row['name']).toBeDefined();
@@ -214,13 +214,13 @@ describe('CALL engine: YIELD', () => {
     }
   });
 
-  it('YIELD followed by WHERE filters results', () => {
+  it('YIELD followed by WHERE filters results', async () => {
     graph.addNode('p3', { label: 'Person', name: 'Charlie', age: 35 });
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { MATCH (n:Person) RETURN n.name AS name, n.age AS age } YIELD name WHERE name <> "Bob" RETURN name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2);
     const names = results.map((r) => r['name'] as string).sort();
     expect(names).toEqual(['Alice', 'Charlie']);
@@ -241,56 +241,56 @@ describe('CALL engine: multi-stage queries', () => {
     graph.addNode('m2', { label: 'Movie', title: 'Matrix' });
   });
 
-  it('CALL followed by RETURN', () => {
+  it('CALL followed by RETURN', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { MATCH (n:Person) RETURN n.name AS name } RETURN name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(3);
     const names = results.map((r) => r['name'] as string).sort();
     expect(names).toEqual(['Alice', 'Bob', 'Charlie']);
   });
 
-  it('CALL followed by MATCH (cartesian product)', () => {
+  it('CALL followed by MATCH (cartesian product)', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { MATCH (n:Person) RETURN n.name AS name } MATCH (m:Movie) RETURN name, m.title AS title',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     // 3 persons x 2 movies = 6 rows
     expect(results.length).toBe(6);
   });
 
-  it('MATCH followed by CALL', () => {
+  it('MATCH followed by CALL', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (m:Movie) CALL { MATCH (n:Person) RETURN n.name AS name } RETURN m.title AS title, name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     // 2 movies x 3 persons = 6 rows
     expect(results.length).toBe(6);
   });
 
-  it('CALL with WHERE on outer scope', () => {
+  it('CALL with WHERE on outer scope', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { MATCH (n:Person) RETURN n.age AS age } WHERE age > 28 RETURN age',
     );
     // WHERE after CALL is converted to WITH * WHERE, filtering results
     // Alice=30, Bob=25, Charlie=35 → age > 28 keeps Alice and Charlie
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2);
     const ages = results.map((r) => r['age'] as number).sort((a, b) => a - b);
     expect(ages).toEqual([30, 35]);
   });
 
-  it('CALL followed by WITH', () => {
+  it('CALL followed by WITH', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { MATCH (n:Person) RETURN n.name AS name } WITH name WHERE name <> "Bob" RETURN name',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2);
     const names = results.map((r) => r['name'] as string).sort();
     expect(names).toEqual(['Alice', 'Charlie']);
@@ -307,20 +307,20 @@ describe('CALL engine: empty results', () => {
     graph.addNode('p1', { label: 'Person', name: 'Alice' });
   });
 
-  it('inner query returns 0 rows drops outer row', () => {
+  it('inner query returns 0 rows drops outer row', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'MATCH (a:Person) CALL { MATCH (a)-[:FRIEND]->(b) RETURN b.name AS friend } RETURN a.name AS person, friend',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     // Alice has no friends, so the inner query returns 0 rows → outer row dropped
     expect(results.length).toBe(0);
   });
 
-  it('CALL with no matching nodes returns empty', () => {
+  it('CALL with no matching nodes returns empty', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher('CALL { MATCH (n:Movie) RETURN n.title AS title }');
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(0);
   });
 });
@@ -336,12 +336,12 @@ describe('CALL engine: nested subqueries', () => {
     graph.addNode('p2', { label: 'Person', name: 'Bob' });
   });
 
-  it('nested CALL (CALL inside CALL)', () => {
+  it('nested CALL (CALL inside CALL)', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { CALL { MATCH (n:Person) RETURN n.name AS name } RETURN name }',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2);
     const names = results.map((r) => r['name'] as string).sort();
     expect(names).toEqual(['Alice', 'Bob']);
@@ -358,12 +358,12 @@ describe('CALL engine: mutations', () => {
     graph.addNode('p1', { label: 'Person', name: 'Alice' });
   });
 
-  it('CALL with CREATE inside creates nodes', () => {
+  it('CALL with CREATE inside creates nodes', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { CREATE (n:Tag {name: "test"}) RETURN n.name AS tagName }',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     expect(results[0]?.['tagName']).toBe('test');
 
@@ -376,12 +376,12 @@ describe('CALL engine: mutations', () => {
     expect(tagNodes.length).toBe(1);
   });
 
-  it('CALL with SET inside modifies nodes', () => {
+  it('CALL with SET inside modifies nodes', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { MATCH (n:Person) SET n.updated = true RETURN n.name AS name }',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     expect(results[0]?.['name']).toBe('Alice');
 
@@ -401,12 +401,12 @@ describe('CALL engine: UNWIND inside subquery', () => {
     graph.addNode('p1', { label: 'Person', name: 'Alice', tags: ['a', 'b', 'c'] });
   });
 
-  it('UNWIND inside CALL', () => {
+  it('UNWIND inside CALL', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { MATCH (n:Person) UNWIND n.tags AS tag RETURN tag }',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(3);
     const tags = results.map((r) => r['tag'] as string).sort();
     expect(tags).toEqual(['a', 'b', 'c']);
@@ -425,23 +425,23 @@ describe('CALL engine: ORDER BY inside subquery', () => {
     graph.addNode('p3', { label: 'Person', name: 'Bob' });
   });
 
-  it('ORDER BY inside CALL', () => {
+  it('ORDER BY inside CALL', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { MATCH (n:Person) RETURN n.name AS name ORDER BY n.name }',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(3);
     const names = results.map((r) => r['name'] as string);
     expect(names).toEqual(['Alice', 'Bob', 'Charlie']);
   });
 
-  it('ORDER BY DESC inside CALL', () => {
+  it('ORDER BY DESC inside CALL', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { MATCH (n:Person) RETURN n.name AS name ORDER BY n.name DESC }',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(3);
     const names = results.map((r) => r['name'] as string);
     expect(names).toEqual(['Charlie', 'Bob', 'Alice']);
@@ -460,21 +460,21 @@ describe('CALL engine: LIMIT/SKIP inside subquery', () => {
     graph.addNode('p3', { label: 'Person', name: 'Charlie' });
   });
 
-  it('LIMIT inside CALL', () => {
+  it('LIMIT inside CALL', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { MATCH (n:Person) RETURN n.name AS name LIMIT 2 }',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2);
   });
 
-  it('SKIP inside CALL', () => {
+  it('SKIP inside CALL', async () => {
     const engine = createEngine(graph);
     const ast = parseCypher(
       'CALL { MATCH (n:Person) RETURN n.name AS name SKIP 1 }',
     );
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     expect(results.length).toBe(2);
   });
 });
@@ -482,7 +482,7 @@ describe('CALL engine: LIMIT/SKIP inside subquery', () => {
 // ── Error handling ───────────────────────────────────────────────────────────
 
 describe('CALL error handling', () => {
-  it('throws on stored procedure calls', () => {
+  it('throws on stored procedure calls', async () => {
     expect(() => parseCypher('CALL db.labels()')).toThrow(/Stored procedure/);
   });
 });

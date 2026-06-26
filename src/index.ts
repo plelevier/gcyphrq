@@ -360,8 +360,7 @@ async function main(): Promise<void> {
     // ── Explain mode (no graph needed) ─────────────────────────────────
 
     if (args.explain) {
-      const ast = parseCypher(args.expr);
-      const plan = explainQuery(args.expr, ast);
+      const plan = explainQuery(args.expr);
       console.log(JSON.stringify(plan, null, 2));
       process.exit(0);
     }
@@ -388,8 +387,8 @@ async function main(): Promise<void> {
     const engine = new GraphEngine(graph, indexes);
     const ast = parseCypher(args.expr);
     const results = ast.type === 'UnionQuery'
-      ? engine.executeUnion(ast)
-      : engine.execute(ast);
+      ? await engine.executeUnion(ast)
+      : await engine.execute(ast);
 
     // Default to graph format for chaining (stdout → stdin)
     // Falls back to rows when results contain only scalars (no nodes/edges)

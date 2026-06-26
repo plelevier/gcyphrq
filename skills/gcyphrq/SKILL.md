@@ -53,6 +53,7 @@ See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 - **EXISTS:** `EXISTS(expr)` — true if not null/undefined. Use with `NOT` in WHERE.
 - **Mutations:** `CREATE` (single node or chain `(a)-[r:TYPE]->(b)`), `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `MERGE` (in-memory only). MERGE: supports WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE. CREATE chain: reuses bound nodes, creates unbound ones.
 - **CALL { ... } subqueries:** inline (reference outer variables), YIELD filtering, nested, CREATE/SET/DELETE inside, ORDER BY inside. Stored procedures (`CALL db.xxx()`) not supported.
+- **LOAD CSV:** `LOAD CSV [WITH HEADERS] FROM 'source' AS var`. Supports local file paths and HTTP/HTTPS URLs. With HEADERS: each row is a `{ headerName: value }` map. Without: each row is a string array. Supports FIELDS TERMINATED BY and OPTIONALLY ENCLOSED BY for custom delimiters. Works inside CALL subqueries. Combines with MATCH, WHERE, CREATE, aggregations.
 - **Not supported:** stored procedures, APOC, regex in WHERE
 - **Notes:** `startnode()`/`endnode()` return string IDs; `avg()`/`min()`/`max()` return null on empty sets
 
@@ -116,6 +117,12 @@ Service dependencies, blast radius, path tracing, shortest path, infrastructure 
 | UNWIND WHERE | `UNWIND [1,2,3,4,5] AS x WHERE x > 3 RETURN x` |
 | UNWIND WHERE + WITH | `UNWIND [1,2,3,4,5] AS x WHERE x > 1 WITH x WHERE x < 5 RETURN x` |
 | ORDER BY NULLS FIRST | `MATCH (n) RETURN n.name, n.score ORDER BY n.score NULLS FIRST` |
+| LOAD CSV | `LOAD CSV WITH HEADERS FROM 'file.csv' AS row RETURN row.name, row.age` |
+| LOAD CSV (no headers) | `LOAD CSV FROM 'file.csv' AS row RETURN row[0] AS name, row[1] AS age` |
+| LOAD CSV + MATCH | `LOAD CSV WITH HEADERS FROM 'users.csv' AS row MATCH (u:User {name: row.name}) RETURN row.name, u` |
+| LOAD CSV + CREATE | `LOAD CSV WITH HEADERS FROM 'people.csv' AS row CREATE (p:Person {name: row.name}) RETURN p` |
+| LOAD CSV (custom delimiter) | `LOAD CSV FROM 'data.tsv' AS row FIELDS TERMINATED BY '\t' RETURN row` |
+| LOAD CSV inside CALL | `CALL { LOAD CSV WITH HEADERS FROM 'data.csv' AS row RETURN row.name AS name } RETURN name` |
 | EXPLAIN | `gcyphrq --explain -e 'MATCH (u:User) RETURN u'` |
 | ORDER BY NULLS LAST | `MATCH (n) RETURN n.name, n.score ORDER BY n.score DESC NULLS LAST` |
 | timestamp | `RETURN timestamp() AS ts` |

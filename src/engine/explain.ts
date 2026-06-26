@@ -15,6 +15,7 @@ import type {
   UnwindClause,
   ForeachClause,
   CallClause,
+  LoadCsvClause,
   NodePattern,
   RelationPattern,
   Projection,
@@ -225,6 +226,8 @@ function analyzeStage(stage: Stage, index: number): ExplainStage {
       return analyzeForeach(stage.clause, index);
     case 'CALL':
       return analyzeCall(stage.clause, index);
+    case 'LOAD_CSV':
+      return analyzeLoadCsv(stage.clause, index);
     default:
       return { index, type: 'UNKNOWN', description: 'Unknown stage', variables: [] };
   }
@@ -506,6 +509,25 @@ function analyzeCall(clause: CallClause, index: number): ExplainStage {
     type: 'CALL',
     description: `CALL { ...${inlineInfo} }${yieldInfo} (${clause.innerQuery.stages.length} inner stage(s))`,
     variables: clause.yieldVariables || [],
+    details,
+  };
+}
+
+function analyzeLoadCsv(clause: LoadCsvClause, index: number): ExplainStage {
+  const details: Record<string, unknown> = {
+    source: clause.source,
+    withHeaders: clause.withHeaders,
+    variable: clause.variable,
+  };
+  if (clause.fieldTerminator) details.fieldTerminator = clause.fieldTerminator;
+  if (clause.enclosedBy) details.enclosedBy = clause.enclosedBy;
+
+  const headersInfo = clause.withHeaders ? ' WITH HEADERS' : '';
+  return {
+    index,
+    type: 'LOAD CSV',
+    description: `LOAD CSV${headersInfo} FROM '${clause.source}' AS ${clause.variable}`,
+    variables: [clause.variable],
     details,
   };
 }
