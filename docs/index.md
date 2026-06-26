@@ -83,7 +83,7 @@ Or use it as a library:
 ```ts
 import { executeQuery } from 'gcyphrq';
 
-const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
+const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 ```
 
 ## Supported Cypher Features

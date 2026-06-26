@@ -120,7 +120,7 @@ const graphData = {
   ],
 };
 
-const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name, u.age');
+const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u.name, u.age');
 console.log(results);
 // [ { name: 'Alice', age: 30 }, { name: 'Bob', age: 25 } ]
 ```

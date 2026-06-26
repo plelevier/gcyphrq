@@ -531,16 +531,16 @@ export function explainQuery(query: string): { query: string; union?: boolean; s
  *
  * const graph = new Graph();
  * graph.addNode('alice', { label: 'User', name: 'Alice' });
- * const results = executeQuery(graph, 'MATCH (u:User) RETURN u.name');
+ * const results = await executeQuery(graph, 'MATCH (u:User) RETURN u.name');
  *
  * // From graph data (original API)
- * const results = executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
+ * const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
  * ```
  *
  * @param graphOrData - Graph data or an existing Graphology graph instance
  * @param query - A Cypher query string
  * @param opts - Optional configuration (label/edge-type property names)
- * @returns Array of result rows
+ * @returns Promise resolving to an array of result rows
  * @throws {GraphError} If graph data is invalid
  * @throws {Error} If the query is invalid or cannot be executed
  */
@@ -588,7 +588,7 @@ function isGraphInstance(value: GraphInstance | GraphInput): value is GraphInsta
  * const graph = createGraph(graphData);
  * const indexes = buildGraphIndexes(graphData, graph);
  * const engine = new GraphEngine(graph, indexes);
- * const results = engine.execute(ast);
+ * const results = await engine.execute(ast);
  * ```
  */
 export { AdvancedCypherGraphologyEngine as GraphEngine };
@@ -624,7 +624,7 @@ export { Graph };
  * ```ts
  * import { executeQuery } from 'gcyphrq';
  *
- * const results = executeQuery(graphData, 'MATCH (u:User) RETURN u');
+ * const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u');
  * ```
  *
  * @see https://github.com/plelevier/gcyphrq

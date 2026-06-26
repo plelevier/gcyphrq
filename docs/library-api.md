@@ -74,7 +74,7 @@ Execute a Cypher query against a graph and return results as plain JSON. This is
 | `query` | `string` | A Cypher query string |
 | `opts` | [`IndexBuildOptions`](#indexbuildoptions) (optional) | Configuration for label/edge-type property names and warnings |
 
-**Returns:** `ResultRow[]` — array of result rows
+**Returns:** `Promise<ResultRow[]>` — promise resolving to an array of result rows
 
 **Throws:** `GraphError` if graph data is invalid, `Error` if the query is invalid
 
@@ -108,7 +108,7 @@ Execute a Cypher query against an existing Graphology `Graph` instance. Indexes 
 | `query` | `string` | A Cypher query string |
 | `opts` | [`IndexBuildOptions`](#indexbuildoptions) (optional) | Configuration for label/edge-type property names and warnings |
 
-**Returns:** `ResultRow[]` — array of result rows
+**Returns:** `Promise<ResultRow[]>` — promise resolving to an array of result rows
 
 **Throws:** `Error` if the query is invalid
 
@@ -266,8 +266,8 @@ The Cypher query engine class. Accepts a `GraphInstance` and executes parsed AST
 
 | Method | Parameters | Returns | Description |
 |---|---|---|---|
-| `execute(ast)` | `ast: AdvancedCypherAST` | `ResultRow[]` | Execute a single parsed AST against the graph |
-| `executeUnion(ast)` | `ast: UnionQueryAST` | `ResultRow[]` | Execute a UNION/UNION ALL AST. Aligns columns by name and deduplicates for `UNION` |
+| `execute(ast)` | `ast: AdvancedCypherAST` | `Promise<ResultRow[]>` | Execute a single parsed AST against the graph |
+| `executeUnion(ast)` | `ast: UnionQueryAST` | `Promise<ResultRow[]>` | Execute a UNION/UNION ALL AST. Aligns columns by name and deduplicates for `UNION` |
 
 ```ts
 import { GraphEngine, buildGraphIndexes, parseCypher } from 'gcyphrq';
