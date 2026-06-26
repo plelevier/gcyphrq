@@ -168,6 +168,18 @@ describe('LOAD CSV', () => {
       expect(names).toEqual(['Alice', 'Bob', 'Charlie']);
     });
 
+    it('MERGE with LOAD CSV uses dynamic properties to find existing nodes', async () => {
+      const filePath = resolve(__dirname, 'data/people.csv');
+      const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row MERGE (u:User {name: row.name}) ON CREATE SET u.fromCsv = true ON MATCH SET u.merged = true RETURN u.name AS name, u.fromCsv, u.merged`);
+      const results = await engine.execute(ast);
+      expect(results.length).toBe(3);
+      // Alice, Bob, Charlie exist — should have merged=true, not fromCsv
+      const alice = results.find((r) => r.name === 'Alice');
+      expect(alice).toBeDefined();
+      expect(alice!.merged).toBe(true);
+      expect(alice!.fromCsv).toBeUndefined();
+    });
+
     it('handles CSV with quoted fields', async () => {
       const filePath = resolve(__dirname, 'data/quoted.csv');
       const ast = parseCypher(`LOAD CSV WITH HEADERS FROM '${filePath}' AS row RETURN row.name AS name, row.description AS description`);

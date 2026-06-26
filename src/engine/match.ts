@@ -150,7 +150,7 @@ export function getMatchingNodeIds(
  * Evaluate dynamic property expressions (propertiesExpr) against a node.
  * Returns true if all dynamic properties match the node attributes.
  */
-function matchDynamicProperties(
+export function matchDynamicProperties(
   propertiesExpr: Record<string, Expression>,
   nodeAttr: Record<string, unknown>,
   context: QueryContext,

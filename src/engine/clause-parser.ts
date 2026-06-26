@@ -173,6 +173,21 @@ function describeExpression(expr: Expression): string {
   if (expr.type === 'Case') {
     return 'case';
   }
+  if (expr.type === 'ListSlice') {
+    return `${describeExpression(expr.list)}[..]`;
+  }
+  if (expr.type === 'Path') {
+    return `${expr.functionName}(...)`;
+  }
+  if (expr.type === 'Quantifier') {
+    return `${expr.quantifierType}(...)`;
+  }
+  if (expr.type === 'Exists') {
+    return 'exists(...)';
+  }
+  if (expr.type === 'ListComprehension') {
+    return '[...]';
+  }
   return '...';
 }
 
