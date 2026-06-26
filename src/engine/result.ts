@@ -1,7 +1,7 @@
 import type { CypherValue, Expression, OrderByItem, Projection, QueryContext, ReturnClause, WithClause, WhereExpression } from '../types/cypher';
 import { isContextChain, materialiseChain, type ContextChain } from './context-chain';
 import { containsAggregation, collectAggregations } from './aggregation';
-import { applyOrderByToContexts, applyOrderByToRows } from './where';
+import { applyOrderByToContexts, applyOrderByToRows, compareValuesWithNulls } from './where';
 
 /** Execute a RETURN projection stage. */
 export function executeReturn(
@@ -53,9 +53,10 @@ export function executeReturn(
     const keyed = projected.map(({ row, context }) => ({ row, context, keys: clause.orderBy!.map((item) => evalExpr(item.expression, context)) }));
     keyed.sort((a, b) => {
       for (let i = 0; i < clause.orderBy!.length; i++) {
-        const cmp = compareValues(a.keys[i], b.keys[i]);
         const item = clause.orderBy![i];
-        if (cmp !== 0 && item) return item.direction === 'DESC' ? -cmp : cmp;
+        if (!item) continue;
+        const cmp = compareValuesWithNulls(a.keys[i], b.keys[i], item);
+        if (cmp !== 0) return cmp;
       }
       return 0;
     });

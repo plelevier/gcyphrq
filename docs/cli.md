@@ -27,11 +27,11 @@ gcyphrq [options]
 | `-nl, --node-label-property-name <prop>` | Node attribute key to use as Cypher label (default: `"label"`) |
 | `-et, --edge-type-property-name <prop>` | Edge attribute key to use as Cypher relationship type (default: `"type"`) |
 | `--format <graph\|rows>` | Output format: `graph` (default) or `rows`. Note: when returning only scalar values (property access, aggregations), the CLI auto-falls back to `rows` regardless of this setting |
-| `--install <mode>` | Install the gcyphrq skill for AI coding agents. Mode: `global` (symlinks) or `local` (copies into current directory) |
+| `--install-skill <mode>` | Install the gcyphrq skill for AI coding agents. Mode: `global` (symlinks) or `local` (copies into current directory) |
 | `-v, --version` | Show version number |
 | `-h, --help` | Show help message |
 
-Either `-e` + `-g` (query mode) or `--install <mode>` (install mode) is required. These modes are mutually exclusive. The tool exits with code 1 and prints to stderr if no valid mode is provided.
+Either `-e` + `-g` (query mode) or `--install-skill <mode>` (install mode) is required. These modes are mutually exclusive. The tool exits with code 1 and prints to stderr if no valid mode is provided.
 
 ## Loading a Graph
 
@@ -205,13 +205,13 @@ Install the gcyphrq skill for AI coding agents (pi, Claude Code, OpenCode):
 
 ```bash
 # Install globally (symlinks in agent config directories)
-gcyphrq --install global
+gcyphrq --install-skill global
 
 # Install locally (copies into current directory)
-gcyphrq --install local
+gcyphrq --install-skill local
 ```
 
-The `--install` command detects which agents are installed on your system and sets up the skill for each one. See the [Skill Guide](skill) for details.
+The `--install-skill` command detects which agents are installed on your system and sets up the skill for each one. See the [Skill Guide](skill) for details.
 
 ## Running without installing
 

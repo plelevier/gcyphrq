@@ -329,7 +329,20 @@ export interface ExistsExpression {
   expression: Expression;
 }
 
-export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression | PathExpression | ReduceExpression | QuantifierExpression | ExistsExpression;
+/** A list comprehension: `[var IN list [WHERE predicate] | generator]`. */
+export interface ListComprehensionExpression {
+  type: 'ListComprehension';
+  /** Loop variable name (e.g., "x" in `x IN n.tags`). */
+  loopVariable: string;
+  /** List expression to iterate over (e.g., `n.tags`). */
+  list: Expression;
+  /** Optional WHERE predicate (undefined for simple comprehension without WHERE). */
+  predicate: WhereExpression | undefined;
+  /** Generator expression (after the `|`). */
+  generator: Expression;
+}
+
+export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression | PathExpression | ReduceExpression | QuantifierExpression | ExistsExpression | ListComprehensionExpression;
 
 export interface BinaryExpression {
   type: 'BinaryExpression';
@@ -356,7 +369,7 @@ export interface IsNullExpression {
   negated: boolean; // true for IS NOT NULL, false for IS NULL
 }
 
-export type WhereExpression = BinaryExpression | LogicalExpression | NotExpression | IsNullExpression | QuantifierExpression | ExistsExpression;
+export type WhereExpression = BinaryExpression | LogicalExpression | NotExpression | IsNullExpression | QuantifierExpression | ExistsExpression | FunctionCallExpression;
 
 export interface Projection {
   expression: Expression;
@@ -375,6 +388,8 @@ export interface WithClause {
 export interface OrderByItem {
   expression: Expression;
   direction: 'ASC' | 'DESC';
+  /** NULLS FIRST / NULLS LAST control. Undefined means default (NULLS LAST for ASC, NULLS FIRST for DESC). */
+  nullsDirection: 'NULLS FIRST' | 'NULLS LAST' | undefined;
 }
 
 export interface ReturnClause {
@@ -388,6 +403,8 @@ export interface UnwindClause {
   type: 'UNWIND';
   expression: Expression;
   variable: string;
+  /** Optional WHERE filter applied after unwinding (e.g., `UNWIND list AS x WHERE x > 0`). */
+  where: WhereExpression | undefined;
 }
 
 export interface ForeachClause {

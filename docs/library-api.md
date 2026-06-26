@@ -484,6 +484,7 @@ import type {
   BinaryExpression,
   Projection,
   OrderByItem,
+  UnwindClause,
 
   // Result types
   ResultRow,

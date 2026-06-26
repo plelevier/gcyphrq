@@ -5,6 +5,7 @@ import type {
   ReduceExpression,
   QuantifierExpression,
   ExistsExpression,
+  ListComprehensionExpression,
   CypherLiteral,
   CypherValue,
   WhereExpression,
@@ -289,7 +290,10 @@ function extractCountStar(atom: TreeNode): Expression | undefined {
 /**
  * Extract a `reduce(initial, var IN list | body)` expression from a ReduceFunction context.
  */
-function extractReduceExpression(reduceCtx: TreeNode): ReduceExpression | undefined {
+function extractReduceExpression(
+  reduceCtx: TreeNode,
+  extractWhere?: (ctx: TreeNode) => WhereExpression | undefined,
+): ReduceExpression | undefined {
   if (!reduceCtx || !reduceCtx.children) return undefined;
 
   const children = reduceCtx.children;
@@ -310,7 +314,7 @@ function extractReduceExpression(reduceCtx: TreeNode): ReduceExpression | undefi
   for (let i = eqIndex + 1; i < children.length; i++) {
     const child = children[i];
     if (child && child.constructor.name === Ctx.Expression) {
-      initialExpr = evaluateExpression(child);
+      initialExpr = evaluateExpression(child, extractWhere);
       break;
     }
   }
@@ -326,7 +330,7 @@ function extractReduceExpression(reduceCtx: TreeNode): ReduceExpression | undefi
   if (!loopVariable) return undefined;
 
   const listExprCtx = findChild(idInCollCtx, Ctx.Expression);
-  const listExpr = listExprCtx ? evaluateExpression(listExprCtx) : undefined;
+  const listExpr = listExprCtx ? evaluateExpression(listExprCtx, extractWhere) : undefined;
   if (!listExpr) return undefined;
 
   // Find the body expression (after the `|` pipe)
@@ -339,7 +343,7 @@ function extractReduceExpression(reduceCtx: TreeNode): ReduceExpression | undefi
   for (let i = pipeIndex + 1; i < children.length; i++) {
     const child = children[i];
     if (child && child.constructor.name === Ctx.Expression) {
-      bodyExpr = evaluateExpression(child);
+      bodyExpr = evaluateExpression(child, extractWhere);
       break;
     }
   }
@@ -431,6 +435,99 @@ export function extractExistsExpression(atom: TreeNode): ExistsExpression | unde
 }
 
 /**
+ * Extract a function call expression from an Atom context.
+ * Used by the WHERE parser to support function calls as boolean predicates.
+ */
+export function extractFunctionCallFromAtom(
+  atom: TreeNode,
+  extractWhere?: (ctx: TreeNode) => WhereExpression | undefined,
+): FunctionCallExpression | undefined {
+  if (!atom) return undefined;
+
+  const funcCtx = findChild(atom, Ctx.FunctionInvocation);
+  if (!funcCtx) return undefined;
+
+  const bodyCtx = findChild(funcCtx, Ctx.FunctionInvocationBody);
+  const funcNameCtx = findChild(bodyCtx, Ctx.FunctionName);
+  const funcName = getTerminalText(funcNameCtx);
+  if (!funcName) return undefined;
+
+  // Skip aggregation functions
+  const argExpr = findChild(funcCtx, Ctx.Expression);
+  const argAtom = getAtom(argExpr ?? undefined);
+  const argVar = argAtom ? findChild(argAtom, Ctx.Variable) : null;
+  const argName = getSymbolicName(argVar);
+  if (argName && AGGREGATION_FUNCTIONS.has(funcName.toLowerCase())) return undefined;
+
+  return extractFunctionCall(funcCtx, funcName, extractWhere);
+}
+
+/**
+ * Extract a list comprehension expression: `[var IN list [WHERE predicate] | generator]`.
+ */
+export function extractListComprehensionExpression(
+  atom: TreeNode,
+  extractWhere?: (ctx: TreeNode) => WhereExpression | undefined,
+): ListComprehensionExpression | undefined {
+  if (!atom) return undefined;
+
+  const lcCtx = findChild(atom, Ctx.ListComprehension);
+  if (!lcCtx) return undefined;
+
+  // Find the FilterExpression child (contains IdInColl + optional Where)
+  const filterExprCtx = findChild(lcCtx, Ctx.FilterExpression);
+  if (!filterExprCtx) return undefined;
+
+  // Extract loop variable and list from IdInColl
+  const idInCollCtx = findChild(filterExprCtx, Ctx.IdInColl);
+  if (!idInCollCtx) return undefined;
+
+  const loopVarCtx = findChild(idInCollCtx, Ctx.Variable);
+  const loopVariable = loopVarCtx ? getSymbolicName(loopVarCtx) : undefined;
+  if (!loopVariable) return undefined;
+
+  const listExprCtx = findChild(idInCollCtx, Ctx.Expression);
+  const listExpr = listExprCtx ? evaluateExpression(listExprCtx, extractWhere) : undefined;
+  if (!listExpr) return undefined;
+
+  // Extract optional WHERE predicate
+  let predicate: WhereExpression | undefined;
+  const whereCtx = findChild(filterExprCtx, Ctx.Where);
+  if (whereCtx && extractWhere) {
+    const whereExprCtx = findChild(whereCtx, Ctx.Expression);
+    if (whereExprCtx) {
+      predicate = extractWhere(whereExprCtx);
+    }
+  }
+
+  // Find the generator expression (after the `|` pipe)
+  const pipeIndex = lcCtx.children?.findIndex((c: ParseTreeNode) =>
+    c.constructor.name === Ctx.TerminalNode && c.symbol?.text === '|',
+  ) ?? -1;
+  if (pipeIndex === -1) return undefined;
+
+  let generatorExpr: Expression | undefined;
+  if (lcCtx.children) {
+    for (let i = pipeIndex + 1; i < lcCtx.children.length; i++) {
+      const child = lcCtx.children[i];
+      if (child && child.constructor.name === Ctx.Expression) {
+        generatorExpr = evaluateExpression(child, extractWhere);
+        break;
+      }
+    }
+  }
+  if (!generatorExpr) return undefined;
+
+  return {
+    type: 'ListComprehension' as const,
+    loopVariable,
+    list: listExpr,
+    predicate,
+    generator: generatorExpr,
+  };
+}
+
+/**
  * Evaluate an expression from an Atom context (without slice detection).
  * Optional `extractWhere` callback is used for CASE expressions.
  */
@@ -455,7 +552,7 @@ export function evaluateExpressionFromAtom(
 
   const reduceCtx = findChild(atom, Ctx.ReduceFunction);
   if (reduceCtx) {
-    const reduceExpr = extractReduceExpression(reduceCtx);
+    const reduceExpr = extractReduceExpression(reduceCtx, extractWhere);
     if (reduceExpr) return reduceExpr;
   }
 
@@ -466,6 +563,10 @@ export function evaluateExpressionFromAtom(
   // EXISTS function
   const existsExpr = extractExistsExpression(atom);
   if (existsExpr) return existsExpr;
+
+  // List comprehension: [var IN list [WHERE predicate] | generator]
+  const lcExpr = extractListComprehensionExpression(atom, extractWhere);
+  if (lcExpr) return lcExpr;
 
   const funcCtx = findChild(atom, Ctx.FunctionInvocation);
   if (funcCtx) {
@@ -506,7 +607,7 @@ export function evaluateExpressionFromAtom(
     }
 
     if (funcName) {
-      const funcCall = extractFunctionCall(funcCtx, funcName);
+      const funcCall = extractFunctionCall(funcCtx, funcName, extractWhere);
       if (funcCall) return funcCall;
     }
   }
@@ -650,7 +751,11 @@ export function extractPseudoProcedureCall(procCtx: TreeNode): FunctionCallExpre
 
 // ── Function call extraction ─────────────────────────────────────────────────
 
-export function extractFunctionCall(funcCtx: TreeNode, funcName: string): FunctionCallExpression | undefined {
+export function extractFunctionCall(
+  funcCtx: TreeNode,
+  funcName: string,
+  extractWhere?: (ctx: TreeNode) => WhereExpression | undefined,
+): FunctionCallExpression | undefined {
   if (!funcCtx) return undefined;
 
   const argExpressions: Expression[] = [];
@@ -659,15 +764,14 @@ export function extractFunctionCall(funcCtx: TreeNode, funcName: string): Functi
 
   for (const child of children) {
     if (child.constructor.name === Ctx.Expression) {
-      const expr = evaluateExpression(child);
+      const expr = evaluateExpression(child, extractWhere);
       if (expr && expr.type !== 'Aggregation') {
         argExpressions.push(expr);
       }
     }
   }
 
-  if (argExpressions.length === 0) return undefined;
-
+  // Allow zero-argument functions (e.g., timestamp(), datetime(), date(), time())
   return {
     type: 'FunctionCall' as const,
     functionName: funcName.toLowerCase(),
@@ -787,7 +891,10 @@ export function extractMapLiteralExpressionFromCtx(mapLitCtx: ParseTreeNode): Ex
   return { type: 'MapLiteral' as const, entries: result };
 }
 
-export function extractValueExpressionFromPropertyOrLabels(ctx: TreeNode): Expression | undefined {
+export function extractValueExpressionFromPropertyOrLabels(
+  ctx: TreeNode,
+  extractWhere?: (ctx: TreeNode) => WhereExpression | undefined,
+): Expression | undefined {
   if (!ctx) return undefined;
 
   const atom = getAtom(ctx);
@@ -814,10 +921,14 @@ export function extractValueExpressionFromPropertyOrLabels(ctx: TreeNode): Expre
     const funcNameCtx = findChild(bodyCtx, Ctx.FunctionName);
     const funcName = getTerminalText(funcNameCtx);
     if (funcName) {
-      const funcCall = extractFunctionCall(funcCtx, funcName);
+      const funcCall = extractFunctionCall(funcCtx, funcName, extractWhere);
       if (funcCall) return funcCall;
     }
   }
+
+  // List comprehension: [var IN list [WHERE predicate] | generator]
+  const lcExpr = extractListComprehensionExpression(atom, extractWhere);
+  if (lcExpr) return lcExpr;
 
   const literalCtx = findChild(atom, Ctx.Literal);
   if (literalCtx) {
@@ -836,7 +947,10 @@ export function extractValueExpressionFromPropertyOrLabels(ctx: TreeNode): Expre
   return undefined;
 }
 
-export function extractValueExpression(ctx: TreeNode): Expression | undefined {
+export function extractValueExpression(
+  ctx: TreeNode,
+  extractWhere?: (ctx: TreeNode) => WhereExpression | undefined,
+): Expression | undefined {
   if (!ctx) return undefined;
 
   const withParent = findPropOrLabelsWithParent(ctx);
@@ -872,10 +986,14 @@ export function extractValueExpression(ctx: TreeNode): Expression | undefined {
     const funcNameCtx = findChild(bodyCtx, Ctx.FunctionName);
     const funcName = getTerminalText(funcNameCtx);
     if (funcName) {
-      const funcCall = extractFunctionCall(funcCtx, funcName);
+      const funcCall = extractFunctionCall(funcCtx, funcName, extractWhere);
       if (funcCall) return funcCall;
     }
   }
+
+  // List comprehension: [var IN list [WHERE predicate] | generator]
+  const lcExpr = extractListComprehensionExpression(atom, extractWhere);
+  if (lcExpr) return lcExpr;
 
   const literalCtx = findChild(atom, Ctx.Literal);
   if (literalCtx) {

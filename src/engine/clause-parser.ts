@@ -40,6 +40,7 @@ import {
   getAtom,
   evaluateExpression,
   extractFunctionCall,
+  extractFunctionCallFromAtom,
   extractPseudoProcedureCall,
   extractValueExpression,
   extractValueExpressionFromPropertyOrLabels,
@@ -184,6 +185,9 @@ function computeDefaultAlias(expr: Expression): string {
   if (expr.type === 'Exists') {
     return 'EXISTS()';
   }
+  if (expr.type === 'ListComprehension') {
+    return '[...]';
+  }
   return String(expr.value);
 }
 
@@ -275,7 +279,10 @@ export function extractReturnBody(returnBody: ParseTreeNode | null): Projection[
   return projections;
 }
 
-export function extractOrderBy(returnBody: ParseTreeNode | null): OrderByItem[] | undefined {
+export function extractOrderBy(
+  returnBody: ParseTreeNode | null,
+  nullsDirections?: Map<number, 'NULLS FIRST' | 'NULLS LAST'>,
+): OrderByItem[] | undefined {
   const orderCtx = findChild(returnBody, Ctx.Order);
   if (!orderCtx) return undefined;
 
@@ -283,7 +290,8 @@ export function extractOrderBy(returnBody: ParseTreeNode | null): OrderByItem[] 
   if (sortItems.length === 0) return undefined;
 
   const items: OrderByItem[] = [];
-  for (const sortItem of sortItems) {
+  for (let i = 0; i < sortItems.length; i++) {
+    const sortItem = sortItems[i]!;
     const exprCtx = findChild(sortItem, Ctx.Expression);
     const expr = evaluateExpression(exprCtx, extractWhereExpression);
     if (!expr) continue;
@@ -291,7 +299,8 @@ export function extractOrderBy(returnBody: ParseTreeNode | null): OrderByItem[] 
     const hasDesc = hasTerminal(sortItem, 'DESC');
     const direction = hasDesc ? 'DESC' : 'ASC';
 
-    items.push({ expression: expr, direction });
+    const nullsDir = nullsDirections?.get(i);
+    items.push({ expression: expr, direction, nullsDirection: nullsDir });
   }
 
   return items.length > 0 ? items : undefined;
@@ -323,13 +332,13 @@ export function extractSkip(returnBody: ParseTreeNode | null): number | undefine
 
 // ── RETURN / WITH clause extraction ──────────────────────────────────────────
 
-export function extractReturnClause(clauseCtx: ParseTreeNode): ReturnClause | undefined {
+export function extractReturnClause(clauseCtx: ParseTreeNode, nullsDirections?: Map<number, 'NULLS FIRST' | 'NULLS LAST'>): ReturnClause | undefined {
   const returnCtx = findChild(clauseCtx, Ctx.ReturnClause);
   if (!returnCtx) return undefined;
 
   const returnBody = findChild(returnCtx, Ctx.ReturnBody);
   let projections = extractReturnBody(returnBody);
-  const orderBy = extractOrderBy(returnBody);
+  const orderBy = extractOrderBy(returnBody, nullsDirections);
   const skip = extractSkip(returnBody);
   const limit = extractLimit(returnBody);
 
@@ -341,13 +350,13 @@ export function extractReturnClause(clauseCtx: ParseTreeNode): ReturnClause | un
   return { projections, orderBy, skip, limit };
 }
 
-export function extractWithClause(clauseCtx: ParseTreeNode): WithClause | undefined {
+export function extractWithClause(clauseCtx: ParseTreeNode, nullsDirections?: Map<number, 'NULLS FIRST' | 'NULLS LAST'>): WithClause | undefined {
   const withCtx = findChild(clauseCtx, Ctx.WithClause);
   if (!withCtx) return undefined;
 
   const returnBody = findChild(withCtx, Ctx.ReturnBody);
   const projections = extractReturnBody(returnBody);
-  const orderBy = extractOrderBy(returnBody);
+  const orderBy = extractOrderBy(returnBody, nullsDirections);
   const skip = extractSkip(returnBody);
   const limit = extractLimit(returnBody);
 
@@ -400,13 +409,15 @@ export function extractWhereExpression(exprCtx: TreeNode): WhereExpression | und
     if (compResult) return compResult;
   }
 
-  // Fallback: check if this is a quantifier or exists expression (they evaluate to boolean)
+  // Fallback: check if this is a quantifier, exists, or function call expression (they evaluate to boolean)
   const atom = getAtom(exprCtx);
   if (atom) {
     const quantifierExpr = extractQuantifierExpression(atom, extractWhereExpression);
     if (quantifierExpr) return quantifierExpr;
     const existsExpr = extractExistsExpression(atom);
     if (existsExpr) return existsExpr;
+    const funcCallExpr = extractFunctionCallFromAtom(atom, extractWhereExpression);
+    if (funcCallExpr) return funcCallExpr;
   }
 
   return undefined;
@@ -560,10 +571,10 @@ function extractComparison(compCtx: TreeNode): BinaryExpression | IsNullExpressi
     if (!operator) return undefined;
 
     const leftExprCtx = findChild(compCtx, Ctx.AddOrSubtractExpression);
-    const left = extractValueExpression(leftExprCtx);
+    const left = extractValueExpression(leftExprCtx, extractWhereExpression);
 
     const rightExprCtx = findChild(partialCtx, Ctx.AddOrSubtractExpression);
-    const right = extractValueExpression(rightExprCtx);
+    const right = extractValueExpression(rightExprCtx, extractWhereExpression);
 
     if (left && right) {
       return { type: 'BinaryExpression' as const, operator, left, right };
@@ -585,7 +596,7 @@ function extractComparison(compCtx: TreeNode): BinaryExpression | IsNullExpressi
       ) as ParseTreeNode[];
 
       if (propExprs.length >= 1) {
-        const expr = extractValueExpressionFromPropertyOrLabels(propExprs[0]);
+        const expr = extractValueExpressionFromPropertyOrLabels(propExprs[0], extractWhereExpression);
         if (expr) {
           const hasNot = strCtx.children.some((c: ParseTreeNode) =>
             c.constructor.name === Ctx.TerminalNode && c.symbol?.text === 'NOT',
@@ -618,32 +629,32 @@ function extractComparison(compCtx: TreeNode): BinaryExpression | IsNullExpressi
       );
 
       if (hasContains) {
-        const left = extractValueExpressionFromPropertyOrLabels(propExprs[0]);
-        const right = extractValueExpressionFromPropertyOrLabels(propExprs[1]);
+        const left = extractValueExpressionFromPropertyOrLabels(propExprs[0], extractWhereExpression);
+        const right = extractValueExpressionFromPropertyOrLabels(propExprs[1], extractWhereExpression);
         if (left && right) {
           return { type: 'BinaryExpression' as const, operator: 'CONTAINS', left, right };
         }
       }
 
       if (hasStartsWith) {
-        const left = extractValueExpressionFromPropertyOrLabels(propExprs[0]);
-        const right = extractValueExpressionFromPropertyOrLabels(propExprs[1]);
+        const left = extractValueExpressionFromPropertyOrLabels(propExprs[0], extractWhereExpression);
+        const right = extractValueExpressionFromPropertyOrLabels(propExprs[1], extractWhereExpression);
         if (left && right) {
           return { type: 'BinaryExpression' as const, operator: 'STARTS WITH', left, right };
         }
       }
 
       if (hasEndsWith) {
-        const left = extractValueExpressionFromPropertyOrLabels(propExprs[0]);
-        const right = extractValueExpressionFromPropertyOrLabels(propExprs[1]);
+        const left = extractValueExpressionFromPropertyOrLabels(propExprs[0], extractWhereExpression);
+        const right = extractValueExpressionFromPropertyOrLabels(propExprs[1], extractWhereExpression);
         if (left && right) {
           return { type: 'BinaryExpression' as const, operator: 'ENDS WITH', left, right };
         }
       }
 
       if (hasIn) {
-        const left = extractValueExpressionFromPropertyOrLabels(propExprs[0]);
-        const right = extractValueExpressionFromPropertyOrLabels(propExprs[1]);
+        const left = extractValueExpressionFromPropertyOrLabels(propExprs[0], extractWhereExpression);
+        const right = extractValueExpressionFromPropertyOrLabels(propExprs[1], extractWhereExpression);
         if (left && right) {
           return { type: 'BinaryExpression' as const, operator: 'IN', left, right };
         }
@@ -838,7 +849,7 @@ export function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | unde
 
 // ── UNWIND clause extraction ─────────────────────────────────────────────────
 
-export function extractUnwindClause(clauseCtx: ParseTreeNode): UnwindClause | undefined {
+export function extractUnwindClause(clauseCtx: ParseTreeNode, rawQuery?: string): UnwindClause | undefined {
   const unwindCtx = findChild(clauseCtx, Ctx.UnwindClause);
   if (!unwindCtx) return undefined;
 
@@ -850,7 +861,62 @@ export function extractUnwindClause(clauseCtx: ParseTreeNode): UnwindClause | un
   const variable = getSymbolicName(varCtx);
   if (!variable) throw new Error('Failed to parse UNWIND: missing variable after AS.');
 
-  return { type: 'UNWIND' as const, expression: expr, variable };
+  // Extract WHERE after UNWIND from raw text (ANTLR4 parses it but doesn't associate it with UNWIND)
+  let where: WhereExpression | undefined;
+  if (rawQuery) {
+    where = extractWhereAfterUnwind(rawQuery, unwindCtx, extractWhereExpression);
+  }
+
+  return { type: 'UNWIND' as const, expression: expr, variable, where };
+}
+
+/** Extract a WHERE clause that appears after UNWIND in the raw query text. */
+function extractWhereAfterUnwind(rawQuery: string, unwindCtx: ParseTreeNode, extractWhereExpr: (ctx: TreeNode) => WhereExpression | undefined): WhereExpression | undefined {
+  // Find the position of the UNWIND clause end in the raw query
+  const unwindEnd = unwindCtx.stop?.stop ?? -1;
+  if (unwindEnd === -1) return undefined;
+
+  const afterUnwind = rawQuery.slice(unwindEnd + 1);
+  // Use a smarter regex that doesn't stop at WITH when it's part of STARTS WITH / ENDS WITH
+  const whereMatch = afterUnwind.match(/^\s*WHERE\s+(.+?)(?=\s+(?:RETURN|MATCH|MERGE|(?<!ENDS )(?<!STARTS )WITH|UNWIND|FOREACH|CALL|CREATE|SET|DELETE|REMOVE|ORDER|SKIP|LIMIT|;|\bCALL\b)|$)/is);
+  if (!whereMatch) return undefined;
+
+  const whereText = whereMatch[1]!.trim();
+  if (!whereText) return undefined;
+
+  // Parse the WHERE expression via synthetic query
+  try {
+    const syntheticQuery = `MATCH (x) WHERE ${whereText} RETURN x`;
+    const antlr4mod = createRequire(import.meta.url)('antlr4').default;
+    const antlr4Lib = createRequire(import.meta.url)('@neo4j-cypher/antlr4');
+    const syntheticChars = antlr4mod.CharStreams.fromString(syntheticQuery);
+    const syntheticLexer = new antlr4Lib.CypherLexer(syntheticChars);
+    const syntheticTokens = new antlr4mod.CommonTokenStream(syntheticLexer);
+    const syntheticParser = new antlr4Lib.CypherParser(syntheticTokens);
+    syntheticParser.removeErrorListeners();
+    syntheticParser.addErrorListener(new ErrorCollector());
+    const syntheticTree = syntheticParser.cypher();
+
+    const findWhere = (node: any): any => {
+      if (node.constructor.name === Ctx.Where) return node;
+      if (node.children) {
+        for (const child of node.children) {
+          const found = findWhere(child);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const whereCtx = findWhere(syntheticTree);
+    if (whereCtx) {
+      const exprCtx = findChild(whereCtx, Ctx.Expression);
+      if (exprCtx) return extractWhereExpr(exprCtx);
+    }
+  } catch {
+    // If parsing fails, skip WHERE
+  }
+  return undefined;
 }
 
 // ── FOREACH clause extraction ────────────────────────────────────────────────

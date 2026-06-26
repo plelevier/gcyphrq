@@ -234,3 +234,117 @@ CALL { MATCH (n:Service) RETURN count(n) AS total }
 ```
 
 > **Note:** CALL { ... } subqueries are supported; stored procedures (CALL db.xxx()) are not.
+
+## "Work with timestamps and dates"
+
+Use temporal functions to construct, extract, and compare datetime values.
+
+```cypher
+# Current timestamp and datetime
+RETURN timestamp() AS ts, datetime() AS dt, date() AS d, time() AS t
+
+# Construct from components
+RETURN datetime(2023, 6, 15, 14, 30, 45) AS dt
+RETURN date(2023, 6, 15) AS d
+RETURN time(14, 30, 45, 123) AS t
+
+# Construct from map
+RETURN datetime({year: 2023, month: 6, day: 15, hour: 14, minute: 30, second: 45}) AS dt
+RETURN time({hour: 14, minute: 30, second: 45, millisecond: 500}) AS t
+
+# Construct from string
+RETURN datetime('2023-06-15T14:30:45.123Z') AS dt
+RETURN date('2023-06-15') AS d
+
+# Local datetime/time (no timezone suffix)
+RETURN localdatetime(2023, 6, 15, 14, 30, 45) AS local
+RETURN localtime(14, 30, 45) AS local
+
+# Duration
+RETURN duration({years: 1, months: 2, days: 3, hours: 4, minutes: 5, seconds: 6}) AS dur
+RETURN duration('P1Y2M3DT4H5M6S') AS dur
+RETURN totalSeconds(duration({hours: 1, minutes: 30})) AS totalSec
+
+# Duration with fractional seconds
+RETURN duration({seconds: 1, milliseconds: 500}) AS dur
+```
+
+## "Extract date/time components from properties"
+
+```cypher
+# Extract year, month, day from a datetime property
+MATCH (n) WHERE n.createdAt IS NOT NULL
+RETURN n.name, year(n.createdAt) AS year, month(n.createdAt) AS month, day(n.createdAt) AS day
+
+# Extract hour, minute, second
+MATCH (n) WHERE n.createdAt IS NOT NULL
+RETURN n.name, hour(n.createdAt) AS hour, minute(n.createdAt) AS minute, second(n.createdAt) AS second
+
+# Extract timezone
+RETURN timezone('2023-06-15T14:30:45+02:00') AS tz
+RETURN timezone('2023-06-15T14:30:45.000Z') AS tz
+
+# Extract epoch seconds/milliseconds
+MATCH (n) WHERE n.createdAt IS NOT NULL
+RETURN n.name, epochseconds(n.createdAt) AS epoch
+```
+
+## "Filter by date/time range"
+
+```cypher
+# Nodes created after a specific date
+MATCH (n) WHERE n.createdAt > '2023-01-01T00:00:00.000Z' RETURN n
+
+# Nodes created in a specific year
+MATCH (n) WHERE year(n.createdAt) = 2023 RETURN n
+
+# Nodes created in a specific month
+MATCH (n) WHERE year(n.createdAt) = 2023 AND month(n.createdAt) = 6 RETURN n
+
+# Temporal comparison with timezone offsets (chronologically correct)
+MATCH (n) WHERE n.createdAt <= '2023-06-15T14:30:45+02:00' RETURN n
+```
+
+## "Order by date/time"
+
+```cypher
+# Most recent first
+MATCH (n) RETURN n.name, n.createdAt ORDER BY n.createdAt DESC
+
+# Oldest first
+MATCH (n) RETURN n.name, n.createdAt ORDER BY n.createdAt ASC
+
+# Order by year then month
+MATCH (n) RETURN n.name, n.createdAt ORDER BY year(n.createdAt), month(n.createdAt)
+```
+
+## "Use datetime in SET"
+
+```cypher
+# Set a node property to current timestamp
+MATCH (n {name: 'X'}) SET n.updatedAt = timestamp() RETURN n
+
+# Set a node property to a specific date
+MATCH (n {name: 'X'}) SET n.birthday = date(1990, 1, 15) RETURN n
+
+# Set a node property to current datetime
+MATCH (n {name: 'X'}) SET n.createdAt = datetime() RETURN n
+```
+
+## "Combine temporal with other expressions"
+
+```cypher
+# Arithmetic with epoch seconds
+MATCH (n) WHERE n.createdAt IS NOT NULL
+RETURN n.name, epochseconds(n.createdAt) + 86400 AS tomorrow
+
+# CASE with temporal
+MATCH (n) WHERE n.createdAt IS NOT NULL
+RETURN n.name, CASE WHEN year(n.createdAt) >= 2023 THEN 'recent' ELSE 'older' END AS category
+
+# Nested temporal functions
+RETURN year(datetime(epochseconds('2023-06-15T14:30:45.000Z'))) AS y
+
+# Coalesce with temporal
+RETURN coalesce(year(n.maybeDate), 1970) AS fallback
+```

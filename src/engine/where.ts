@@ -1,4 +1,5 @@
 import type { CypherValue, Expression, WhereExpression, BinaryExpression, IsNullExpression, LogicalExpression, NotExpression, OrderByItem, QueryContext } from '../types/cypher';
+import { isTemporalString, compareTemporalValues } from './expression';
 
 /**
  * Evaluate a WHERE expression against a context.
@@ -41,6 +42,10 @@ export function evaluateWhereCore(
     const value = evalExpr(whereNode);
     return !!value;
   }
+  if (whereNode.type === 'FunctionCall') {
+    const value = evalExpr(whereNode);
+    return !!value;
+  }
 
   // BinaryExpression
   const leftValue = evalExpr(whereNode.left);
@@ -52,19 +57,47 @@ export function evaluateWhereCore(
       return mapsEqual(leftValue, rightValue);
     case '>':
       if (typeof leftValue === 'number' && typeof rightValue === 'number') return leftValue > rightValue;
-      if (typeof leftValue === 'string' && typeof rightValue === 'string') return leftValue > rightValue;
+      if (typeof leftValue === 'string' && typeof rightValue === 'string') {
+        // Use temporal-aware comparison when both values are temporal strings
+        if (isTemporalString(leftValue) && isTemporalString(rightValue)) {
+          const cmp = compareTemporalValues(leftValue, rightValue);
+          if (cmp !== null) return cmp > 0;
+        }
+        return leftValue > rightValue;
+      }
       throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
     case '>=':
       if (typeof leftValue === 'number' && typeof rightValue === 'number') return leftValue >= rightValue;
-      if (typeof leftValue === 'string' && typeof rightValue === 'string') return leftValue >= rightValue;
+      if (typeof leftValue === 'string' && typeof rightValue === 'string') {
+        // Use temporal-aware comparison when both values are temporal strings
+        if (isTemporalString(leftValue) && isTemporalString(rightValue)) {
+          const cmp = compareTemporalValues(leftValue, rightValue);
+          if (cmp !== null) return cmp >= 0;
+        }
+        return leftValue >= rightValue;
+      }
       throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
     case '<':
       if (typeof leftValue === 'number' && typeof rightValue === 'number') return leftValue < rightValue;
-      if (typeof leftValue === 'string' && typeof rightValue === 'string') return leftValue < rightValue;
+      if (typeof leftValue === 'string' && typeof rightValue === 'string') {
+        // Use temporal-aware comparison when both values are temporal strings
+        if (isTemporalString(leftValue) && isTemporalString(rightValue)) {
+          const cmp = compareTemporalValues(leftValue, rightValue);
+          if (cmp !== null) return cmp < 0;
+        }
+        return leftValue < rightValue;
+      }
       throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
     case '<=':
       if (typeof leftValue === 'number' && typeof rightValue === 'number') return leftValue <= rightValue;
-      if (typeof leftValue === 'string' && typeof rightValue === 'string') return leftValue <= rightValue;
+      if (typeof leftValue === 'string' && typeof rightValue === 'string') {
+        // Use temporal-aware comparison when both values are temporal strings
+        if (isTemporalString(leftValue) && isTemporalString(rightValue)) {
+          const cmp = compareTemporalValues(leftValue, rightValue);
+          if (cmp !== null) return cmp <= 0;
+        }
+        return leftValue <= rightValue;
+      }
       throw new Error(`WHERE comparison "${whereNode.operator}" requires numeric or string values, got ${JSON.stringify(leftValue)} and ${JSON.stringify(rightValue)}`);
     case '<>':
       if (leftValue === rightValue) return false;
@@ -83,7 +116,7 @@ export function evaluateWhereCore(
 
 /** Check if a value is a valid WhereExpression (including quantifier/exists expressions). */
 export function isWhereExpression(value: Expression | WhereExpression): value is WhereExpression {
-  return value.type === 'BinaryExpression' || value.type === 'LogicalExpression' || value.type === 'NotExpression' || value.type === 'IsNull' || value.type === 'Quantifier' || value.type === 'Exists';
+  return value.type === 'BinaryExpression' || value.type === 'LogicalExpression' || value.type === 'NotExpression' || value.type === 'IsNull' || value.type === 'Quantifier' || value.type === 'Exists' || value.type === 'FunctionCall';
 }
 
 /** Extract list values from expression. */
@@ -94,7 +127,7 @@ export function extractListValues(expr: Expression, evalExpr: (e: Expression) =>
     return values;
   }
   if (expr.type === 'Literal') return [expr.value];
-  if (expr.type === 'PropertyAccess' || expr.type === 'FunctionCall' || expr.type === 'Case') {
+  if (expr.type === 'PropertyAccess' || expr.type === 'FunctionCall' || expr.type === 'Case' || expr.type === 'ListComprehension') {
     const val = evalExpr(expr);
     if (Array.isArray(val)) return val;
     if (val !== undefined && val !== null) return [val as CypherValue];
@@ -126,12 +159,65 @@ export function mapsEqual(left: CypherValue, right: CypherValue, selfMapsEqual: 
   return true;
 }
 
-/** Compare two values for sorting. */
+/** Check if a value is null/undefined for sorting purposes. */
+function isNullValue(v: CypherValue | undefined): boolean {
+  return v === null || v === undefined;
+}
+
+/** Compare two values for sorting, with NULLS FIRST/LAST support. */
+export function compareValuesWithNulls(
+  a: CypherValue | undefined,
+  b: CypherValue | undefined,
+  item: OrderByItem,
+): number {
+  const aNull = isNullValue(a);
+  const bNull = isNullValue(b);
+
+  if (aNull && bNull) return 0;
+
+  const nullsFirst = item.nullsDirection === 'NULLS FIRST' ||
+    (item.nullsDirection === undefined && item.direction === 'DESC');
+  const nullsLast = item.nullsDirection === 'NULLS LAST' ||
+    (item.nullsDirection === undefined && item.direction === 'ASC');
+
+  if (aNull) return nullsFirst ? -1 : 1;
+  if (bNull) return nullsFirst ? 1 : -1;
+
+  // Both non-null — compare normally
+  let cmp: number;
+  if (typeof a === 'number' && typeof b === 'number') cmp = a - b;
+  else if (typeof a === 'string' && typeof b === 'string') {
+    if (isTemporalString(a) && isTemporalString(b)) {
+      const temporalCmp = compareTemporalValues(a, b);
+      if (temporalCmp !== null) cmp = temporalCmp;
+      else cmp = a < b ? -1 : a > b ? 1 : 0;
+    } else {
+      cmp = a < b ? -1 : a > b ? 1 : 0;
+    }
+  } else if (typeof a === 'boolean' && typeof b === 'boolean') {
+    cmp = a === b ? 0 : (a ? -1 : 1);
+  } else {
+    const aStr = String(a);
+    const bStr = String(b);
+    cmp = aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
+  }
+
+  return item.direction === 'DESC' ? -cmp : cmp;
+}
+
+/** Compare two values for sorting (legacy, without nullsDirection). */
 export function compareValues(a: CypherValue | undefined, b: CypherValue | undefined): number {
   if (a === null || a === undefined) { if (b === null || b === undefined) return 0; return -1; }
   if (b === null || b === undefined) return 1;
   if (typeof a === 'number' && typeof b === 'number') return a - b;
-  if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
+  if (typeof a === 'string' && typeof b === 'string') {
+    // Use temporal-aware comparison when both values are temporal strings
+    if (isTemporalString(a) && isTemporalString(b)) {
+      const cmp = compareTemporalValues(a, b);
+      if (cmp !== null) return cmp;
+    }
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
   if (typeof a === 'boolean' && typeof b === 'boolean') return a === b ? 0 : (a ? -1 : 1);
   const aStr = String(a);
   const bStr = String(b);
@@ -152,9 +238,10 @@ export function applyOrderByToRows(
 
   keyed.sort((a, b) => {
     for (let i = 0; i < orderBy.length; i++) {
-      const cmp = compareValues(a.keys[i], b.keys[i]);
       const item = orderBy[i];
-      if (cmp !== 0 && item) return item.direction === 'DESC' ? -cmp : cmp;
+      if (!item) continue;
+      const cmp = compareValuesWithNulls(a.keys[i], b.keys[i], item);
+      if (cmp !== 0) return cmp;
     }
     return 0;
   });
@@ -172,9 +259,10 @@ export function applyOrderByToContexts(
 
   keyed.sort((a, b) => {
     for (let i = 0; i < orderBy.length; i++) {
-      const cmp = compareValues(a.keys[i], b.keys[i]);
       const item = orderBy[i];
-      if (cmp !== 0 && item) return item.direction === 'DESC' ? -cmp : cmp;
+      if (!item) continue;
+      const cmp = compareValuesWithNulls(a.keys[i], b.keys[i], item);
+      if (cmp !== 0) return cmp;
     }
     return 0;
   });

@@ -322,6 +322,29 @@ UNWIND [1, 2, 3] AS x RETURN x
 UNWIND ["Alice", "Bob"] AS name RETURN name
 ```
 
+### UNWIND with WHERE
+
+Filter unwound elements with a `WHERE` clause immediately after `UNWIND`:
+
+```cypher
+-- Filter numeric values
+UNWIND [1, 2, 3, 4, 5] AS x WHERE x > 3 RETURN x
+
+-- Filter strings with comparison operators
+UNWIND ["hello", "world", "help", "test"] AS s WHERE s STARTS WITH "hel" RETURN s
+
+-- Filter with IS NULL / IS NOT NULL
+UNWIND [10, null, 5, null, 20] AS x WHERE x IS NOT NULL RETURN x ORDER BY x
+```
+
+Combine UNWIND WHERE with `WITH` for further filtering:
+
+```cypher
+UNWIND [1, 2, 3, 4, 5] AS x WHERE x > 1
+WITH x WHERE x < 5
+RETURN x ORDER BY x
+```
+
 Combine with `MATCH` to expand a list property:
 
 ```cypher
@@ -430,6 +453,41 @@ MATCH (u:User) RETURN reduce(s = "", x IN collect(u.name) | s + x + ", ") AS all
 
 ---
 
+### List Comprehensions
+
+Transform and filter list elements with `[var IN list [WHERE predicate] | generator]`. The comprehension iterates over each element, optionally filters with a `WHERE` clause, applies the generator expression, and returns a new list.
+
+```cypher
+-- Double each element
+RETURN [x IN [1, 2, 3] | x * 2] AS doubled
+-- Result: [2, 4, 6]
+
+-- Filter even numbers
+RETURN [x IN [1, 2, 3, 4, 5] WHERE x % 2 = 0 | x] AS evens
+-- Result: [2, 4]
+
+-- Transform property list
+MATCH (n) WHERE n.name = "Alice" RETURN [x IN n.tags | toUpper(x)] AS upperTags
+
+-- Filter and transform combined
+RETURN [x IN [1, 2, 3, 4, 5] WHERE x > 2 | x * 10] AS result
+-- Result: [30, 40, 50]
+
+-- Use in WHERE clause
+MATCH (n) WHERE size([x IN n.scores WHERE x >= 80 | x]) >= 3 RETURN n.name
+
+-- Combine with reduce
+RETURN reduce(total = 0, x IN [y IN [1, 2, 3, 4, 5] WHERE y > 2 | y * 2] | total + x) AS sum
+-- Result: 24 (comprehension produces [6, 8, 10], reduce sums to 24)
+
+-- Use with quantifiers
+MATCH (n) WHERE ANY(x IN [s IN n.scores | s * 2] WHERE x > 150) RETURN n.name
+```
+
+> **Note:** List comprehensions work in `RETURN`, `WHERE`, `WITH`, and `SET` clauses. They can be nested inside functions (e.g., `size([x IN list | ...])`), `reduce()`, and quantifier expressions. The `WHERE` clause inside a comprehension supports all standard WHERE operators (`=`, `>`, `CONTAINS`, `AND`, `OR`, `NOT`, etc.).
+
+---
+
 ### Scalar functions
 
 Scalar functions operate on individual values and work in `RETURN`, `WHERE`, `WITH`, and `ORDER BY` clauses. Nested calls are supported.
@@ -461,7 +519,10 @@ Scalar functions operate on individual values and work in `RETURN`, `WHERE`, `WI
 | `coalesce(x, y, ...)` | First non-null argument |
 | `toString(x)` | Convert value to string |
 | `toInteger(x)` | Convert value to integer |
+| `toInt(x)` | Convert value to integer (alias for `toInteger`) |
 | `toFloat(x)` | Convert value to float |
+| `toBoolean(x)` | Convert value to boolean |
+| `keys(x)` | Property names of a map as list |
 
 ```cypher
 MATCH (u:User) RETURN toLower(u.name) AS lowerName
@@ -471,9 +532,142 @@ MATCH (u:User) RETURN split(u.email, '@')[0] AS username
 MATCH (u:User) RETURN length(u.name) AS nameLen
 MATCH (u:User) RETURN coalesce(u.nick, u.name, 'Unknown') AS displayName
 MATCH (u:User) RETURN toInteger(u.age) AS age
+MATCH (u:User) RETURN toInt(u.age) AS age
+MATCH (u:User) RETURN toBoolean(u.active) AS isActive
+RETURN toBoolean(1) AS oneIsTrue
+RETURN toBoolean(0) AS zeroIsFalse
+RETURN toBoolean('') AS emptyStringIsFalse
+RETURN toBoolean('yes') AS nonEmptyStringIsTrue
+RETURN keys({name: 'Alice', age: 30}) AS propertyNames
 ```
 
-> **Note:** `repl` is used instead of `replace`, and `reltype` instead of `type` because these are reserved keywords in the ANTLR4 Cypher grammar. `labels` is standard Cypher and works as the sole item in RETURN (e.g., `RETURN labels(n)`); use `labelsOf` in WHERE/WITH/ORDER BY or when combined with other RETURN items (ANTLR4 keyword limitation). `startnode()` and `endnode()` return string IDs, not node objects. `nodes(path)` and `relationships(path)` extract from path variables bound with `MATCH path = ...`. `labels()`, `nodes()`, and `relationships()` do not support `AS` aliases (ANTLR4 grammar limitation — use the auto-generated column name like `labels(n)` or `nodes(path)`).
+> **Note:** `repl` is used instead of `replace`, and `reltype` instead of `type` because these are reserved keywords in the ANTLR4 Cypher grammar. `toInt` is an alias for `toInteger`. `toBoolean` converts numbers (0 → false, non-zero → true), strings (empty → false, non-empty → true), and other truthy values. `keys` returns property names of map literals as a list. `labels` is standard Cypher and works as the sole item in RETURN (e.g., `RETURN labels(n)`); use `labelsOf` in WHERE/WITH/ORDER BY or when combined with other RETURN items (ANTLR4 keyword limitation). `startnode()` and `endnode()` return string IDs, not node objects. `nodes(path)` and `relationships(path)` extract from path variables bound with `MATCH path = ...`. `labels()`, `nodes()`, and `relationships()` do not support `AS` aliases (ANTLR4 grammar limitation — use the auto-generated column name like `labels(n)` or `nodes(path)`).
+
+---
+
+### Temporal functions
+
+Construct and extract components from datetime, date, time, and duration values.
+
+#### Constructors
+
+| Function | Description |
+|---|---|
+| `timestamp()` | Current Unix timestamp in seconds (number) |
+| `datetime()` | Current datetime as ISO 8601 string (`YYYY-MM-DDTHH:mm:ss.mmmZ`) |
+| `datetime(components)` | Construct from year, month, day, hour, minute, second, millisecond |
+| `datetime(map)` | Construct from map: `{year, month, day, hour, minute, second, millisecond}` |
+| `datetime(string)` | Construct from ISO 8601 string |
+| `datetime(number)` | Construct from epoch seconds or milliseconds |
+| `date()` | Current date as ISO 8601 string (`YYYY-MM-DD`) |
+| `date(components)` | Construct from year, month, day |
+| `date(string)` | Construct from date or datetime string |
+| `time()` | Current time as ISO 8601 string (`HH:mm:ss` or `HH:mm:ss.mmm`) |
+| `time(hour, minute, second, millisecond)` | Construct from time components |
+| `time(string)` | Construct from time string |
+| `localdatetime()` | Current local datetime (no timezone suffix) |
+| `localdatetime(components)` | Construct local datetime from components |
+| `localtime()` | Current local time (no timezone suffix) |
+| `localtime(hour, minute, second, millisecond)` | Construct local time from components |
+| `datetimewithtimezone()` | Current datetime with timezone |
+| `datetimewithtimezone(string)` | Construct from string, preserving timezone offset |
+| `datetimewithtimezone(map)` | Construct from map with optional `timezone` field |
+| `timewithzone()` | Current time with timezone |
+| `timewithzone(hour, minute, second)` | Construct time with timezone from components |
+| `timewithzone(string)` | Construct from string, preserving timezone offset |
+| `duration(map)` | Construct duration from map: `{years, months, days, hours, minutes, seconds, milliseconds}` |
+| `duration(string)` | Construct from ISO 8601 duration string (e.g., `P1Y2M3DT4H5M6S`) |
+
+```cypher
+-- Current values
+RETURN timestamp() AS ts, datetime() AS dt, date() AS d, time() AS t
+
+-- From components
+RETURN datetime(2023, 6, 15, 14, 30, 45, 123) AS dt
+RETURN date(2023, 6, 15) AS d
+RETURN time(14, 30, 45) AS t
+
+-- From map
+RETURN datetime({year: 2023, month: 6, day: 15, hour: 14, minute: 30}) AS dt
+RETURN time({hour: 14, minute: 30, second: 45, millisecond: 123}) AS t
+
+-- From string
+RETURN datetime('2023-06-15T14:30:45.123Z') AS dt
+RETURN date('2023-06-15') AS d
+RETURN time('14:30:45') AS t
+
+-- From epoch
+RETURN datetime(1672531200) AS dt
+
+-- Local datetime/time (no timezone)
+RETURN localdatetime(2023, 6, 15, 14, 30, 45) AS local
+RETURN localtime(14, 30, 45) AS local
+
+-- Duration
+RETURN duration({years: 1, months: 2, days: 3, hours: 4, minutes: 5, seconds: 6}) AS dur
+RETURN duration('P1Y2M3DT4H5M6S') AS dur
+
+-- With timezone
+RETURN datetimewithtimezone('2023-06-15T14:30:45+02:00') AS dt
+RETURN timewithzone('14:30:45-05:00') AS t
+```
+
+#### Extractors
+
+| Function | Description |
+|---|---|
+| `year(x)` | Year from temporal value |
+| `month(x)` | Month (1–12) |
+| `day(x)` | Day of month (1–31) |
+| `hour(x)` | Hour (0–23) |
+| `minute(x)` | Minute (0–59) |
+| `second(x)` | Second (0–59) |
+| `millisecond(x)` | Millisecond (0–999) |
+| `timezone(x)` | Timezone offset string (`Z`, `+HH:MM`, `-HH:MM`, or `null`) |
+| `epochseconds(x)` | Unix epoch seconds |
+| `epochmillisecond(x)` | Unix epoch milliseconds |
+| `totalSeconds(x)` | Total seconds from duration |
+| `totalMinutes(x)` | Total minutes from duration |
+
+```cypher
+-- Extract from datetime string
+RETURN year('2023-06-15T14:30:45.000Z') AS y
+RETURN month('2023-06-15T14:30:45.000Z') AS m
+RETURN hour('14:30:45') AS h
+
+-- Extract from node property
+MATCH (n) WHERE n.createdAt IS NOT NULL
+RETURN year(n.createdAt) AS year, month(n.createdAt) AS month, hour(n.createdAt) AS hour
+
+-- Extract timezone
+RETURN timezone('2023-06-15T14:30:45+02:00') AS tz
+RETURN timezone('2023-06-15T14:30:45.000Z') AS tz
+
+-- Extract epoch
+RETURN epochseconds('2023-01-01T00:00:00.000Z') AS epoch
+RETURN epochmillisecond('2023-01-01') AS epoch
+
+-- Extract from duration
+RETURN totalSeconds(duration({hours: 1, minutes: 30})) AS totalSec
+RETURN totalMinutes(duration('P1H30M45S')) AS totalMin
+```
+
+#### Temporal comparison
+
+Datetime and date strings are compared chronologically (not lexicographically) in `WHERE` and `ORDER BY` clauses. Timezone offsets are properly accounted for:
+
+```cypher
+-- Filter by datetime range
+MATCH (n) WHERE n.createdAt > '2023-01-01T00:00:00.000Z' RETURN n
+
+-- Compare with timezone offsets (chronologically correct)
+MATCH (n) WHERE n.createdAt <= '2023-06-15T14:30:45+02:00' RETURN n
+
+-- Order chronologically
+MATCH (n) RETURN n.name ORDER BY n.createdAt DESC
+```
+
+> **Note:** Temporal functions work in `RETURN`, `WHERE`, `WITH`, `ORDER BY`, and `SET` clauses. Invalid inputs return `null`. Date overflow is handled by JavaScript `Date` normalization (e.g., month 13 → next year, month 1).
 
 ---
 
@@ -847,6 +1041,29 @@ MATCH (u:User) RETURN u.name ORDER BY u.name ASC
 MATCH (u:User) RETURN u.name, u.age ORDER BY u.age DESC
 MATCH (u:User) RETURN u.name, u.age ORDER BY u.age ASC, u.name DESC
 ```
+
+### NULLS FIRST / NULLS LAST
+
+Control the position of null values in the sorted output. Default behavior: `NULLS LAST` for `ASC`, `NULLS FIRST` for `DESC`.
+
+```cypher
+-- Nulls first in ascending order
+MATCH (n:Item) RETURN n.name, n.score ORDER BY n.score NULLS FIRST
+
+-- Nulls last in ascending order (explicit)
+MATCH (n:Item) RETURN n.name, n.score ORDER BY n.score ASC NULLS LAST
+
+-- Nulls last in descending order (explicit)
+MATCH (n:Item) RETURN n.name, n.score ORDER BY n.score DESC NULLS LAST
+
+-- Nulls first in descending order
+MATCH (n:Item) RETURN n.name, n.score ORDER BY n.score DESC NULLS FIRST
+
+-- Multiple sort keys with different nulls directions
+MATCH (n:Item) RETURN n.name, n.score, n.rating ORDER BY n.score ASC NULLS LAST, n.rating DESC NULLS FIRST
+```
+
+`NULLS FIRST`/`NULLS LAST` work in both `RETURN` and `WITH` ORDER BY clauses.
 
 ---
 

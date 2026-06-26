@@ -40,9 +40,12 @@ See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 - **Filtering:** `WHERE` with `=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `IS NULL`, `AND`/`OR`/`NOT`, map comparison
 - **CASE:** `CASE WHEN cond THEN result` and `CASE expr WHEN val THEN result`. Nested. In RETURN/WHERE/WITH/ORDER BY/SET
 - **Pipelining:** `WITH` + `count()`, `count(*)`, `sum()`, `avg()`, `min()`, `max()`, `collect()`, `collect(DISTINCT)`, `count(DISTINCT)`, `sum(DISTINCT)`, `avg(DISTINCT)`
+- **UNWIND with WHERE:** filter unwound elements (e.g., `UNWIND list AS x WHERE x > 0`). Supports all WHERE operators (`=`, `>`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IS NULL`, etc.). Can be combined with `WITH` for multi-stage filtering.
+- **ORDER BY NULLS FIRST/LAST:** control null position (e.g., `ORDER BY score NULLS FIRST`). Default: `NULLS LAST` for ASC, `NULLS FIRST` for DESC. Works in RETURN and WITH.
 - **Reduce:** `reduce(init, var IN list | body)` folds a list. Not itself an aggregation — triggers grouping only when sub-expressions contain aggregations (e.g., `reduce(..., x IN collect(y) | ...)`)
 - **UNION/UNION ALL:** combine results from multiple branches (each ending with `RETURN`), ORDER BY/SKIP/LIMIT on combined result
-- **Scalar functions:** 28+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `labels` (sole RETURN item only), `labelsOf` (everywhere), `nodes` (sole RETURN item only), `relationships` (sole RETURN item only), etc.)
+- **Scalar functions:** 40+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `labels` (sole RETURN item only), `labelsOf` (everywhere), `nodes` (sole RETURN item only), `relationships` (sole RETURN item only), etc.)
+- **Temporal functions:** `timestamp()`, `datetime()`, `date()`, `time()`, `localdatetime()`, `localtime()`, `datetimewithtimezone()`, `timewithzone()`, `duration()`. Extractors: `year()`, `month()`, `day()`, `hour()`, `minute()`, `second()`, `millisecond()`, `timezone()`, `epochseconds()`, `epochmillisecond()`, `totalSeconds()`, `totalMinutes()`. Temporal comparison in WHERE/ORDER BY is chronological and timezone-aware.
 - **Path expressions:** `shortestPath((a)-[*]->(b))` returns single shortest path (BFS); `allShortestPaths((a)-[*]->(b))` returns all minimum-length paths. Supports type filtering (`[:TYPE*]`), direction (`->`, `<-`, `-`), and depth bounds (`*min..max`). Variables must be bound in query context.
 - **Arithmetic:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`, parentheses. `+` concatenates strings. Null propagation, div/mod by zero → null
 - **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices
@@ -108,6 +111,23 @@ Service dependencies, blast radius, path tracing, shortest path, infrastructure 
 | reduce + collect | `MATCH (u:User) RETURN reduce(total = 0, x IN collect(u.age) | total + x) AS totalAge` |
 | quantifiers | `MATCH (n) WHERE ALL/ANY/SINGLE/NONE(x IN n.tags WHERE x = "a") RETURN n` |
 | EXISTS | `MATCH (n) WHERE EXISTS(n.prop) OR NOT EXISTS(n.prop) RETURN n` |
+| UNWIND WHERE | `UNWIND [1,2,3,4,5] AS x WHERE x > 3 RETURN x` |
+| UNWIND WHERE + WITH | `UNWIND [1,2,3,4,5] AS x WHERE x > 1 WITH x WHERE x < 5 RETURN x` |
+| ORDER BY NULLS FIRST | `MATCH (n) RETURN n.name, n.score ORDER BY n.score NULLS FIRST` |
+| ORDER BY NULLS LAST | `MATCH (n) RETURN n.name, n.score ORDER BY n.score DESC NULLS LAST` |
+| timestamp | `RETURN timestamp() AS ts` |
+| datetime | `RETURN datetime() AS dt, datetime(2023, 6, 15, 14, 30, 45) AS dt2` |
+| date | `RETURN date() AS d, date(2023, 6, 15) AS d2` |
+| time | `RETURN time() AS t, time(14, 30, 45) AS t2` |
+| localdatetime | `RETURN localdatetime() AS dt, localdatetime(2023, 6, 15, 14, 30, 45) AS dt2` |
+| localtime | `RETURN localtime() AS t, localtime(14, 30, 45) AS t2` |
+| duration | `RETURN duration({hours: 1, minutes: 30}) AS dur, duration('P1Y2M3DT4H5M6S') AS dur2` |
+| year/month/day | `RETURN year(n.createdAt) AS y, month(n.createdAt) AS m, day(n.createdAt) AS d` |
+| hour/minute/second | `RETURN hour(n.createdAt) AS h, minute(n.createdAt) AS min, second(n.createdAt) AS s` |
+| timezone | `RETURN timezone('2023-06-15T14:30:45+02:00') AS tz` |
+| epochseconds | `RETURN epochseconds(n.createdAt) AS epoch` |
+| temporal WHERE | `MATCH (n) WHERE n.createdAt > '2023-01-01T00:00:00.000Z' RETURN n` |
+| temporal ORDER BY | `MATCH (n) RETURN n.name ORDER BY n.createdAt DESC` |
 
 See `references/queries.md` for more patterns.
 
