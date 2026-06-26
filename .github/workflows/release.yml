@@ -112,7 +112,7 @@ jobs:
           # npm 10+ outputs with 'v' prefix — strip it for consistent handling
           VERSION=${NEW#v}
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          git add package.json
+          git add package.json package-lock.json
           git commit -m "chore: bump version to v$VERSION"
           git tag "v$VERSION"
           git push origin main --tags
