@@ -10,6 +10,7 @@ import type {
   CypherLiteral,
   CypherValue,
   WhereExpression,
+  NodePattern,
 } from '../types/cypher';
 import type { ParseTreeNode } from 'antlr4';
 import { evaluateArithmeticCore } from '../arithmetic';
@@ -722,7 +723,7 @@ export function evaluateExpressionFromAtom(
             const sourcePattern = extractNodePattern(sourceNodeCtx);
             const chains = findAllChildren(relPatternCtx, Ctx.PatternElementChain);
             let relationPattern = undefined;
-            let targetPattern = { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
+            let targetPattern: NodePattern = { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
             if (chains.length > 0) {
               const chain = chains[0]!;
               const relPattCtx = findChild(chain, Ctx.RelationshipPattern);
