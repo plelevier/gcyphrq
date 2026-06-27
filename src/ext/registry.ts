@@ -268,10 +268,10 @@ export function resetExtensionFunctions(): void {
 /**
  * Format extensions list for --list-extensions output.
  */
-export function formatExtensionsList(): string {
-  const extensions = listExtensions();
+export function formatExtensionsList(extensions?: Array<{ name: string; type: string; description: string; version: string; namespace?: string; packageName: string; packageVersion: string }>): string {
+  const exts = extensions ?? listExtensions();
 
-  if (extensions.length === 0) {
+  if (exts.length === 0) {
     return `No extensions installed.
 
 Install extensions locally or globally:
@@ -282,9 +282,9 @@ See https://www.npmjs.com/search?q=gcyphrq-ext for available extensions.`;
   }
 
   const lines: string[] = ['Available extensions:'];
-  const nameWidth = Math.max(12, ...extensions.map((e) => e.name.length));
+  const nameWidth = Math.max(12, ...exts.map((e) => e.name.length));
 
-  for (const ext of extensions) {
+  for (const ext of exts) {
     const typeTag = ext.type === 'function' ? `[function]  ns:${ext.namespace}` : '[graph-input]';
     const padded = ext.name.padEnd(nameWidth);
     lines.push(`  ${padded} (v${ext.version}) ${typeTag}  ${ext.packageName}@${ext.packageVersion}`);
