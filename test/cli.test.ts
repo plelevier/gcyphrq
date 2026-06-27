@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFile } from 'child_process';
-import { writeFileSync, mkdirSync, rmSync } from 'fs';
+import { writeFileSync, mkdirSync, rmSync, readFileSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
@@ -531,7 +531,7 @@ describe('CLI - extensions', () => {
     try {
       const mockSrc = join(PROJECT_ROOT, 'test', 'ext', 'mock-extension');
       for (const file of ['package.json', 'mock-graph.js', 'mock-fn.js']) {
-        writeFileSync(join(mockDest, file), require('fs').readFileSync(join(mockSrc, file), 'utf-8'));
+        writeFileSync(join(mockDest, file), readFileSync(join(mockSrc, file), 'utf-8'));
       }
 
       const d = mkSubdir('ext-fn-e2e');
@@ -558,7 +558,7 @@ describe('CLI - extensions', () => {
     try {
       const mockSrc = join(PROJECT_ROOT, 'test', 'ext', 'mock-extension');
       for (const file of ['package.json', 'mock-graph.js', 'mock-fn.js']) {
-        writeFileSync(join(mockDest, file), require('fs').readFileSync(join(mockSrc, file), 'utf-8'));
+        writeFileSync(join(mockDest, file), readFileSync(join(mockSrc, file), 'utf-8'));
       }
 
       const d = mkSubdir('ext-fn-prop');
