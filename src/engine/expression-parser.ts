@@ -10,6 +10,7 @@ import type {
   CypherLiteral,
   CypherValue,
   WhereExpression,
+  NodePattern,
 } from '../types/cypher';
 import type { ParseTreeNode } from 'antlr4';
 import { evaluateArithmeticCore } from '../arithmetic';
@@ -712,6 +713,43 @@ export function evaluateExpressionFromAtom(
           expression: undefined,
           distinct: !!hasDistinct,
         };
+      }
+      // Pattern argument: count((a)-[r]->(b))
+      if (funcName.toLowerCase() === 'count' && argAtom) {
+        const relPatternCtx = findChild(argAtom, Ctx.RelationshipsPattern);
+        if (relPatternCtx) {
+          const sourceNodeCtx = findChild(relPatternCtx, Ctx.NodePattern);
+          if (sourceNodeCtx) {
+            const sourcePattern = extractNodePattern(sourceNodeCtx);
+            const chains = findAllChildren(relPatternCtx, Ctx.PatternElementChain);
+            let relationPattern = undefined;
+            let targetPattern: NodePattern = { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
+            if (chains.length > 0) {
+              const chain = chains[0]!;
+              const relPattCtx = findChild(chain, Ctx.RelationshipPattern);
+              if (relPattCtx) relationPattern = extractRelationPattern(relPattCtx);
+              const targetNodeCtx = findChild(chain, Ctx.NodePattern);
+              if (targetNodeCtx) targetPattern = extractNodePattern(targetNodeCtx);
+            }
+            const predicate = undefined; // count((pattern)) doesn't support WHERE; use pattern comprehension for that
+            return {
+              type: 'Aggregation' as const,
+              aggregationType: 'COUNT' as const,
+              variable: null,
+              property: undefined,
+              expression: {
+                type: 'PatternComprehension' as const,
+                sourcePattern,
+                relationPattern,
+                targetPattern,
+                predicate,
+                generator: { type: 'Literal' as const, value: 1 },
+              },
+              distinct: !!hasDistinct,
+              isPattern: true,
+            };
+          }
+        }
       }
       // Complex expression argument: sum(toInteger(row.latency))
       if (argExpr) {

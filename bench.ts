@@ -22,7 +22,7 @@ function loadGraph(path: string): { data: GraphologyFile; graph: ReturnType<type
   return { data, graph: createGraph(data) };
 }
 
-function benchmark(query: string, graph: ReturnType<typeof createGraph>, indexes?: GraphIndexes): { ms: number; rows: number } {
+async function benchmark(query: string, graph: ReturnType<typeof createGraph>, indexes?: GraphIndexes): Promise<{ ms: number; rows: number }> {
   const engine = new GraphEngine(graph, indexes);
   const ast = parseCypher(query);
 
@@ -30,7 +30,7 @@ function benchmark(query: string, graph: ReturnType<typeof createGraph>, indexes
   const start = performance.now();
   let lastRows = 0;
   for (let i = 0; i < iterations; i++) {
-    const results = engine.execute(ast);
+    const results = await engine.execute(ast);
     lastRows = results.length;
   }
   const elapsed = performance.now() - start;
@@ -80,8 +80,8 @@ console.log('\u2500'.repeat(header.length));
 for (const q of queries) {
   const short = q.length > 63 ? q.slice(0, 60) + '...' : q;
 
-  const noIndex = benchmark(q, graph);
-  const withIndex = benchmark(q, graph, indexes);
+  const noIndex = await benchmark(q, graph);
+  const withIndex = await benchmark(q, graph, indexes);
 
   const speedup = noIndex.ms > 0 ? (noIndex.ms / withIndex.ms).toFixed(1) : '\u221e';
   const label = `${noIndex.rows} rows`;
