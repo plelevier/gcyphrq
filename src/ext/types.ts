@@ -178,18 +178,21 @@ export interface ArgValidator {
   /**
    * Extract arg at `index`, optionally type-check, store under `key`.
    * If `typeCheck` fails, `FunctionError` is thrown.
+   * Accepts a type guard `(v: unknown) => v is T` or a plain predicate `(v: unknown) => boolean`.
    */
-  arg<T = unknown>(index: number, key: string, typeCheck?: (v: unknown) => v is T): ArgValidator;
+  arg<T = unknown>(index: number, key: string, typeCheck?: (v: unknown) => v is T | boolean): ArgValidator;
   /**
    * Extract arg at `index`, store under `key`, but allow it to be missing.
    * If the argument is not provided, the key will hold `undefined`.
+   * Accepts a type guard `(v: unknown) => v is T` or a plain predicate `(v: unknown) => boolean`.
    */
-  argOptional<T = unknown>(index: number, key: string, typeCheck?: (v: unknown) => v is T): ArgValidator;
+  argOptional<T = unknown>(index: number, key: string, typeCheck?: (v: unknown) => v is T | boolean): ArgValidator;
   /**
    * Extract all arguments from `index` to end, optionally type-check each,
    * store under `key`.
+   * Accepts a type guard `(v: unknown) => v is T` or a plain predicate `(v: unknown) => boolean`.
    */
-  argsFrom<T = unknown>(index: number, key: string, typeCheck?: (v: unknown) => v is T): ArgValidator;
+  argsFrom<T = unknown>(index: number, key: string, typeCheck?: (v: unknown) => v is T | boolean): ArgValidator;
 }
 
 /**
@@ -224,7 +227,7 @@ export function validate(
       countMax = max;
       return validator;
     },
-    arg<T = unknown>(index: number, key: string, typeCheck?: (v: unknown) => v is T): ArgValidator {
+    arg<T = unknown>(index: number, key: string, typeCheck?: (v: unknown) => v is T | boolean): ArgValidator {
       if (index >= args.length) {
         throw new FunctionError(`Missing argument at index ${index} (key "${key}")`);
       }
@@ -237,7 +240,7 @@ export function validate(
       extracted[key] = value;
       return validator;
     },
-    argOptional<T = unknown>(index: number, key: string, typeCheck?: (v: unknown) => v is T): ArgValidator {
+    argOptional<T = unknown>(index: number, key: string, typeCheck?: (v: unknown) => v is T | boolean): ArgValidator {
       if (index < args.length) {
         const value = args[index]!;
         if (typeCheck && !typeCheck(value)) {
@@ -251,7 +254,7 @@ export function validate(
       }
       return validator;
     },
-    argsFrom<T = unknown>(index: number, key: string, typeCheck?: (v: unknown) => v is T): ArgValidator {
+    argsFrom<T = unknown>(index: number, key: string, typeCheck?: (v: unknown) => v is T | boolean): ArgValidator {
       const values: unknown[] = [];
       for (let i = index; i < args.length; i++) {
         const value = args[i]!;

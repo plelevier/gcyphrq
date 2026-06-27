@@ -522,4 +522,60 @@ describe('CLI - extensions', () => {
     // Should fail on extension not found, not on a flag conflict
     expect(stderr).toContain('not found');
   });
+
+  it('runs extension function via --ext-fn end-to-end', async () => {
+    // Temporarily install mock extension into node_modules
+    const mockDest = join(PROJECT_ROOT, 'node_modules', 'gcyphrq-ext-mock');
+    mkdirSync(mockDest, { recursive: true });
+
+    try {
+      const mockSrc = join(PROJECT_ROOT, 'test', 'ext', 'mock-extension');
+      for (const file of ['package.json', 'mock-graph.js', 'mock-fn.js']) {
+        writeFileSync(join(mockDest, file), require('fs').readFileSync(join(mockSrc, file), 'utf-8'));
+      }
+
+      const d = mkSubdir('ext-fn-e2e');
+      const path = writeFile(d, 'graph.json', simpleGraph);
+      const { stdout, code } = await runCli([
+        '-g', path,
+        '--ext-fn', 'mock-fn',
+        '-e', 'RETURN mock.hello("CLI") AS greeting',
+        '--format', 'rows',
+      ]);
+      expect(code).toBe(0);
+      const parsed = JSON.parse(stdout);
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0].greeting).toBe('Hello, CLI!');
+    } finally {
+      rmSync(mockDest, { recursive: true, force: true });
+    }
+  });
+
+  it('runs extension function with node property via --ext-fn', async () => {
+    const mockDest = join(PROJECT_ROOT, 'node_modules', 'gcyphrq-ext-mock');
+    mkdirSync(mockDest, { recursive: true });
+
+    try {
+      const mockSrc = join(PROJECT_ROOT, 'test', 'ext', 'mock-extension');
+      for (const file of ['package.json', 'mock-graph.js', 'mock-fn.js']) {
+        writeFileSync(join(mockDest, file), require('fs').readFileSync(join(mockSrc, file), 'utf-8'));
+      }
+
+      const d = mkSubdir('ext-fn-prop');
+      const path = writeFile(d, 'graph.json', simpleGraph);
+      const { stdout, code } = await runCli([
+        '-g', path,
+        '--ext-fn', 'mock-fn',
+        '-e', 'MATCH (u:User) RETURN mock.hello(u.name) AS greeting ORDER BY greeting',
+        '--format', 'rows',
+      ]);
+      expect(code).toBe(0);
+      const parsed = JSON.parse(stdout);
+      expect(parsed).toHaveLength(2);
+      expect(parsed[0].greeting).toBe('Hello, Alice!');
+      expect(parsed[1].greeting).toBe('Hello, Bob!');
+    } finally {
+      rmSync(mockDest, { recursive: true, force: true });
+    }
+  });
 });

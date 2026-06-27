@@ -244,6 +244,7 @@ const result = validate(args, (v) => {
   // Individual argument validation
   v.arg(0, 'name', helpers.isString);  // arg[0] must be string
   v.arg(1, 'value', helpers.isNumber);  // arg[1] must be number
+  v.arg(2, 'custom', (v) => v !== null);  // custom predicate also accepted
 
   // Bulk validation from index N onwards
   v.argsFrom(1, 'values', helpers.isNumber);
@@ -268,6 +269,8 @@ RETURN apoc.text.capitalize("hello")
 > **Note:** Function names are case-insensitive — the Cypher grammar lowercases all function names. Register `"join"` and call it as `apoc.join()`, `apoc.Join()`, or `apoc.JOIN()`; all resolve to the same function.
 
 The engine pre-processes dotted function names into backtick-quoted identifiers so the ANTLR4 parser accepts them.
+
+> **Implementation note:** The pre-processing regex matches any `identifier.identifier(...)` pattern. In valid Cypher, property access (e.g., `n.name`) is never followed by `(`, so there is no false positive. Only malformed input like `n.name(...)` could theoretically trigger the transformation.
 
 ## Publishing
 
