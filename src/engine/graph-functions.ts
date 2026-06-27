@@ -1,5 +1,51 @@
 import type { GraphInstance } from '../graph';
-import type { CypherValue } from '../types/cypher';
+import type { CypherNode, CypherEdge, CypherValue } from '../types/cypher';
+
+// ── Subgraph result types ───────────────────────────────────────────────────
+
+/** Result of a subgraph extraction function. */
+export interface SubgraphResult {
+  nodes: CypherNode[];
+  edges: CypherEdge[];
+}
+
+/** Build a SubgraphResult from a set of node IDs and edge IDs. */
+function buildSubgraphResult(
+  graph: GraphInstance,
+  nodeIds: Set<string>,
+  edgeIds: Set<string>,
+): SubgraphResult {
+  const nodes: CypherNode[] = [];
+  for (const id of nodeIds) {
+    const attrs = graph.getNodeAttributes(id);
+    nodes.push({ id, ...attrs } as CypherNode);
+  }
+  const edges: CypherEdge[] = [];
+  for (const eid of edgeIds) {
+    const attrs = graph.getEdgeAttributes(eid);
+    const endpoints = graph.getEdgeEndpoints(eid);
+    edges.push({ id: eid, source: endpoints.source, target: endpoints.target, ...attrs } as CypherEdge);
+  }
+  return { nodes, edges };
+}
+
+/** Collect all edges between a set of nodes (both directions). */
+function collectEdgesBetweenNodes(graph: GraphInstance, nodeIds: Set<string>): Set<string> {
+  const edgeIds = new Set<string>();
+  for (const nodeId of nodeIds) {
+    graph.forEachOutboundEdge(nodeId, (e, _a, s, t) => {
+      if (nodeIds.has(s!) && nodeIds.has(t!)) {
+        edgeIds.add(e);
+      }
+    });
+    graph.forEachInboundEdge(nodeId, (e, _a, s, t) => {
+      if (!edgeIds.has(e) && nodeIds.has(s!) && nodeIds.has(t!)) {
+        edgeIds.add(e);
+      }
+    });
+  }
+  return edgeIds;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -462,3 +508,123 @@ export function betweennessCentrality(graph: GraphInstance, nodeArg?: CypherValu
 
   return result as CypherValue;
 }
+
+// ── Subgraph Extraction Functions ────────────────────────────────────────────
+
+/**
+ * `subgraph(nodeList)` — Extracts the induced subgraph from a list of nodes.
+ *
+ * Returns all nodes in the list plus all edges that exist between any two
+ * nodes in the list. The result is a map `{ nodes: [...], edges: [...] }`
+ * where nodes and edges include full attributes.
+ *
+ * @param nodeList - An array of node objects (each must have an `id` property)
+ * @returns A SubgraphResult with nodes and edges, or null if input is invalid
+ */
+export function subgraph(graph: GraphInstance, nodeList: CypherValue): CypherValue {
+  if (!Array.isArray(nodeList)) return null;
+
+  const nodeIds = new Set<string>();
+  for (const item of nodeList) {
+    if (!item || typeof item !== 'object') continue;
+    const obj = item as Record<string, unknown>;
+    if (typeof obj.id === 'string' && obj.id && graph.hasNode(obj.id)) {
+      nodeIds.add(obj.id);
+    }
+  }
+
+  if (nodeIds.size === 0) {
+    return { nodes: [], edges: [] } as unknown as CypherValue;
+  }
+
+  const edgeIds = collectEdgesBetweenNodes(graph, nodeIds);
+  return buildSubgraphResult(graph, nodeIds, edgeIds) as unknown as CypherValue;
+}
+
+/**
+ * `egoGraph(node, k)` — Extracts the k-hop ego network of a node.
+ *
+ * Returns the given node plus all nodes reachable within k hops (treating
+ * all edges as bidirectional), and all edges between those nodes.
+ * The result is a map `{ nodes: [...], edges: [...] }`.
+ *
+ * @param nodeArg - A node object (must have an `id` property)
+ * @param k - Number of hops (default 1). Must be a non-negative integer.
+ * @returns A SubgraphResult with nodes and edges, or null if input is invalid
+ */
+export function egoGraph(graph: GraphInstance, nodeArg: CypherValue, kArg?: CypherValue): CypherValue {
+  const nodeId = extractNodeId(nodeArg);
+  if (!nodeId || !graph.hasNode(nodeId)) return null;
+
+  let k: number;
+  if (kArg === undefined || kArg === null) {
+    k = 1;
+  } else {
+    k = typeof kArg === 'number' ? Math.floor(kArg) : parseInt(String(kArg), 10);
+    if (isNaN(k) || k < 0) return null;
+  }
+
+  // BFS to find all nodes within k hops (treating all edges as bidirectional)
+  const reachableNodeIds = new Set<string>();
+  reachableNodeIds.add(nodeId);
+
+  if (k > 0) {
+    const dist = new Map<string, number>();
+    dist.set(nodeId, 0);
+    const queue: string[] = [nodeId];
+    let head = 0;
+
+    while (head < queue.length) {
+      const current = queue[head++];
+      const currentDist = dist.get(current)!;
+      if (currentDist >= k) continue;
+
+      forEachNeighbor(graph, current, (neighborId) => {
+        if (!dist.has(neighborId)) {
+          dist.set(neighborId, currentDist + 1);
+          reachableNodeIds.add(neighborId);
+          queue.push(neighborId);
+        }
+      });
+    }
+  }
+
+  const edgeIds = collectEdgesBetweenNodes(graph, reachableNodeIds);
+  return buildSubgraphResult(graph, reachableNodeIds, edgeIds) as unknown as CypherValue;
+}
+
+/**
+ * `connectedComponent(node)` — Returns the connected component containing a node.
+ *
+ * Uses BFS treating all edges as bidirectional to find all reachable nodes,
+ * then returns those nodes plus all edges between them.
+ * The result is a map `{ nodes: [...], edges: [...] }`.
+ *
+ * @param nodeArg - A node object (must have an `id` property)
+ * @returns A SubgraphResult with nodes and edges, or null if input is invalid
+ */
+export function connectedComponent(graph: GraphInstance, nodeArg: CypherValue): CypherValue {
+  const nodeId = extractNodeId(nodeArg);
+  if (!nodeId || !graph.hasNode(nodeId)) return null;
+
+  // BFS to find all reachable nodes (treating all edges as bidirectional)
+  const componentNodeIds = new Set<string>();
+  componentNodeIds.add(nodeId);
+
+  const queue: string[] = [nodeId];
+  let head = 0;
+
+  while (head < queue.length) {
+    const current = queue[head++];
+    forEachNeighbor(graph, current, (neighborId) => {
+      if (!componentNodeIds.has(neighborId)) {
+        componentNodeIds.add(neighborId);
+        queue.push(neighborId);
+      }
+    });
+  }
+
+  const edgeIds = collectEdgesBetweenNodes(graph, componentNodeIds);
+  return buildSubgraphResult(graph, componentNodeIds, edgeIds) as unknown as CypherValue;
+}
+

@@ -46,6 +46,9 @@ import {
   pagerank,
   degreeCentrality,
   betweennessCentrality,
+  subgraph,
+  egoGraph,
+  connectedComponent,
 } from './graph-functions';
 import { executeReturn as executeReturnImpl, executeWith as executeWithImpl } from './result';
 import { loadCsv, buildCsvRows } from './csv-reader';
@@ -596,6 +599,16 @@ export class AdvancedCypherGraphologyEngine {
         return degreeCentrality(this.graph, args[0]);
       case 'betweennesscentrality':
         return betweennessCentrality(this.graph, args[0]);
+    }
+
+    // ── Subgraph extraction functions ──────────────────────────────────
+    switch (name) {
+      case 'subgraph':
+        return subgraph(this.graph, args[0]);
+      case 'egograph':
+        return egoGraph(this.graph, args[0], args[1]);
+      case 'connectedcomponent':
+        return connectedComponent(this.graph, args[0]);
     }
 
     return evaluateStringFunctionImpl(name, args, this.config);
