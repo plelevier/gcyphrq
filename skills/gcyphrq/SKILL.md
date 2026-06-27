@@ -119,9 +119,7 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 | Centrality | `MATCH (n) RETURN n.name, degreeCentrality(n) AS dc, betweennessCentrality(n) AS bc ORDER BY dc DESC` |
 | Top-N | `MATCH (n) RETURN n.name, pagerank(n) AS pr ORDER BY pr DESC LIMIT 5` |
 | Subgraph | `MATCH (n) WHERE n.type = "RPC" WITH collect(n) AS nodes RETURN subgraph(nodes) AS sg` |
-| Ego graph | `MATCH (n {name: "X"}) RETURN egoGraph(n, 1) AS sg` |
-| Connected component | `MATCH (n {name: "X"}) RETURN connectedComponent(n) AS sg` |
-| Component size | `MATCH (n) WITH n, connectedComponent(n) AS cc WHERE size(cc.nodes) > 3 RETURN n.name` |
+| Ego / component | `MATCH (n {name: "X"}) RETURN egoGraph(n, 2) AS sg, connectedComponent(n) AS cc` |
 
 See `references/queries.md` for more patterns.
 
