@@ -575,6 +575,11 @@ export class AdvancedCypherGraphologyEngine {
       // Evaluate pattern comprehension with aggregation-aware evaluation
       return this.evaluatePatternComprehensionWithAggregations(expr, context, aggResults);
     }
+    if (expr.type === 'FunctionCall') {
+      // Evaluate function call with aggregation-aware argument evaluation
+      const args = expr.arguments.map((arg) => this.evaluateExpressionWithAggregations(arg, context, aggResults));
+      return this.evaluateStringFunction(expr.functionName, args);
+    }
     return this.evaluateExpression(expr, context) ?? null;
   }
 

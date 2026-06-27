@@ -368,5 +368,86 @@ describe('Extension integration', () => {
         process.chdir(origCwd);
       }
     });
+
+    it('uses extension function in WHERE clause', async () => {
+      const origCwd = process.cwd();
+      process.chdir(testCwd);
+      try {
+        await registerFunctionExtension('mock-fn');
+
+        const graphData = {
+          nodes: [
+            { key: 'a', attributes: { label: 'N', val: 5 } },
+            { key: 'b', attributes: { label: 'N', val: 10 } },
+            { key: 'c', attributes: { label: 'N', val: 3 } },
+          ],
+          edges: [],
+        };
+        // mock.double(val) > 8 filters to val=5 (doubled=10) and val=10 (doubled=20)
+        const results = await executeQuery(
+          graphData,
+          'MATCH (n) WHERE mock.double(n.val) > 8 RETURN n.val AS val ORDER BY val',
+        );
+
+        expect(results).toHaveLength(2);
+        expect(results[0].val).toBe(5);
+        expect(results[1].val).toBe(10);
+      } finally {
+        process.chdir(origCwd);
+      }
+    });
+
+    it('uses extension function in ORDER BY', async () => {
+      const origCwd = process.cwd();
+      process.chdir(testCwd);
+      try {
+        await registerFunctionExtension('mock-fn');
+
+        const graphData = {
+          nodes: [
+            { key: 'a', attributes: { label: 'N', val: 3 } },
+            { key: 'b', attributes: { label: 'N', val: 1 } },
+            { key: 'c', attributes: { label: 'N', val: 2 } },
+          ],
+          edges: [],
+        };
+        // Order by doubled value descending: 6, 4, 2
+        const results = await executeQuery(
+          graphData,
+          'MATCH (n) RETURN n.val AS val ORDER BY mock.double(n.val) DESC',
+        );
+
+        expect(results).toHaveLength(3);
+        expect(results[0].val).toBe(3);
+        expect(results[1].val).toBe(2);
+        expect(results[2].val).toBe(1);
+      } finally {
+        process.chdir(origCwd);
+      }
+    });
+
+    it('uses extension aggregation with list literal via executeQuery', async () => {
+      const origCwd = process.cwd();
+      process.chdir(testCwd);
+      try {
+        await registerFunctionExtension('mock-fn');
+
+        const graphData = {
+          nodes: [{ key: 'a', attributes: { label: 'N' } }],
+          edges: [],
+        };
+        // Extension aggregations are scalar functions receiving all args directly
+        // Use list literal to pass multiple values
+        const results = await executeQuery(
+          graphData,
+          'RETURN mock.sumOrNull(10, 20, 30) AS total',
+        );
+
+        expect(results).toHaveLength(1);
+        expect(results[0].total).toBe(60);
+      } finally {
+        process.chdir(origCwd);
+      }
+    });
   });
 });

@@ -422,4 +422,36 @@ describe('preprocessQueryForExtensions', () => {
     const result = preprocessQueryForExtensions('MATCH (n) RETURN n.name');
     expect(result).toBe('MATCH (n) RETURN n.name');
   });
+
+  it('does not modify property access in WHERE clause', () => {
+    const result = preprocessQueryForExtensions('MATCH (n) WHERE n.name = "Alice" RETURN n');
+    expect(result).toBe('MATCH (n) WHERE n.name = "Alice" RETURN n');
+  });
+
+  it('handles nested dotted function calls', () => {
+    const result = preprocessQueryForExtensions('RETURN apoc.text.join(",", [apoc.text.capitalize("a"), apoc.text.capitalize("b")])');
+    expect(result).toContain('`apoc.text.join`(');
+    expect(result).toContain('`apoc.text.capitalize`(');
+  });
+
+  it('handles three-level dotted names', () => {
+    const result = preprocessQueryForExtensions('RETURN apoc.text.join(",", ["a"])');
+    expect(result).toContain('`apoc.text.join`(');
+  });
+
+  it('handles dotted function in WHERE clause', () => {
+    const result = preprocessQueryForExtensions('MATCH (n) WHERE apoc.text.capitalize(n.name) = "Alice" RETURN n');
+    expect(result).toContain('`apoc.text.capitalize`(');
+    expect(result).not.toContain('`n.name`(');
+  });
+
+  it('handles dotted function in ORDER BY', () => {
+    const result = preprocessQueryForExtensions('MATCH (n) RETURN n ORDER BY apoc.text.capitalize(n.name)');
+    expect(result).toContain('`apoc.text.capitalize`(');
+  });
+
+  it('does not match property access followed by parenthesis in strings', () => {
+    const result = preprocessQueryForExtensions('MATCH (n) WHERE n.name CONTAINS "test()" RETURN n');
+    expect(result).toBe('MATCH (n) WHERE n.name CONTAINS "test()" RETURN n');
+  });
 });
