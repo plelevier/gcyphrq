@@ -442,13 +442,22 @@ export function extractWhereExpression(exprCtx: TreeNode): WhereExpression | und
   }
 
   const orCtx = findDescendantOutsideCompound(exprCtx, Ctx.OrExpression);
-  if (orCtx) return extractLogicalExpression(orCtx, Ctx.XorExpression, 'OR');
+  if (orCtx) {
+    const orResult = extractLogicalExpression(orCtx, Ctx.XorExpression, 'OR');
+    if (orResult) return orResult;
+  }
 
   const xorCtx = findDescendantOutsideCompound(exprCtx, Ctx.XorExpression);
-  if (xorCtx) return extractLogicalExpression(xorCtx, Ctx.AndExpression, 'XOR');
+  if (xorCtx) {
+    const xorResult = extractLogicalExpression(xorCtx, Ctx.AndExpression, 'XOR');
+    if (xorResult) return xorResult;
+  }
 
   const andCtx = findDescendantOutsideCompound(exprCtx, Ctx.AndExpression);
-  if (andCtx) return extractLogicalExpression(andCtx, Ctx.NotExpression, 'AND');
+  if (andCtx) {
+    const andResult = extractLogicalExpression(andCtx, Ctx.NotExpression, 'AND');
+    if (andResult) return andResult;
+  }
 
   const notCtx = findDescendantOutsideCompound(exprCtx, Ctx.NotExpression);
   if (notCtx && hasNotTerminal(notCtx)) {
@@ -466,7 +475,7 @@ export function extractWhereExpression(exprCtx: TreeNode): WhereExpression | und
     if (compResult) return compResult;
   }
 
-  // Fallback: check if this is a quantifier, exists, or function call expression (they evaluate to boolean)
+  // Fallback: check if this is a quantifier, exists, function call, or bare boolean expression
   const atom = getAtom(exprCtx);
   if (atom) {
     const quantifierExpr = extractQuantifierExpression(atom, extractWhereExpression);
@@ -475,6 +484,9 @@ export function extractWhereExpression(exprCtx: TreeNode): WhereExpression | und
     if (existsExpr) return existsExpr;
     const funcCallExpr = extractFunctionCallFromAtom(atom, extractWhereExpression);
     if (funcCallExpr) return funcCallExpr;
+    // Bare boolean expression: a simple property access or variable used as a boolean predicate
+    const bareExpr = extractValueExpression(exprCtx, extractWhereExpression) as WhereExpression | undefined;
+    if (bareExpr) return bareExpr;
   }
 
   return undefined;
@@ -573,13 +585,16 @@ function extractWhereExpressionFromChild(ctx: TreeNode): WhereExpression | undef
     if (nestedAnd) return extractLogicalExpression(nestedAnd, Ctx.NotExpression, 'AND');
     const compResult = extractComparison(ctx);
     if (compResult) return compResult;
-    // Fallback for quantifier/exists (NotExpression may be a transparent wrapper)
+    // Fallback for quantifier/exists/bare boolean (NotExpression may be a transparent wrapper)
     const compAtom = getAtom(ctx);
     if (compAtom) {
       const qe = extractQuantifierExpression(compAtom, extractWhereExpression);
       if (qe) return qe;
       const ee = extractExistsExpression(compAtom);
       if (ee) return ee;
+      // Bare boolean expression: a simple property access or variable used as a boolean predicate
+      const bareExpr = extractValueExpression(ctx, extractWhereExpression) as WhereExpression | undefined;
+      if (bareExpr) return bareExpr;
     }
     return undefined;
   }
@@ -606,13 +621,16 @@ function extractWhereExpressionFromChild(ctx: TreeNode): WhereExpression | undef
     if (compResult) return compResult;
   }
 
-  // Fallback for quantifier/exists
+  // Fallback for quantifier/exists/bare boolean
   const fallbackAtom = getAtom(ctx);
   if (fallbackAtom) {
     const qe = extractQuantifierExpression(fallbackAtom, extractWhereExpression);
     if (qe) return qe;
     const ee = extractExistsExpression(fallbackAtom);
     if (ee) return ee;
+    // Bare boolean expression: a simple property access or variable used as a boolean predicate
+    const bareExpr = extractValueExpression(ctx, extractWhereExpression) as WhereExpression | undefined;
+    if (bareExpr) return bareExpr;
   }
 
   return undefined;
@@ -980,7 +998,7 @@ function extractWhereAfterUnwind(rawQuery: string, unwindCtx: ParseTreeNode, ext
 
 // ── FOREACH clause extraction ────────────────────────────────────────────────
 
-export function extractForeachClause(clauseCtx: ParseTreeNode): ForeachClause | undefined {
+export function extractForeachClause(clauseCtx: ParseTreeNode, whereText?: string, extraClauses?: string[]): ForeachClause | undefined {
   const foreachCtx = findChild(clauseCtx, Ctx.ForeachClause);
   if (!foreachCtx) return undefined;
 
@@ -992,18 +1010,134 @@ export function extractForeachClause(clauseCtx: ParseTreeNode): ForeachClause | 
   const expr = evaluateExpression(exprCtx, extractWhereExpression);
   if (!expr) throw new Error('Failed to parse FOREACH: missing list expression.');
 
+  // Extract WHERE and inner clauses
+  // The first inner clause comes from the ANTLR4 parse tree
   const innerClauseCtxs = findAllChildren(foreachCtx, Ctx.Clause);
-  if (innerClauseCtxs.length === 0) {
+  let innerClauses: WriteClause[] = [];
+
+  if (innerClauseCtxs.length > 0) {
+    const innerClauseCtx = innerClauseCtxs[innerClauseCtxs.length - 1]!;
+    const innerClause = extractWriteClause(innerClauseCtx);
+    if (innerClause) {
+      innerClauses.push(innerClause);
+    }
+  }
+
+  // Parse extra inner clauses from text (pre-extracted by query-parser)
+  if (extraClauses) {
+    for (const clauseText of extraClauses) {
+      const parsed = parseWriteClauseFromText(clauseText);
+      if (parsed) {
+        innerClauses.push(parsed);
+      } else {
+        throw new Error(`Failed to parse FOREACH inner clause: "${clauseText}". Only SET, CREATE, DELETE, and REMOVE are supported.`);
+      }
+    }
+  }
+
+  // Parse WHERE from text
+  let where: WhereExpression | undefined;
+  if (whereText) {
+    where = parseWhereText(whereText, extractWhereExpression);
+  }
+
+  if (innerClauses.length === 0) {
     throw new Error('Failed to parse FOREACH: missing inner update clause.');
   }
-  const innerClauseCtx = innerClauseCtxs[innerClauseCtxs.length - 1]!;
 
-  const innerClause = extractWriteClause(innerClauseCtx);
-  if (!innerClause) {
-    throw new Error('Failed to parse FOREACH: unsupported inner clause. Only SET, CREATE, DELETE, and REMOVE are supported.');
+  return { type: 'FOREACH' as const, variable, expression: expr, where, innerClauses };
+}
+
+/** Parse a WHERE text fragment into a WhereExpression using synthetic query parsing. */
+function parseWhereText(whereText: string, extractWhereExpr: (ctx: TreeNode) => WhereExpression | undefined): WhereExpression | undefined {
+  try {
+    const antlr4mod = createRequire(import.meta.url)('antlr4').default;
+    const antlr4Lib = createRequire(import.meta.url)('@neo4j-cypher/antlr4');
+    const syntheticQuery = `MATCH (x) WHERE ${whereText} RETURN x`;
+    const syntheticChars = antlr4mod.CharStreams.fromString(syntheticQuery);
+    const syntheticLexer = new antlr4Lib.CypherLexer(syntheticChars);
+    const syntheticTokens = new antlr4mod.CommonTokenStream(syntheticLexer);
+    const syntheticParser = new antlr4Lib.CypherParser(syntheticTokens);
+    syntheticParser.removeErrorListeners();
+    syntheticParser.addErrorListener(new ErrorCollector());
+    const syntheticTree = syntheticParser.cypher();
+
+    const findWhere = (node: any): any => {
+      if (node.constructor.name === Ctx.Where) return node;
+      if (node.children) {
+        for (const child of node.children) {
+          const found = findWhere(child);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const whereCtx = findWhere(syntheticTree);
+    if (whereCtx) {
+      const exprCtx = findChild(whereCtx, Ctx.Expression);
+      if (exprCtx) return extractWhereExpr(exprCtx);
+    }
+  } catch {
+    // If parsing fails, skip WHERE
   }
+  return undefined;
+}
 
-  return { type: 'FOREACH' as const, variable, expression: expr, innerClause };
+/** Parse a write clause from text by wrapping it in a synthetic query. */
+function parseWriteClauseFromText(text: string): WriteClause | undefined {
+  try {
+    const antlr4mod = createRequire(import.meta.url)('antlr4').default;
+    const antlr4Lib = createRequire(import.meta.url)('@neo4j-cypher/antlr4');
+    const syntheticQuery = `MATCH (x) ${text} RETURN x`;
+    const syntheticChars = antlr4mod.CharStreams.fromString(syntheticQuery);
+    const syntheticLexer = new antlr4Lib.CypherLexer(syntheticChars);
+    const syntheticTokens = new antlr4mod.CommonTokenStream(syntheticLexer);
+    const syntheticParser = new antlr4Lib.CypherParser(syntheticTokens);
+    syntheticParser.removeErrorListeners();
+    syntheticParser.addErrorListener(new ErrorCollector());
+    const syntheticTree = syntheticParser.cypher();
+
+    // Find the write clause (SET/CREATE/DELETE/REMOVE)
+    const findWriteClause = (node: any): any => {
+      if (node.constructor.name === Ctx.SetClause ||
+          node.constructor.name === Ctx.CreateClause ||
+          node.constructor.name === Ctx.DeleteClause ||
+          node.constructor.name === Ctx.RemoveClause) {
+        // Find parent Clause node
+        return node;
+      }
+      if (node.children) {
+        for (const child of node.children) {
+          const found = findWriteClause(child);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const writeNode = findWriteClause(syntheticTree);
+    if (!writeNode) return undefined;
+
+    // Find the parent Clause node
+    const findParentClause = (node: any, target: any): any => {
+      if (node.children) {
+        for (const child of node.children) {
+          if (child === target && node.constructor.name === Ctx.Clause) return node;
+          const found = findParentClause(child, target);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const clauseCtx = findParentClause(syntheticTree, writeNode);
+    if (!clauseCtx) return undefined;
+
+    return extractWriteClause(clauseCtx);
+  } catch {
+    return undefined;
+  }
 }
 
 // ── CALL { ... } subquery clause extraction ──────────────────────────────────

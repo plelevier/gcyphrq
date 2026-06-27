@@ -489,16 +489,21 @@ function analyzeUnwind(clause: UnwindClause, index: number): ExplainStage {
 }
 
 function analyzeForeach(clause: ForeachClause, index: number): ExplainStage {
+  const innerTypes = clause.innerClauses.map((c) => c.type);
   const details: Record<string, unknown> = {
     variable: clause.variable,
     expression: describeExpression(clause.expression),
-    innerClauseType: clause.innerClause.type,
+    where: clause.where ? '<filter>' : undefined,
+    innerClauses: innerTypes,
   };
+
+  const whereInfo = clause.where ? ' WHERE <filter>' : '';
+  const innerDesc = innerTypes.length === 1 ? innerTypes[0]! : `${innerTypes.length} clauses (${innerTypes.join(', ')})`;
 
   return {
     index,
     type: 'FOREACH',
-    description: `FOREACH (${clause.variable} IN ${describeExpression(clause.expression)} | ${clause.innerClause.type} ...)`,
+    description: `FOREACH (${clause.variable} IN ${describeExpression(clause.expression)}${whereInfo} | ${innerDesc} ...)`,
     variables: [clause.variable],
     details,
   };

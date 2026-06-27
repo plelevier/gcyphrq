@@ -80,6 +80,8 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 | SET | `MATCH (n {name: "X"}) SET n.status = "updated" RETURN n` |
 | SET multi | `MATCH (n) SET n:Label, n.prop = val, n.count = 5 RETURN n` |
 | FOREACH | `MATCH (u) FOREACH (x IN u.items | SET x:Processed, x.reviewed = true) RETURN u` |
+| FOREACH WHERE | `MATCH (u) FOREACH (x IN u.items WHERE x.val > 0 | SET x:Positive) RETURN u` |
+| FOREACH multi | `MATCH (u) FOREACH (x IN u.items | SET x:Tagged, SET x.active = true) RETURN u` |
 | DELETE | `MATCH (n {name: "X"}) DELETE n` or `DETACH DELETE n` |
 | REMOVE | `MATCH (n) REMOVE n:Label, n.prop RETURN n` |
 | MERGE | `MERGE (n:User {name: "Alice"}) ON CREATE SET n.createdAt = 0 RETURN n` |

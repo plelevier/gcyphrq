@@ -47,6 +47,26 @@ const { CypherLexer, CypherParser } = _require('@neo4j-cypher/antlr4');
 
 const syntheticParseCache = new Map<string, { whereExpr: WhereExpression | undefined; returnClause: ReturnClause | undefined }>();
 
+// ── FOREACH extra info (extracted before ANTLR4 parsing) ─────────────────────
+
+/** Queue of WHERE texts extracted from FOREACH clauses, consumed in order during parsing. */
+let foreachWhereQueue: string[] = [];
+/** Queue of extra inner clause texts (after the first one) extracted from FOREACH clauses. */
+let foreachExtraClausesQueue: string[][] = [];
+
+export function getNextForeachWhere(): string | undefined {
+  return foreachWhereQueue.shift();
+}
+
+export function getNextForeachExtraClauses(): string[] {
+  return foreachExtraClausesQueue.shift() || [];
+}
+
+export function resetForeachWhereQueue(): void {
+  foreachWhereQueue = [];
+  foreachExtraClausesQueue = [];
+}
+
 /** Parse a WHERE expression from raw text using a synthetic query. */
 function parseWhereExpression(whereText: string): WhereExpression | undefined {
   try {
@@ -524,7 +544,9 @@ export function extractSingleQuery(
         }
       }
     } else if (findChild(clause, Ctx.ForeachClause)) {
-      const foreachClause = extractForeachClause(clause);
+      const foreachWhereText = getNextForeachWhere();
+      const foreachExtraClauses = getNextForeachExtraClauses();
+      const foreachClause = extractForeachClause(clause, foreachWhereText || undefined, foreachExtraClauses);
       if (foreachClause) stages.push({ type: 'FOREACH', clause: foreachClause });
     } else if (findChild(clause, Ctx.CallContext)) {
       const callClause = extractCallClause(clause, rawQuery ?? queryText, parseQuery ?? parseCypher);
@@ -816,6 +838,201 @@ function extractLoadCsvClauses(query: string): { loadCsvClauses: LoadCsvClause[]
   return { loadCsvClauses, cleanedQuery };
 }
 
+// ── FOREACH pre-processing (WHERE + multiple inner statements) ───────────────
+
+/**
+ * Extract WHERE clauses and extra inner statements from FOREACH clauses before ANTLR4 parsing.
+ * The ANTLR4 grammar does not support WHERE in FOREACH and only supports a single inner clause.
+ * We strip both and store them for later extraction by the clause parser.
+ *
+ * Returns the cleaned query and arrays of WHERE texts and extra clause texts.
+ */
+function extractForeachWheres(query: string): { cleanedQuery: string; foreachWhereTexts: string[]; foreachExtraClauses: string[][] } {
+  const whereTexts: string[] = [];
+  const extraClausesList: string[][] = [];
+
+  let cleanedQuery = query;
+  let offset = 0;
+
+  // Find all FOREACH clauses
+  const foreachRegex = /FOREACH\s*\(/gi;
+  let match;
+  const positions: Array<{ start: number; end: number }> = [];
+
+  while ((match = foreachRegex.exec(query)) !== null) {
+    const openParenIndex = match.index + match[0]!.length - 1;
+    const closeParenIndex = findMatchingParen(query, openParenIndex);
+    if (closeParenIndex === -1) continue;
+    positions.push({ start: match.index, end: closeParenIndex + 1 });
+  }
+
+  // Build replacements for each FOREACH
+  const replacements: Array<{ start: number; end: number; newText: string; whereText: string; extraClauses: string[] }> = [];
+
+  for (const { start, end } of positions) {
+    const foreachBody = query.slice(start, end);
+
+    const pipeIndex = findPipeInForeach(foreachBody);
+    if (pipeIndex === -1) continue;
+
+    const beforePipe = foreachBody.slice(0, pipeIndex);
+    const afterPipe = foreachBody.slice(pipeIndex + 1).trim();
+
+    // Extract WHERE from before '|'
+    let whereText: string | undefined;
+    const whereMatch = beforePipe.match(/\bWHERE\s+(.+)$/is);
+    if (whereMatch) {
+      whereText = whereMatch[1]!.trim();
+    }
+
+    // Extract extra inner clauses from after '|'
+    let bodyText = afterPipe;
+    if (bodyText.endsWith(')')) {
+      bodyText = bodyText.slice(0, -1).trim();
+    }
+
+    // Split into clauses: a comma separates clauses only if followed by SET/CREATE/DELETE/REMOVE
+    const segments = splitIntoForeachClauses(bodyText);
+    const extraClauses: string[] = segments.slice(1).map((s) => s.trim()).filter(Boolean);
+
+    whereTexts.unshift(whereText || '');
+    extraClausesList.unshift(extraClauses);
+
+    // Build the replacement: keep only the first clause
+    const firstClause = segments[0]?.trim();
+    if (!firstClause) continue;
+
+    const newBeforePipe = whereText
+      ? beforePipe.slice(0, beforePipe.indexOf('WHERE')).trimEnd()
+      : beforePipe;
+    const newForeachBody = `${newBeforePipe} | ${firstClause})`;
+
+    replacements.push({ start, end, newText: newForeachBody, whereText: whereText || '', extraClauses });
+  }
+
+  // Apply replacements from end to start (preserves positions)
+  for (let i = replacements.length - 1; i >= 0; i--) {
+    const { start, end, newText } = replacements[i]!;
+    cleanedQuery = cleanedQuery.slice(0, start) + newText + cleanedQuery.slice(end);
+  }
+
+  return { cleanedQuery, foreachWhereTexts: whereTexts, foreachExtraClauses: extraClausesList };
+}
+
+/** Find the matching closing parenthesis for an opening parenthesis. */
+function findMatchingParen(text: string, openIndex: number): number {
+  let depth = 0;
+  let inString = false;
+  let stringChar = '';
+
+  for (let i = openIndex; i < text.length; i++) {
+    const ch = text[i];
+
+    if (inString) {
+      if (ch === stringChar && (i === 0 || text[i - 1] !== '\\')) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+
+    if (ch === '(') depth++;
+    else if (ch === ')') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+
+  return -1;
+}
+
+/**
+ * Split a FOREACH body into individual clauses.
+ * A comma separates clauses only if followed by a clause keyword (SET, CREATE, DELETE, REMOVE).
+ * This distinguishes clause separators from SET item separators like `SET x:Label, x.prop = val`.
+ */
+function splitIntoForeachClauses(text: string): string[] {
+  const clauses: string[] = [];
+  let current = '';
+  let depth = 0;
+  let inString = false;
+  let stringChar = '';
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (inString) {
+      current += ch;
+      if (ch === stringChar && (i === 0 || text[i - 1] !== '\\')) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      current += ch;
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+
+    if (ch === '(' || ch === '[') { current += ch; depth++; continue; }
+    if (ch === ')' || ch === ']') { current += ch; depth--; continue; }
+
+    if (ch === ',' && depth === 0) {
+      // Check if the next non-whitespace text starts with a clause keyword
+      const remaining = text.slice(i + 1).trimStart();
+      const isClauseStart = /^(SET|CREATE|DELETE|REMOVE|DETACH)\b/i.test(remaining);
+      if (isClauseStart) {
+        clauses.push(current.trim());
+        current = '';
+        continue;
+      }
+    }
+
+    current += ch;
+  }
+
+  if (current.trim()) clauses.push(current.trim());
+  return clauses;
+}
+
+/** Find the '|' separator in a FOREACH body, respecting parentheses and strings. */
+function findPipeInForeach(body: string): number {
+  let depth = 0;
+  let inString = false;
+  let stringChar = '';
+
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+
+    if (inString) {
+      if (ch === stringChar && (i === 0 || body[i - 1] !== '\\')) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+
+    if (ch === '(' || ch === '[') depth++;
+    else if (ch === ')' || ch === ']') depth--;
+    // The '|' is at the top level of the FOREACH body (depth 1 because of the opening paren)
+    else if (ch === '|' && depth === 1) return i;
+  }
+
+  return -1;
+}
+
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 export function parseCypher(query: string): CypherAST {
@@ -824,8 +1041,15 @@ export function parseCypher(query: string): CypherAST {
   // Pre-process: extract LOAD CSV clauses before ANTLR4 parsing
   const { loadCsvClauses, cleanedQuery: loadCsvCleanedQuery } = extractLoadCsvClauses(query);
 
+  // Pre-process: extract FOREACH WHERE clauses and extra inner statements before ANTLR4 parsing
+  // (ANTLR4 grammar does not support WHERE in FOREACH or multiple inner clauses)
+  const { cleanedQuery: foreachCleanedQuery, foreachWhereTexts, foreachExtraClauses } = extractForeachWheres(loadCsvCleanedQuery);
+  resetForeachWhereQueue();
+  foreachWhereQueue = [...foreachWhereTexts];
+  foreachExtraClausesQueue = [...foreachExtraClauses];
+
   // Pre-process: extract NULLS FIRST/LAST before ANTLR4 parsing
-  const { cleanedQuery, nullsDirections } = extractNullsDirections(loadCsvCleanedQuery);
+  const { cleanedQuery, nullsDirections } = extractNullsDirections(foreachCleanedQuery);
 
   const chars = antlr4.CharStreams.fromString(cleanedQuery);
   const lexer = new CypherLexer(chars);
