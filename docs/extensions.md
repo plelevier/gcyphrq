@@ -244,7 +244,7 @@ const result = validate(args, (v) => {
   // Individual argument validation
   v.arg(0, 'name', helpers.isString);  // arg[0] must be string
   v.arg(1, 'value', helpers.isNumber);  // arg[1] must be number
-  v.arg(2, 'custom', (v) => v !== null);  // custom predicate also accepted
+  v.arg(2, 'custom', (val) => val !== null);  // custom predicate also accepted
 
   // Bulk validation from index N onwards
   v.argsFrom(1, 'values', helpers.isNumber);

@@ -6,7 +6,7 @@ import { explainQuery as _explainQuery } from './engine/explain';
 import { buildGraphIndexesFromData, buildGraphIndexesFromGraph } from './indexes';
 import { Graph, wrapExternalGraph, type GraphInstance, type GraphType } from './graph';
 import { DEFAULT_CONFIG } from './types/cypher';
-import type { CypherAST, UnionQueryAST, ResultRow, GraphIndexes, GraphConfig } from './types/cypher';
+import type { CypherAST, ResultRow, GraphIndexes, GraphConfig } from './types/cypher';
 import { getExtensionFunctions, getExtensionAggregations, preprocessQueryForExtensions } from './ext/registry';
 
 // ── Graph file format types ──────────────────────────────────────────────────

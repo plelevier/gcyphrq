@@ -15,7 +15,7 @@ import {
 import { findNodeModules, discoverExtensionPackages } from '../../src/ext/loader';
 import { helpers, validate, FunctionError } from '../../src/ext/types';
 import { GraphError } from '../../src/lib';
-import { mkdirSync, writeFileSync, rmSync } from 'fs';
+import { mkdirSync, writeFileSync, rmSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -187,7 +187,7 @@ describe('Extension registry', () => {
     // Copy mock extension files
     const srcDir = join(process.cwd(), 'test', 'ext', 'mock-extension');
     for (const file of ['mock-graph.js', 'mock-fn.js']) {
-      writeFileSync(join(mockDest, file), require('fs').readFileSync(join(srcDir, file), 'utf-8'));
+      writeFileSync(join(mockDest, file), readFileSync(join(srcDir, file), 'utf-8'));
     }
   });
 
@@ -450,5 +450,16 @@ describe('preprocessQueryForExtensions', () => {
   it('does not match property access followed by parenthesis in strings', () => {
     const result = preprocessQueryForExtensions('MATCH (n) WHERE n.name CONTAINS "test()" RETURN n');
     expect(result).toBe('MATCH (n) WHERE n.name CONTAINS "test()" RETURN n');
+  });
+
+  it('preserves whitespace between function name and opening paren', () => {
+    const result = preprocessQueryForExtensions('RETURN apoc.text.join  (", ", ["a","b"])');
+    expect(result).toBe('RETURN `apoc.text.join`  (", ", ["a","b"])');
+  });
+
+  it('is idempotent (second pass unchanged)', () => {
+    const first = preprocessQueryForExtensions('RETURN apoc.text.join(",", ["a","b"])');
+    const second = preprocessQueryForExtensions(first);
+    expect(first).toBe(second);
   });
 });

@@ -281,11 +281,13 @@ See https://www.npmjs.com/search?q=gcyphrq-ext for available extensions.`;
   }
 
   const lines: string[] = ['Available extensions:'];
+  const nameWidth = Math.max(12, ...extensions.map((e) => e.name.length));
 
   for (const ext of extensions) {
     const typeTag = ext.type === 'function' ? `[function]  ns:${ext.namespace}` : '[graph-input]';
-    lines.push(`  ${ext.name}       (v${ext.version}) ${typeTag}  ${ext.packageName}@${ext.packageVersion}`);
-    lines.push(`           ${ext.description}`);
+    const padded = ext.name.padEnd(nameWidth);
+    lines.push(`  ${padded} (v${ext.version}) ${typeTag}  ${ext.packageName}@${ext.packageVersion}`);
+    lines.push(`  ${' '.repeat(nameWidth)} ${ext.description}`);
   }
 
   lines.push('');
@@ -317,6 +319,8 @@ export function preprocessQueryForExtensions(query: string): string {
   return query.replace(dottedFunctionRegex, (match, funcName) => {
     // Skip if already backtick-quoted
     if (funcName.startsWith('`')) return match;
-    return `\`${funcName}\`(`;
+    // Preserve any whitespace between the name and `(`
+    const afterName = match.slice(funcName.length);
+    return `\`${funcName}\`${afterName}`;
   });
 }
