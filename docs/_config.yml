@@ -29,10 +29,10 @@ nav:
     url: /cli/
   - title: API
     url: /library-api/
-  - title: Query
-    url: /query-guide/
   - title: Extensions
     url: /extensions/
+  - title: Query
+    url: /query-guide/
   - title: Examples
     url: /examples/
   - title: Skill
