@@ -10,6 +10,8 @@ description: Create gcyphrq extensions for custom input formats and functions.
 
 # Extensions Guide
 
+> **Just want to use extensions?** See the [CLI Reference]({{ '/cli/' | relative_url }}) for `--ext`, `--ext-fn`, and `--list-extensions` flags. This page is for **building** your own extensions.
+
 gcyphrq supports pluggable extensions for **non-JSON input formats** and **custom Cypher functions**. Extensions are independent npm packages published under the `gcyphrq-ext-*` naming convention.
 
 ## Extension Types
