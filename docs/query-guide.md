@@ -1877,6 +1877,52 @@ ORDER BY pr DESC
 - **Disconnected graph:** `diameter()` returns -1; centrality functions still compute scores within each component
 - **Null argument:** `pagerank(null)`, `degreeCentrality(null)`, `betweennessCentrality(null)` all return `null`
 
+### Subgraph Extraction Functions
+
+Subgraph extraction functions return a portion of the graph as `{ nodes: [...], edges: [...] }` where nodes and edges include full attributes.
+
+| Function | Description | Arguments | Return |
+|---|---|---|---|
+| `subgraph(nodeList)` | Induced subgraph from a list of nodes | List of node objects | `{ nodes, edges }` |
+| `egoGraph(node, k)` | k-hop ego network (default k=1) | Node + optional hop count | `{ nodes, edges }` |
+| `connectedComponent(node)` | Connected component containing a node | Node object | `{ nodes, edges }` |
+
+```cypher
+-- Induced subgraph from matched nodes
+MATCH (n) WHERE n.type = "RPC" WITH collect(n) AS nodes
+RETURN subgraph(nodes) AS sg
+
+-- 1-hop ego network of a specific node
+MATCH (n {name: "API Gateway"}) RETURN egoGraph(n) AS sg
+
+-- 2-hop ego network
+MATCH (n {name: "API Gateway"}) RETURN egoGraph(n, 2) AS sg
+
+-- Connected component of a node
+MATCH (n {name: "Redis Primary"}) RETURN connectedComponent(n) AS sg
+
+-- Count nodes in a component
+MATCH (n) WITH n, connectedComponent(n) AS cc
+WHERE size(cc.nodes) > 3
+RETURN n.name, size(cc.nodes) AS compSize
+
+-- Size of ego network
+MATCH (n {name: "API Gateway"}) WITH egoGraph(n, 1) AS sg
+RETURN size(sg.nodes) AS egoSize
+```
+
+**subgraph:** Takes a list of node objects (e.g., from `collect()`). Returns all given nodes plus all edges between any two nodes in the list. Nodes not in the graph are silently ignored. Returns `{ nodes: [], edges: [] }` for empty lists.
+
+**egoGraph:** Takes a node and an optional hop count k (default 1). Uses BFS treating all edges as bidirectional. Returns the node plus all nodes reachable within k hops and all edges between those nodes. k=0 returns only the node itself.
+
+**connectedComponent:** Takes a node and returns all nodes reachable from it (treating all edges as bidirectional) plus all edges between them. Uses BFS traversal.
+
+**Edge cases:**
+- **Null/nonexistent node:** `egoGraph(null)` and `connectedComponent(null)` return `null`
+- **Negative k:** `egoGraph(n, -1)` returns `null`
+- **Non-array input:** `subgraph("not-an-array")` returns `null`
+- **Isolated node:** Returns `{ nodes: [node], edges: [] }`
+
 ---
 
 ## Unsupported Features

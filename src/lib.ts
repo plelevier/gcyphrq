@@ -636,6 +636,9 @@ export type { GraphInstance, GraphType } from './graph';
 
 // Re-export GraphIndexes and GraphConfig for consumers who build indexes manually
 export type { GraphIndexes, GraphConfig } from './types/cypher';
+
+// Re-export SubgraphResult for consumers who use subgraph/egoGraph/connectedComponent
+export type { SubgraphResult } from './engine/graph-functions';
 // IndexBuildOptions is exported as a top-level interface above (no re-export needed)
 
 // Re-export all AST, expression, and result types from types/cypher.ts

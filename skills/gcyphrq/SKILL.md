@@ -49,6 +49,7 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 - **Scalar functions:** 40+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `random`, `labels` (RETURN only), `labelsOf` (everywhere), `nodes`/`relationships` (RETURN only), etc.). `random()` → 0..1 float; use `ORDER BY random()` to shuffle
 - **Graph statistics:** `numNodes()`, `numRelationships()`, `density()`, `averageDegree()`, `diameter()` (-1 if disconnected, bidirectional)
 - **Centrality:** `pagerank()` (power iteration, damping=0.85), `degreeCentrality()` (normalized unique neighbors), `betweennessCentrality()` (Brandes'). All support global (no args → `{nodeId: score}`) and per-node (node arg → score). Betweenness: bidirectional
+- **Subgraph extraction:** `subgraph(nodeList)` (induced subgraph from collect()), `egoGraph(node, k)` (k-hop ego network, default k=1), `connectedComponent(node)` (connected component). All return `{ nodes: [...], edges: [...] }`. All treat edges as bidirectional for traversal
 - **Temporal:** Constructors: `timestamp()`, `datetime()`, `date()`, `time()`, `localdatetime()`, `localtime()`, `datetimewithtimezone()`, `timewithzone()`, `duration()`. Extractors: `year()`, `month()`, `day()`, `hour()`, `minute()`, `second()`, `millisecond()`, `timezone()`, `epochseconds()`, `epochmillisecond()`, `totalSeconds()`, `totalMinutes()`. WHERE/ORDER BY: chronological, timezone-aware
 - **Path expressions:** `shortestPath((a)-[*]->(b))` (single BFS); `allShortestPaths((a)-[*]->(b))` (all min-length). Supports type filtering, direction, depth bounds. Variables must be bound
 - **CALL { ... } subqueries:** Inline (refs outer vars), YIELD filtering, nested, CREATE/SET/DELETE inside, ORDER BY inside. No stored procedures
@@ -117,6 +118,10 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 | PageRank (node) | `MATCH (n) RETURN n.name, pagerank(n) AS pr ORDER BY pr DESC` |
 | Centrality | `MATCH (n) RETURN n.name, degreeCentrality(n) AS dc, betweennessCentrality(n) AS bc ORDER BY dc DESC` |
 | Top-N | `MATCH (n) RETURN n.name, pagerank(n) AS pr ORDER BY pr DESC LIMIT 5` |
+| Subgraph | `MATCH (n) WHERE n.type = "RPC" WITH collect(n) AS nodes RETURN subgraph(nodes) AS sg` |
+| Ego graph | `MATCH (n {name: "X"}) RETURN egoGraph(n, 1) AS sg` |
+| Connected component | `MATCH (n {name: "X"}) RETURN connectedComponent(n) AS sg` |
+| Component size | `MATCH (n) WITH n, connectedComponent(n) AS cc WHERE size(cc.nodes) > 3 RETURN n.name` |
 
 See `references/queries.md` for more patterns.
 

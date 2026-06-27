@@ -531,6 +531,7 @@ import type {
   CypherEdge,
   CypherValue,
   CypherLiteral,
+  SubgraphResult,
 } from 'gcyphrq';
 ```
 
@@ -618,6 +619,19 @@ type ResultRow = Record<string, CypherNode | CypherEdge[] | CypherLiteral | null
 ```
 
 Each result row is a plain object mapping projection aliases to their values.
+
+#### `SubgraphResult`
+
+Returned by `subgraph()`, `egoGraph()`, and `connectedComponent()` functions:
+
+```ts
+interface SubgraphResult {
+  nodes: CypherNode[];
+  edges: CypherEdge[];
+}
+```
+
+Each node and edge includes full attributes from the original graph.
 
 #### `AdvancedCypherAST`
 

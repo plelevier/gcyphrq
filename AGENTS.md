@@ -66,6 +66,8 @@ src/
 
 **Centrality functions:** `pagerank()` (power iteration, damping=0.85), `degreeCentrality()` (normalized unique neighbors), `betweennessCentrality()` (Brandes' algorithm). All support global (no args → `{nodeId: score}` map) and per-node (with node arg → single score) forms. Betweenness treats all edges as bidirectional.
 
+**Subgraph extraction:** `subgraph(nodeList)` (induced subgraph from node list), `egoGraph(node, k)` (k-hop ego network, default k=1), `connectedComponent(node)` (connected component). All return `{ nodes: [...], edges: [...] }` with full attributes. All treat edges as bidirectional for traversal.
+
 **Arithmetic expressions:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`. Work in RETURN/WHERE/WITH/ORDER BY/SET. Parentheses for grouping. Null propagation (any null operand → null). Division/modulo by zero → null.
 
 **List literals:** `['a', 'b']` in RETURN/WHERE/UNWIND/SET/CREATE. Dynamic values (`[n.name, toUpper(n.name), n]`). Slicing `[start..end]`, `[..end]`, `[start..]`, `[index]` with negative indices.
