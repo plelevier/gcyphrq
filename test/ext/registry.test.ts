@@ -12,7 +12,7 @@ import {
   formatExtensionsList,
   preprocessQueryForExtensions,
 } from '../../src/ext/registry';
-import { resolvePackage, findNodeModules, discoverExtensionPackages } from '../../src/ext/loader';
+import { findNodeModules, discoverExtensionPackages } from '../../src/ext/loader';
 import { helpers, validate, FunctionError } from '../../src/ext/types';
 import { GraphError } from '../../src/lib';
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
@@ -147,7 +147,6 @@ describe('Extension loader', () => {
 
 describe('Extension registry', () => {
   let testCwd: string;
-  let testNodeModules: string;
 
   beforeEach(() => {
     resetCaches();
@@ -155,12 +154,10 @@ describe('Extension registry', () => {
 
     // Create a temp directory with node_modules containing the mock extension
     testCwd = join(tmpdir(), `gcyphrq-test-${Date.now()}`);
-    testNodeModules = join(testCwd, 'node_modules');
-    mkdirSync(testNodeModules, { recursive: true });
+    mkdirSync(join(testCwd, 'node_modules'), { recursive: true });
 
     // Copy mock extension into node_modules
-    const mockPath = join(testCwd, '..', 'ext', 'mock-extension');
-    const mockDest = join(testNodeModules, 'gcyphrq-ext-mock');
+    const mockDest = join(testCwd, 'node_modules', 'gcyphrq-ext-mock');
     mkdirSync(mockDest, { recursive: true });
 
     // Copy files

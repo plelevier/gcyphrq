@@ -15,7 +15,6 @@ import { tmpdir } from 'os';
 
 describe('Extension integration', () => {
   let testCwd: string;
-  let testNodeModules: string;
 
   beforeEach(() => {
     resetCaches();
@@ -23,11 +22,10 @@ describe('Extension integration', () => {
 
     // Create a temp directory with node_modules containing the mock extension
     testCwd = join(tmpdir(), `gcyphrq-integration-${Date.now()}`);
-    testNodeModules = join(testCwd, 'node_modules');
-    mkdirSync(testNodeModules, { recursive: true });
+    mkdirSync(join(testCwd, 'node_modules'), { recursive: true });
 
     // Copy mock extension into node_modules
-    const mockDest = join(testNodeModules, 'gcyphrq-ext-mock');
+    const mockDest = join(testCwd, 'node_modules', 'gcyphrq-ext-mock');
     mkdirSync(mockDest, { recursive: true });
 
     const pkgJson = JSON.stringify({

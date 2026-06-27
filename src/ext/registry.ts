@@ -1,5 +1,4 @@
 import type {
-  ExtensionManifest,
   ResolvedExtension,
   LoadedExtension,
   GraphInputExtension,
@@ -10,7 +9,7 @@ import type {
   AggregationFunction,
 } from './types';
 import { FunctionError } from './types';
-import { resolveAllExtensions, discoverExtensionPackages } from './loader';
+import { resolveAllExtensions } from './loader';
 import { GraphError } from '../error';
 
 // ── Caches ──────────────────────────────────────────────────────────────
