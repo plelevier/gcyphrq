@@ -299,7 +299,7 @@ for (const ext of extensions) {
 
 ## Extension Discovery
 
-Extensions are discovered by scanning `node_modules` for packages starting with `gcyphrq-ext-`. The `gcyphrqExtensions` field in each package's `package.json` declares the available extensions.
+Extensions are discovered by scanning `node_modules` directories for packages starting with `gcyphrq-ext-`. Both **local** (nearest `node_modules` from the current working directory) and **global** (`npm root -g`) directories are checked. Local packages take precedence over global ones (deduplicated by package name). Global extensions are marked with `(global)` in the `--list-extensions` output.
 
 Multiple extensions can be defined in a single package (e.g., `gcyphrq-ext-graph-formats` providing both `gexf` and `graphml`).
 
