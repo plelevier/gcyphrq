@@ -608,6 +608,7 @@ Scalar functions operate on individual values and work in `RETURN`, `WHERE`, `WI
 | `toFloat(x)` | Convert value to float |
 | `toBoolean(x)` | Convert value to boolean |
 | `keys(x)` | Property names of a map as list |
+| `random()` | Random float between 0 and 1 |
 
 ```cypher
 MATCH (u:User) RETURN toLower(u.name) AS lowerName
@@ -624,9 +625,12 @@ RETURN toBoolean(0) AS zeroIsFalse
 RETURN toBoolean('') AS emptyStringIsFalse
 RETURN toBoolean('yes') AS nonEmptyStringIsTrue
 RETURN keys({name: 'Alice', age: 30}) AS propertyNames
+MATCH (u:User) RETURN u.name ORDER BY random()       -- shuffle results randomly
+MATCH (u:User) RETURN u.name LIMIT 3 ORDER BY random() -- random sample
+RETURN random() AS r                                  -- returns value between 0 and 1
 ```
 
-> **Note:** `repl` is used instead of `replace`, and `reltype` instead of `type` because these are reserved keywords in the ANTLR4 Cypher grammar. `toInt` is an alias for `toInteger`. `toBoolean` converts numbers (0 → false, non-zero → true), strings (empty → false, non-empty → true), and other truthy values. `keys` returns property names of map literals as a list. `labels` is standard Cypher and works as the sole item in RETURN (e.g., `RETURN labels(n)`); use `labelsOf` in WHERE/WITH/ORDER BY or when combined with other RETURN items (ANTLR4 keyword limitation). `startnode()` and `endnode()` return string IDs, not node objects. `nodes(path)` and `relationships(path)` extract from path variables bound with `MATCH path = ...`. `labels()`, `nodes()`, and `relationships()` do not support `AS` aliases (ANTLR4 grammar limitation — use the auto-generated column name like `labels(n)` or `nodes(path)`).
+> **Note:** `repl` is used instead of `replace`, and `reltype` instead of `type` because these are reserved keywords in the ANTLR4 Cypher grammar. `toInt` is an alias for `toInteger`. `toBoolean` converts numbers (0 → false, non-zero → true), strings (empty → false, non-empty → true), and other truthy values. `keys` returns property names of map literals as a list. `random()` returns a random floating-point number between 0 and 1 and is useful for shuffling results (`ORDER BY random()`) or sampling (`LIMIT N ORDER BY random()`). `labels` is standard Cypher and works as the sole item in RETURN (e.g., `RETURN labels(n)`); use `labelsOf` in WHERE/WITH/ORDER BY or when combined with other RETURN items (ANTLR4 keyword limitation). `startnode()` and `endnode()` return string IDs, not node objects. `nodes(path)` and `relationships(path)` extract from path variables bound with `MATCH path = ...`. `labels()`, `nodes()`, and `relationships()` do not support `AS` aliases (ANTLR4 grammar limitation — use the auto-generated column name like `labels(n)` or `nodes(path)`).
 
 ---
 
@@ -1788,6 +1792,136 @@ console.log(JSON.stringify(plan, null, 2));
 - **Variables** — which variables are bound by each stage
 - **Details** — stage-specific information (patterns, projections, aggregations, ORDER BY, LIMIT, etc.)
 - **Final variables** — variables available in the final result
+
+---
+
+## Graph Functions
+
+Graph functions provide whole-graph analytics without requiring `MATCH` clauses. They operate on the entire graph and return aggregate statistics or per-node centrality scores.
+
+### Graph Statistics
+
+| Function | Description | Return |
+|---|---|---|
+| `numNodes()` | Total number of nodes | `number` |
+| `numRelationships()` | Total number of edges | `number` |
+| `density()` | Edge density ratio (0..1) | `number` |
+| `averageDegree()` | Mean node degree | `number` |
+| `diameter()` | Longest shortest path between any two nodes | `number` (returns -1 if disconnected) |
+
+```cypher
+-- Basic graph statistics
+RETURN numNodes() AS nodes, numRelationships() AS edges, density() AS d
+
+-- Combine with average degree and diameter
+RETURN numNodes() AS n, averageDegree() AS avgDeg, diameter() AS diam
+
+-- Use in WHERE clause
+MATCH (n) WHERE numNodes() > 10 RETURN n.name
+```
+
+**Density calculation:**
+- Directed graphs: `E / (V * (V-1))`
+- Undirected graphs: `2E / (V * (V-1))`
+- Mixed graphs: treated as directed
+- Returns 0 for graphs with 0 or 1 nodes
+
+**Diameter:** All edges are treated as bidirectional (standard graph analytics approach). Returns -1 for disconnected graphs where not all nodes are reachable from each other.
+
+**Average degree:** Counts both inbound and outbound edges for directed graphs. Self-loops add 2 to the degree (standard graph theory convention).
+
+### Centrality Functions
+
+Centrality functions measure the importance of nodes in the graph. All three support two calling forms:
+
+- **Global (no arguments):** Returns a `{ nodeId: score }` map for all nodes
+- **Per-node (with node argument):** Returns the score for a specific node
+
+| Function | Description | Algorithm |
+|---|---|---|
+| `pagerank()` | PageRank centrality | Power iteration (damping=0.85) |
+| `degreeCentrality()` | Normalized degree centrality | Unique neighbors / (V-1) |
+| `betweennessCentrality()` | Betweenness centrality | Brandes' algorithm |
+
+```cypher
+-- Global PageRank scores (returns map)
+RETURN pagerank() AS scores
+
+-- Per-node PageRank (returns single score)
+MATCH (n) RETURN n.name, pagerank(n) AS pr ORDER BY pr DESC
+
+-- Top-5 nodes by degree centrality
+MATCH (n) RETURN n.name, degreeCentrality(n) AS dc ORDER BY dc DESC LIMIT 5
+
+-- Betweenness centrality for all nodes
+RETURN betweennessCentrality() AS scores
+
+-- Combine multiple centrality measures
+MATCH (n) RETURN n.name,
+  pagerank(n) AS pr,
+  degreeCentrality(n) AS dc,
+  betweennessCentrality(n) AS bc
+ORDER BY pr DESC
+```
+
+**PageRank:** Uses power iteration with damping factor 0.85, tolerance 1e-6, and up to 100 iterations. For directed graphs, follows outbound edges. For undirected/mixed graphs, treats undirected edges as bidirectional. Sink nodes (no outbound edges) accumulate higher scores.
+
+**Degree centrality:** Counts unique neighbors (combining inbound and outbound for directed graphs). Normalized by dividing by (V-1), so scores range from 0 to 1.
+
+**Betweenness centrality:** Measures how often a node appears on shortest paths between other nodes. All edges are treated as bidirectional. Brandes' algorithm counts each pair (s,t) and (t,s) separately, so results are normalized by dividing by 2. Returns 0 for graphs with 2 or fewer nodes.
+
+### Edge Cases
+
+- **Empty graph:** Statistics return 0; centrality functions return `{}` (global) or `null` (per-node)
+- **Single node:** All statistics return 0 or appropriate defaults; centrality returns 0
+- **Disconnected graph:** `diameter()` returns -1; centrality functions still compute scores within each component
+- **Null argument:** `pagerank(null)`, `degreeCentrality(null)`, `betweennessCentrality(null)` all return `null`
+
+### Subgraph Extraction Functions
+
+Subgraph extraction functions return a portion of the graph as `{ nodes: [...], edges: [...] }` where nodes and edges include full attributes.
+
+| Function | Description | Arguments | Return |
+|---|---|---|---|
+| `subgraph(nodeList)` | Induced subgraph from a list of nodes | List of node objects | `{ nodes, edges }` |
+| `egoGraph(node, k)` | k-hop ego network (default k=1) | Node + optional hop count | `{ nodes, edges }` |
+| `connectedComponent(node)` | Connected component containing a node | Node object | `{ nodes, edges }` |
+
+```cypher
+-- Induced subgraph from matched nodes
+MATCH (n) WHERE n.type = "RPC" WITH collect(n) AS nodes
+RETURN subgraph(nodes) AS sg
+
+-- 1-hop ego network of a specific node
+MATCH (n {name: "API Gateway"}) RETURN egoGraph(n) AS sg
+
+-- 2-hop ego network
+MATCH (n {name: "API Gateway"}) RETURN egoGraph(n, 2) AS sg
+
+-- Connected component of a node
+MATCH (n {name: "Redis Primary"}) RETURN connectedComponent(n) AS sg
+
+-- Count nodes in a component
+MATCH (n) WITH n, connectedComponent(n) AS cc
+WHERE size(cc.nodes) > 3
+RETURN n.name, size(cc.nodes) AS compSize
+
+-- Size of ego network
+MATCH (n {name: "API Gateway"}) WITH egoGraph(n, 1) AS sg
+RETURN size(sg.nodes) AS egoSize
+```
+
+**subgraph:** Takes a list of node objects (e.g., from `collect()`). Returns all given nodes plus all edges between any two nodes in the list. Nodes not in the graph are silently ignored. Returns `{ nodes: [], edges: [] }` for empty lists.
+
+**egoGraph:** Takes a node and an optional hop count k (default 1). Uses BFS treating all edges as bidirectional. Returns the node plus all nodes reachable within k hops and all edges between those nodes. k=0 returns only the node itself.
+
+**connectedComponent:** Takes a node and returns all nodes reachable from it (treating all edges as bidirectional) plus all edges between them. Uses BFS traversal.
+
+**Edge cases:**
+- **Null/nonexistent node:** `egoGraph(null)` and `connectedComponent(null)` return `null`
+- **Negative k:** `egoGraph(n, -1)` returns `null`
+- **Non-array input:** `subgraph("not-an-array")` returns `null`
+- **Isolated node:** Returns `{ nodes: [node], edges: [] }`
 
 ---
 

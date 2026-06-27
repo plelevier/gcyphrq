@@ -37,6 +37,19 @@ import { evaluateExpression as evaluateExpressionImpl, evaluateCase as evaluateC
 import { containsAggregation, containsAggregationInWhere, collectAggregations, collectAggregationsInWhere, computeAggregations as computeAggregationsImpl, getAggKey } from './aggregation';
 import { executeWrite, executeMerge, applyMergeActions } from './mutation';
 import { evaluatePathExpression as evaluatePathExpressionImpl } from './path-finding';
+import {
+  numNodes,
+  numRelationships,
+  density,
+  averageDegree,
+  diameter,
+  pagerank,
+  degreeCentrality,
+  betweennessCentrality,
+  subgraph,
+  egoGraph,
+  connectedComponent,
+} from './graph-functions';
 import { executeReturn as executeReturnImpl, executeWith as executeWithImpl } from './result';
 import { loadCsv, buildCsvRows } from './csv-reader';
 
@@ -564,6 +577,40 @@ export class AdvancedCypherGraphologyEngine {
 
   /** Evaluate a scalar function. */
   private evaluateStringFunction(name: string, args: CypherValue[]): CypherValue {
+    // ── Graph statistics functions ─────────────────────────────────────
+    switch (name) {
+      case 'numnodes':
+        return numNodes(this.graph);
+      case 'numrelationships':
+        return numRelationships(this.graph);
+      case 'density':
+        return density(this.graph);
+      case 'averagedegree':
+        return averageDegree(this.graph);
+      case 'diameter':
+        return diameter(this.graph);
+    }
+
+    // ── Centrality functions ───────────────────────────────────────────
+    switch (name) {
+      case 'pagerank':
+        return pagerank(this.graph, args[0]);
+      case 'degreecentrality':
+        return degreeCentrality(this.graph, args[0]);
+      case 'betweennesscentrality':
+        return betweennessCentrality(this.graph, args[0]);
+    }
+
+    // ── Subgraph extraction functions ──────────────────────────────────
+    switch (name) {
+      case 'subgraph':
+        return subgraph(this.graph, args[0]);
+      case 'egograph':
+        return egoGraph(this.graph, args[0], args[1]);
+      case 'connectedcomponent':
+        return connectedComponent(this.graph, args[0]);
+    }
+
     return evaluateStringFunctionImpl(name, args, this.config);
   }
 

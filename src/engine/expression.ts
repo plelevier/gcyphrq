@@ -910,6 +910,11 @@ export function evaluateStringFunction(name: string, args: CypherValue[], config
     // ── Temporal comparison helpers (for use in WHERE via coalesce trick) ──
     case 'temporalepoch': { return temporalToEpochMillis(args[0]); }
 
+    // ── Random function ────────────────────────────────────────────────
+    case 'random': {
+      return Math.random();
+    }
+
     default: throw new Error(`Function "${name}()" is not supported`);
   }
 }

@@ -1,0 +1,630 @@
+import type { GraphInstance } from '../graph';
+import type { CypherNode, CypherEdge, CypherValue } from '../types/cypher';
+
+// ── Subgraph result types ───────────────────────────────────────────────────
+
+/** Result of a subgraph extraction function. */
+export interface SubgraphResult {
+  nodes: CypherNode[];
+  edges: CypherEdge[];
+}
+
+/** Build a SubgraphResult from a set of node IDs and edge IDs. */
+function buildSubgraphResult(
+  graph: GraphInstance,
+  nodeIds: Set<string>,
+  edgeIds: Set<string>,
+): SubgraphResult {
+  const nodes: CypherNode[] = [];
+  for (const id of nodeIds) {
+    const attrs = graph.getNodeAttributes(id);
+    nodes.push({ id, ...attrs } as CypherNode);
+  }
+  const edges: CypherEdge[] = [];
+  for (const eid of edgeIds) {
+    const attrs = graph.getEdgeAttributes(eid);
+    const endpoints = graph.getEdgeEndpoints(eid);
+    edges.push({ id: eid, source: endpoints.source, target: endpoints.target, ...attrs } as CypherEdge);
+  }
+  return { nodes, edges };
+}
+
+/** Collect all edges between a set of nodes (both directions). */
+function collectEdgesBetweenNodes(graph: GraphInstance, nodeIds: Set<string>): Set<string> {
+  const edgeIds = new Set<string>();
+  for (const nodeId of nodeIds) {
+    graph.forEachOutboundEdge(nodeId, (e, _a, s, t) => {
+      if (nodeIds.has(s!) && nodeIds.has(t!)) {
+        edgeIds.add(e);
+      }
+    });
+    graph.forEachInboundEdge(nodeId, (e, _a, s, t) => {
+      if (!edgeIds.has(e) && nodeIds.has(s!) && nodeIds.has(t!)) {
+        edgeIds.add(e);
+      }
+    });
+  }
+  return edgeIds;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Extract a node ID from a CypherValue (node object). */
+function extractNodeId(value: CypherValue): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.id === 'string' && obj.id) return obj.id;
+  return null;
+}
+
+/** Count total edges in the graph. */
+function countEdges(graph: GraphInstance): number {
+  let count = 0;
+  graph.forEachEdge(() => { count++; });
+  return count;
+}
+
+/**
+ * Iterate over unique neighbors of a node, treating all edges as bidirectional.
+ * Used by betweenness centrality and diameter which operate on the underlying
+ * undirected structure.
+ *
+ * For undirected graphs, forEachOutboundEdge and forEachInboundEdge return the
+ * same edges with the same (s,t) ordering. We deduplicate by edge ID.
+ * For directed graphs, the two methods return different edges. We also need
+ * both to treat edges as bidirectional.
+ *
+ * The neighbor is always the edge endpoint that is NOT the current node.
+ */
+function forEachNeighbor(
+  graph: GraphInstance,
+  nodeId: string,
+  cb: (neighborId: string) => void,
+): void {
+  const seenEdges = new Set<string>();
+
+  graph.forEachOutboundEdge(nodeId, (e, _a, s, t) => {
+    seenEdges.add(e);
+    cb(s === nodeId ? t! : s!);
+  });
+
+  graph.forEachInboundEdge(nodeId, (e, _a, s, t) => {
+    if (!seenEdges.has(e)) {
+      seenEdges.add(e);
+      cb(s === nodeId ? t! : s!);
+    }
+  });
+}
+
+// ── Graph Statistics Functions ───────────────────────────────────────────────
+
+/**
+ * `numNodes()` — Returns the total number of nodes in the graph.
+ */
+export function numNodes(graph: GraphInstance): number {
+  return graph.order;
+}
+
+/**
+ * `numRelationships()` — Returns the total number of edges (relationships) in the graph.
+ */
+export function numRelationships(graph: GraphInstance): number {
+  return countEdges(graph);
+}
+
+/**
+ * `density()` — Returns the graph density as a ratio between 0 and 1.
+ *
+ * For directed graphs:  E / (V * (V - 1))
+ * For undirected graphs: E / (V * (V - 1) / 2) = 2E / (V * (V - 1))
+ * For mixed graphs: treated as directed.
+ *
+ * Returns 0 for graphs with 0 or 1 nodes.
+ */
+export function density(graph: GraphInstance): number {
+  const v = graph.order;
+  if (v <= 1) return 0;
+
+  const e = countEdges(graph);
+  const isUndirected = graph.type === 'undirected';
+
+  if (isUndirected) {
+    return e / (v * (v - 1) / 2);
+  }
+  // Directed or mixed
+  return e / (v * (v - 1));
+}
+
+/**
+ * `averageDegree()` — Returns the average degree of all nodes.
+ *
+ * Degree is the number of incident edges (inbound + outbound for directed,
+ * just incident for undirected). For mixed graphs, undirected edges count
+ * once per incident node and directed edges count for both source and target.
+ *
+ * Returns 0 for graphs with 0 nodes.
+ */
+export function averageDegree(graph: GraphInstance): number {
+  const v = graph.order;
+  if (v === 0) return 0;
+
+  const isUndirected = graph.type === 'undirected';
+  const isMixed = graph.type === 'mixed';
+  const degrees = new Map<string, number>();
+
+  // Initialize all nodes with degree 0
+  graph.filterNodes(() => true).forEach((id) => {
+    degrees.set(id, 0);
+  });
+
+  // Count degrees from edges
+  graph.forEachEdge((_edgeId, attrs, source, target) => {
+    const s = source as string;
+    const t = target as string;
+    const isUndirectedEdge = isUndirected || (isMixed && attrs.undirected === true);
+
+    if (isUndirectedEdge) {
+      // Undirected edge: adds 1 to degree of each endpoint
+      degrees.set(s, (degrees.get(s) ?? 0) + 1);
+      if (s !== t) {
+        degrees.set(t, (degrees.get(t) ?? 0) + 1);
+      }
+    } else {
+      // Directed edge: outbound adds to source, inbound adds to target
+      degrees.set(s, (degrees.get(s) ?? 0) + 1);
+      degrees.set(t, (degrees.get(t) ?? 0) + 1);
+    }
+  });
+
+  let totalDegree = 0;
+  for (const [, deg] of degrees) {
+    totalDegree += deg;
+  }
+
+  return totalDegree / v;
+}
+
+/**
+ * `diameter()` — Returns the diameter of the graph (longest shortest path).
+ *
+ * Uses BFS from every node to find all-pairs shortest paths, then returns
+ * the maximum distance. For disconnected graphs, returns -1.
+ * All edges are treated as bidirectional (standard for graph analytics).
+ *
+ * Returns 0 for graphs with 0 or 1 nodes.
+ */
+export function diameter(graph: GraphInstance): number {
+  const v = graph.order;
+  if (v <= 1) return 0;
+
+  const nodeIds = graph.filterNodes(() => true);
+  let maxDist = 0;
+
+  for (const sourceId of nodeIds) {
+    const dist = new Map<string, number>();
+    dist.set(sourceId, 0);
+    const queue: string[] = [sourceId];
+    let head = 0;
+
+    while (head < queue.length) {
+      const current = queue[head++]!;
+      const currentDist = dist.get(current)!;
+
+      // Treat all edges as bidirectional for diameter
+      // Use forEachNeighbor to get all unique neighbors (deduplicates for undirected graphs)
+      forEachNeighbor(graph, current, (neighborId) => {
+        if (!dist.has(neighborId)) {
+          dist.set(neighborId, currentDist + 1);
+          queue.push(neighborId);
+        }
+      });
+    }
+
+    // If not all nodes are reachable, graph is disconnected
+    if (dist.size < v) return -1;
+
+    // Find max distance from this source
+    for (const [, d] of dist) {
+      if (d > maxDist) maxDist = d;
+    }
+  }
+
+  return maxDist;
+}
+
+// ── Centrality Functions ─────────────────────────────────────────────────────
+
+/**
+ * `pagerank()` — Computes PageRank centrality for all nodes.
+ *
+ * Uses the power iteration method with damping factor 0.85.
+ * Returns a map `{ nodeId: score }` when called without arguments.
+ * When called with a node argument, returns the PageRank score for that node.
+ */
+export function pagerank(graph: GraphInstance, nodeArg?: CypherValue): CypherValue {
+  const v = graph.order;
+  if (v === 0) return nodeArg !== undefined ? null : {};
+
+  const nodeIds = graph.filterNodes(() => true);
+  const damping = 0.85;
+  const tolerance = 1e-6;
+  const maxIterations = 100;
+
+  // Build adjacency lists
+  const outEdges = new Map<string, string[]>();
+  const inEdges = new Map<string, string[]>();
+  for (const id of nodeIds) {
+    outEdges.set(id, []);
+    inEdges.set(id, []);
+  }
+
+  graph.forEachEdge((_edgeId, attrs, source, target) => {
+    const s = source as string;
+    const t = target as string;
+    const isUndirected = graph.type === 'undirected' || (graph.type === 'mixed' && attrs.undirected === true);
+
+    // Always add source -> target
+    outEdges.get(s)!.push(t);
+    inEdges.get(t)!.push(s);
+
+    // For undirected edges, also add target -> source
+    if (isUndirected && s !== t) {
+      outEdges.get(t)!.push(s);
+      inEdges.get(s)!.push(t);
+    }
+  });
+
+  // Initialize PageRank scores uniformly
+  const rank = new Map<string, number>();
+  const initialRank = 1 / v;
+  for (const id of nodeIds) {
+    rank.set(id, initialRank);
+  }
+
+  // Power iteration
+  for (let iter = 0; iter < maxIterations; iter++) {
+    const newRank = new Map<string, number>();
+    let danglingSum = 0;
+
+    // Sum ranks of dangling nodes (nodes with no outbound edges)
+    for (const id of nodeIds) {
+      if (outEdges.get(id)!.length === 0) {
+        danglingSum += rank.get(id)!;
+      }
+    }
+
+    for (const id of nodeIds) {
+      let sum = 0;
+      // Sum contributions from nodes that link to this node
+      for (const otherId of inEdges.get(id)!) {
+        const outDegree = outEdges.get(otherId)!.length;
+        if (outDegree > 0) {
+          sum += rank.get(otherId)! / outDegree;
+        }
+      }
+      newRank.set(id, (1 - damping) / v + damping * (sum + danglingSum / v));
+    }
+
+    // Check convergence
+    let diff = 0;
+    for (const id of nodeIds) {
+      diff += Math.abs(newRank.get(id)! - rank.get(id)!);
+    }
+    rank.clear();
+    for (const [id, r] of newRank) {
+      rank.set(id, r);
+    }
+    if (diff < tolerance) break;
+  }
+
+  // If a specific node was requested, return its score
+  if (nodeArg !== undefined) {
+    const nodeId = extractNodeId(nodeArg);
+    if (!nodeId) return null;
+    return rank.get(nodeId) ?? null;
+  }
+
+  // Return full map
+  const result: Record<string, number> = {};
+  for (const [id, r] of rank) {
+    result[id] = r;
+  }
+  return result as CypherValue;
+}
+
+/**
+ * `degreeCentrality()` — Computes degree centrality for all nodes.
+ *
+ * Degree centrality is the fraction of nodes a given node is connected to.
+ * For directed graphs, uses total degree (in + out). For undirected graphs,
+ * uses the number of neighbors.
+ *
+ * Returns a map `{ nodeId: score }` when called without arguments.
+ * When called with a node argument, returns the degree centrality for that node.
+ */
+export function degreeCentrality(graph: GraphInstance, nodeArg?: CypherValue): CypherValue {
+  const v = graph.order;
+  if (v === 0) return nodeArg !== undefined ? null : {};
+
+  const nodeIds = graph.filterNodes(() => true);
+  const maxDegree = v - 1; // Maximum possible degree
+  if (maxDegree === 0) {
+    // Single node graph: centrality is 0
+    const result: Record<string, number> = {};
+    for (const id of nodeIds) {
+      result[id] = 0;
+    }
+    if (nodeArg !== undefined) {
+      const nodeId = extractNodeId(nodeArg);
+      if (!nodeId) return null;
+      return 0;
+    }
+    return result as CypherValue;
+  }
+
+  // Compute degree for each node using sets of unique neighbors
+  const neighbors = new Map<string, Set<string>>();
+  for (const id of nodeIds) {
+    neighbors.set(id, new Set());
+  }
+
+  graph.forEachEdge((_edgeId, attrs, source, target) => {
+    const s = source as string;
+    const t = target as string;
+    const isUndirected = graph.type === 'undirected' || (graph.type === 'mixed' && attrs.undirected === true);
+
+    // Source has target as neighbor (outbound), skip self-loops
+    if (s !== t) neighbors.get(s)!.add(t);
+
+    if (isUndirected && s !== t) {
+      // Undirected: target also has source as neighbor
+      neighbors.get(t)!.add(s);
+    } else if (!isUndirected && s !== t) {
+      // Directed: target has source as neighbor (inbound), skip self-loops
+      neighbors.get(t)!.add(s);
+    }
+  });
+
+  const result: Record<string, number> = {};
+  for (const id of nodeIds) {
+    const degree = neighbors.get(id)!.size;
+    result[id] = degree / maxDegree;
+  }
+
+  if (nodeArg !== undefined) {
+    const nodeId = extractNodeId(nodeArg);
+    if (!nodeId) return null;
+    return result[nodeId] ?? null;
+  }
+
+  return result as CypherValue;
+}
+
+/**
+ * `betweennessCentrality()` — Computes betweenness centrality for all nodes.
+ *
+ * Uses Brandes' algorithm. Betweenness centrality measures how often a node
+ * appears on shortest paths between other nodes. All edges are treated as
+ * bidirectional (standard for graph analytics).
+ *
+ * Returns a map `{ nodeId: score }` when called without arguments.
+ * When called with a node argument, returns the betweenness centrality for that node.
+ */
+export function betweennessCentrality(graph: GraphInstance, nodeArg?: CypherValue): CypherValue {
+  const v = graph.order;
+  if (v === 0) return nodeArg !== undefined ? null : {};
+
+  const nodeIds = graph.filterNodes(() => true);
+  const centrality = new Map<string, number>();
+  for (const id of nodeIds) {
+    centrality.set(id, 0);
+  }
+
+  if (v <= 2) {
+    // For 0-2 nodes, all betweenness values are 0
+    const result: Record<string, number> = {};
+    for (const id of nodeIds) {
+      result[id] = 0;
+    }
+    if (nodeArg !== undefined) {
+      const nodeId = extractNodeId(nodeArg);
+      if (!nodeId) return null;
+      return 0;
+    }
+    return result as CypherValue;
+  }
+
+  // Brandes' algorithm (treats all edges as bidirectional)
+  for (const source of nodeIds) {
+    // Single-source shortest paths
+    const stack: string[] = [];
+    const pred = new Map<string, string[]>();
+    const sigma = new Map<string, number>(); // Number of shortest paths
+    const dist = new Map<string, number>();
+
+    for (const n of nodeIds) {
+      dist.set(n, -1);
+      sigma.set(n, 0);
+      pred.set(n, []);
+    }
+    dist.set(source, 0);
+    sigma.set(source, 1);
+
+    const queue: string[] = [source];
+    let head = 0;
+
+    while (head < queue.length) {
+      const currentNode = queue[head++]!;
+      stack.push(currentNode);
+
+      forEachNeighbor(graph, currentNode, (w) => {
+        // Path discovery
+        if (dist.get(w) === -1) {
+          dist.set(w, dist.get(currentNode)! + 1);
+          queue.push(w);
+        }
+
+        // Path counting
+        if (dist.get(w) === dist.get(currentNode)! + 1) {
+          sigma.set(w, (sigma.get(w) ?? 0) + (sigma.get(currentNode) ?? 0));
+          pred.get(w)!.push(currentNode);
+        }
+      });
+    }
+
+    // Accumulation
+    const delta = new Map<string, number>();
+    for (const n of nodeIds) {
+      delta.set(n, 0);
+    }
+
+    while (stack.length > 0) {
+      const w = stack.pop()!;
+      for (const p of pred.get(w)!) {
+        delta.set(p, (delta.get(p) ?? 0) + (sigma.get(p) ?? 0) / (sigma.get(w) ?? 1) * (1 + delta.get(w)!));
+      }
+      if (w !== source) {
+        centrality.set(w, (centrality.get(w) ?? 0) + delta.get(w)!);
+      }
+    }
+  }
+
+  // Normalize: divide by 2 because Brandes counts each pair (s,t) and (t,s)
+  // separately, but for undirected treatment each unordered pair should count once
+  for (const id of nodeIds) {
+    centrality.set(id, (centrality.get(id) ?? 0) / 2);
+  }
+
+  const result: Record<string, number> = {};
+  for (const id of nodeIds) {
+    result[id] = centrality.get(id) ?? 0;
+  }
+
+  if (nodeArg !== undefined) {
+    const nodeId = extractNodeId(nodeArg);
+    if (!nodeId) return null;
+    return result[nodeId] ?? null;
+  }
+
+  return result as CypherValue;
+}
+
+// ── Subgraph Extraction Functions ────────────────────────────────────────────
+
+/**
+ * `subgraph(nodeList)` — Extracts the induced subgraph from a list of nodes.
+ *
+ * Returns all nodes in the list plus all edges that exist between any two
+ * nodes in the list. The result is a map `{ nodes: [...], edges: [...] }`
+ * where nodes and edges include full attributes.
+ *
+ * @param nodeList - An array of node objects (each must have an `id` property)
+ * @returns A SubgraphResult with nodes and edges, or null if input is invalid
+ */
+export function subgraph(graph: GraphInstance, nodeList: CypherValue): CypherValue {
+  if (!Array.isArray(nodeList)) return null;
+
+  const nodeIds = new Set<string>();
+  for (const item of nodeList) {
+    if (!item || typeof item !== 'object') continue;
+    const obj = item as Record<string, unknown>;
+    if (typeof obj.id === 'string' && obj.id && graph.hasNode(obj.id)) {
+      nodeIds.add(obj.id);
+    }
+  }
+
+  if (nodeIds.size === 0) {
+    return { nodes: [], edges: [] } as unknown as CypherValue;
+  }
+
+  const edgeIds = collectEdgesBetweenNodes(graph, nodeIds);
+  return buildSubgraphResult(graph, nodeIds, edgeIds) as unknown as CypherValue;
+}
+
+/**
+ * `egoGraph(node, k)` — Extracts the k-hop ego network of a node.
+ *
+ * Returns the given node plus all nodes reachable within k hops (treating
+ * all edges as bidirectional), and all edges between those nodes.
+ * The result is a map `{ nodes: [...], edges: [...] }`.
+ *
+ * @param nodeArg - A node object (must have an `id` property)
+ * @param k - Number of hops (default 1). Must be a non-negative integer.
+ * @returns A SubgraphResult with nodes and edges, or null if input is invalid
+ */
+export function egoGraph(graph: GraphInstance, nodeArg: CypherValue, kArg?: CypherValue): CypherValue {
+  const nodeId = extractNodeId(nodeArg);
+  if (!nodeId || !graph.hasNode(nodeId)) return null;
+
+  let k: number;
+  if (kArg === undefined || kArg === null) {
+    k = 1;
+  } else {
+    k = typeof kArg === 'number' ? Math.floor(kArg) : parseInt(String(kArg), 10);
+    if (isNaN(k) || k < 0) return null;
+  }
+
+  // BFS to find all nodes within k hops (treating all edges as bidirectional)
+  const reachableNodeIds = new Set<string>();
+  reachableNodeIds.add(nodeId);
+
+  if (k > 0) {
+    const dist = new Map<string, number>();
+    dist.set(nodeId, 0);
+    const queue: string[] = [nodeId];
+    let head = 0;
+
+    while (head < queue.length) {
+      const current = queue[head++];
+      const currentDist = dist.get(current)!;
+      if (currentDist >= k) continue;
+
+      forEachNeighbor(graph, current, (neighborId) => {
+        if (!dist.has(neighborId)) {
+          dist.set(neighborId, currentDist + 1);
+          reachableNodeIds.add(neighborId);
+          queue.push(neighborId);
+        }
+      });
+    }
+  }
+
+  const edgeIds = collectEdgesBetweenNodes(graph, reachableNodeIds);
+  return buildSubgraphResult(graph, reachableNodeIds, edgeIds) as unknown as CypherValue;
+}
+
+/**
+ * `connectedComponent(node)` — Returns the connected component containing a node.
+ *
+ * Uses BFS treating all edges as bidirectional to find all reachable nodes,
+ * then returns those nodes plus all edges between them.
+ * The result is a map `{ nodes: [...], edges: [...] }`.
+ *
+ * @param nodeArg - A node object (must have an `id` property)
+ * @returns A SubgraphResult with nodes and edges, or null if input is invalid
+ */
+export function connectedComponent(graph: GraphInstance, nodeArg: CypherValue): CypherValue {
+  const nodeId = extractNodeId(nodeArg);
+  if (!nodeId || !graph.hasNode(nodeId)) return null;
+
+  // BFS to find all reachable nodes (treating all edges as bidirectional)
+  const componentNodeIds = new Set<string>();
+  componentNodeIds.add(nodeId);
+
+  const queue: string[] = [nodeId];
+  let head = 0;
+
+  while (head < queue.length) {
+    const current = queue[head++];
+    forEachNeighbor(graph, current, (neighborId) => {
+      if (!componentNodeIds.has(neighborId)) {
+        componentNodeIds.add(neighborId);
+        queue.push(neighborId);
+      }
+    });
+  }
+
+  const edgeIds = collectEdgesBetweenNodes(graph, componentNodeIds);
+  return buildSubgraphResult(graph, componentNodeIds, edgeIds) as unknown as CypherValue;
+}
+

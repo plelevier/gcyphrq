@@ -42,7 +42,7 @@ describe('timestamp()', () => {
   it('works in MERGE ON CREATE SET', async () => {
     const results = await executeQuery(
       graphData,
-      'MERGE (n:User {name: "NewUser"}) ON CREATE SET n.createdAt = timestamp() RETURN n.createdAt AS createdAt'
+      'MERGE (n {name: "NewUser"}) ON CREATE SET n.createdAt = timestamp() RETURN n.createdAt AS createdAt'
     );
     expect(results).toHaveLength(1);
     expect(typeof results[0]!.createdAt).toBe('number');

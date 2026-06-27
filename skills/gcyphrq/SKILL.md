@@ -15,7 +15,7 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 
 ## CLI
 
-`gcyphrq -g <file|-> -e '<cypher>'`. Flags: `-e` (query, required), `-g` (file or `-` stdin, required), `-nl` (label property, default `"label"`), `-et` (edge type property, default `"type"`), `--format graph|rows`. Chain outputs via `-g -`; scalars auto-fallback to rows.
+`gcyphrq -g <file|-> -e '<cypher>'`. `-e` query (required), `-g` file/stdin (required), `-nl` label prop (default `"label"`), `-et` edge type (default `"type"`), `--format graph|rows`. Chain via `-g -`.
 
 ## Graph File Format
 
@@ -31,13 +31,13 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 
 ## Supported Cypher
 
-- **Matching:** `MATCH`, `OPTIONAL MATCH`, chained `MATCH` (cartesian), labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges (`->`, `<-`, `-`)
+- **Matching:** `MATCH`, `OPTIONAL MATCH`, chained (cartesian), labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges (`->`, `<-`, `-`)
 - **Filtering:** `WHERE` with `=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `IS NULL`, `AND`/`OR`/`NOT`, map comparison
 - **Pipelining:** `WITH` + aggregations (`count`, `count(*)`, `sum`, `avg`, `min`, `max`, `collect`, all with `DISTINCT`)
 - **CASE:** general (`CASE WHEN cond THEN result`) and simple (`CASE expr WHEN val THEN result`). Nested. In RETURN/WHERE/WITH/ORDER BY/SET
-- **Reduce:** `reduce(init, var IN list | body)`. Not itself an aggregation — triggers grouping only when sub-expressions contain aggregations
+- **Reduce:** `reduce(init, var IN list | body)`. Triggers grouping only when sub-expressions contain aggregations
 - **List comprehensions:** `[var IN list [WHERE pred] | expr]`
-- **Pattern comprehensions:** `[(pattern) [WHERE pred] | expr]`. Traverses from bound anchor node, collects into list. Supports directional edges, typed relationships, variable-length. Works in RETURN/WHERE/WITH, nested in `size()`, `head()`, list comprehensions
+- **Pattern comprehensions:** `[(pattern) [WHERE pred] | expr]`. From bound anchor. Supports directional edges, typed rels, variable-length. In RETURN/WHERE/WITH; nest in `size()`, `head()`, list comps
 - **Quantifiers:** `ALL/ANY/SINGLE/NONE(x IN list WHERE pred)`. Empty list: ALL/NONE → true, ANY/SINGLE → false
 - **EXISTS:** `EXISTS(expr)` — true if not null/undefined. Use with `NOT` in WHERE
 - **UNWIND with WHERE:** `UNWIND list AS x WHERE x > 0`. Combine with `WITH` for multi-stage filtering
@@ -45,12 +45,15 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 - **UNION/UNION ALL:** each branch must end with `RETURN`. ORDER BY/SKIP/LIMIT on combined result
 - **Arithmetic:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`. `+` concatenates strings. Null propagation, div/mod by zero → null
 - **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices
-- **Strings as char lists:** `head()`, `last()`, `tail()`, `reverse()`, slicing, comprehensions, quantifiers, `reduce()`, `UNWIND`, `FOREACH`, `IN`. `tail()`/`reverse()`/slicing on strings return strings; others yield char lists
-- **Scalar functions:** 40+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `labels` (sole RETURN only), `labelsOf` (everywhere), `nodes`/`relationships` (sole RETURN only), etc.)
-- **Temporal:** `timestamp()`, `datetime()`, `date()`, `time()`, `localdatetime()`, `localtime()`, `datetimewithtimezone()`, `timewithzone()`, `duration()`. Extractors: `year()`, `month()`, `day()`, `hour()`, `minute()`, `second()`, `millisecond()`, `timezone()`, `epochseconds()`, `epochmillisecond()`, `totalSeconds()`, `totalMinutes()`. WHERE/ORDER BY comparison is chronological and timezone-aware
+- **Strings as char lists:** for `head()`, `last()`, `tail()`, `reverse()`, slicing, comprehensions, quantifiers, `reduce()`, `UNWIND`, `FOREACH`, `IN`. `tail()`/`reverse()`/slicing → string; others → char list
+- **Scalar functions:** 40+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `random`, `labels` (RETURN only), `labelsOf` (everywhere), `nodes`/`relationships` (RETURN only), etc.). `random()` → 0..1 float; use `ORDER BY random()` to shuffle
+- **Graph statistics:** `numNodes()`, `numRelationships()`, `density()`, `averageDegree()`, `diameter()` (-1 if disconnected, bidirectional)
+- **Centrality:** `pagerank()` (power iteration, damping=0.85), `degreeCentrality()` (normalized unique neighbors), `betweennessCentrality()` (Brandes'). All support global (no args → `{nodeId: score}`) and per-node (node arg → score). Betweenness: bidirectional
+- **Subgraph extraction:** `subgraph(nodeList)` (induced subgraph from collect()), `egoGraph(node, k)` (k-hop ego network, default k=1), `connectedComponent(node)` (connected component). All return `{ nodes: [...], edges: [...] }`. All treat edges as bidirectional for traversal
+- **Temporal:** Constructors: `timestamp()`, `datetime()`, `date()`, `time()`, `localdatetime()`, `localtime()`, `datetimewithtimezone()`, `timewithzone()`, `duration()`. Extractors: `year()`, `month()`, `day()`, `hour()`, `minute()`, `second()`, `millisecond()`, `timezone()`, `epochseconds()`, `epochmillisecond()`, `totalSeconds()`, `totalMinutes()`. WHERE/ORDER BY: chronological, timezone-aware
 - **Path expressions:** `shortestPath((a)-[*]->(b))` (single BFS); `allShortestPaths((a)-[*]->(b))` (all min-length). Supports type filtering, direction, depth bounds. Variables must be bound
-- **CALL { ... } subqueries:** inline (reference outer vars), YIELD filtering, nested, CREATE/SET/DELETE inside, ORDER BY inside. Stored procedures not supported
-- **LOAD CSV:** `LOAD CSV [WITH HEADERS] FROM 'source' AS var`. Local files and HTTP/HTTPS. `FIELDS TERMINATED BY`, `OPTIONALLY ENCLOSED BY`. Works inside CALL
+- **CALL { ... } subqueries:** Inline (refs outer vars), YIELD filtering, nested, CREATE/SET/DELETE inside, ORDER BY inside. No stored procedures
+- **LOAD CSV:** `LOAD CSV [WITH HEADERS] FROM 'source' AS var`. Local/HTTP/HTTPS. `FIELDS TERMINATED BY`, `OPTIONALLY ENCLOSED BY`. Works in CALL
 - **Mutations:** `CREATE` (single node or chain), `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `MERGE` (WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE)
 - **Not supported:** stored procedures, APOC, regex in WHERE
 - **Notes:** `startnode()`/`endnode()` return string IDs; `avg()`/`min()`/`max()` return null on empty sets
@@ -61,61 +64,62 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 
 | Task | Cypher |
 |---|---|
-| Nodes by label | `MATCH (n:Service) RETURN n` |
-| Filter by property | `MATCH (n:Service {type: "RPC"}) RETURN n` |
-| Multi-label (AND) | `MATCH (n:Service:Infrastructure) RETURN n` |
-| Label union (OR) | `MATCH (n:Service|Database) RETURN n` |
-| Label negation | `MATCH (n:!Database) RETURN n` |
-| Incoming connections | `MATCH (s)-[:TCP]->(db:Database {name: "PostgreSQL"}) RETURN s` |
-| Outgoing connections | `MATCH (db:Database)-[]->(t) RETURN db, t` |
-| Path tracing | `MATCH (a {name: "X"})-[r*1..3]->(b {name: "Y"}) RETURN a, r, b` |
-| Blast radius (all/down) | `MATCH (root {name: "X"})-[r*1..2]-(affected) RETURN root, r, affected` |
-| Out-degree | `MATCH (n)-[]->(t) WITH n, count(t) AS deg RETURN n, deg` |
+| By label | `MATCH (n:Service) RETURN n` |
+| By property | `MATCH (n:Service {type: "RPC"}) RETURN n` |
+| Multi-label AND | `MATCH (n:Service:Infrastructure) RETURN n` |
+| Label OR | `MATCH (n:Service|Database) RETURN n` |
+| Label NOT | `MATCH (n:!Database) RETURN n` |
+| Incoming | `MATCH (s)-[:TCP]->(db:Database {name: "PostgreSQL"}) RETURN s` |
+| Outgoing | `MATCH (db:Database)-[]->(t) RETURN db, t` |
+| Path | `MATCH (a {name: "X"})-[r*1..3]->(b {name: "Y"}) RETURN a, r, b` |
+| Blast radius | `MATCH (root {name: "X"})-[r*1..2]-(affected) RETURN root, r, affected` |
+| Degree | `MATCH (n)-[]->(t) WITH n, count(t) AS deg RETURN n, deg` |
 | Group by | `MATCH (n:Service) WITH n.type AS t, count(n) AS c RETURN t, c` |
 | CREATE | `CREATE (n:Service {name: "X", type: "RPC"}) RETURN n` |
 | CREATE chain | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) CREATE (a)-[r:DEPENDS_ON]->(b) RETURN r` |
 | SET | `MATCH (n {name: "X"}) SET n.status = "updated" RETURN n` |
-| SET multi-items | `MATCH (n) SET n:Label, n.prop = val, n.count = 5 RETURN n` |
-| FOREACH SET label + property | `MATCH (u) FOREACH (x IN u.items | SET x:Processed, x.reviewed = true) RETURN u` |
-| DELETE / DETACH DELETE | `MATCH (n {name: "X"}) DELETE n` or `DETACH DELETE n` |
+| SET multi | `MATCH (n) SET n:Label, n.prop = val, n.count = 5 RETURN n` |
+| FOREACH | `MATCH (u) FOREACH (x IN u.items | SET x:Processed, x.reviewed = true) RETURN u` |
+| DELETE | `MATCH (n {name: "X"}) DELETE n` or `DETACH DELETE n` |
 | REMOVE | `MATCH (n) REMOVE n:Label, n.prop RETURN n` |
 | MERGE | `MERGE (n:User {name: "Alice"}) ON CREATE SET n.createdAt = 0 RETURN n` |
 | UNION ALL | `MATCH (u:User) RETURN u.name UNION ALL MATCH (u:Admin) RETURN u.name` |
 | Arithmetic | `MATCH (n) RETURN n.price * n.qty AS total, n.price * 2 + n.shipping AS cost` |
-| CASE (general + simple) | `MATCH (n) RETURN n.name, CASE WHEN n.type = "RPC" THEN "svc" ELSE "other" END AS cat` |
-| CASE in ORDER BY | `MATCH (n) RETURN n.name ORDER BY CASE n.type WHEN "RPC" THEN 0 ELSE 1 END` |
-| Path variable | `MATCH path=(a)-[r]->(b) RETURN path` |
-| Path nodes/relationships | `MATCH path=(a)-[r]->(b) RETURN nodes(path), relationships(path)` |
-| labels function | `MATCH (n) RETURN labels(n)` |
-| CALL subquery | `CALL { MATCH (n:Person) RETURN n.name AS name }` |
-| CALL with outer var | `MATCH (a:Person) CALL { MATCH (a)-[:FRIEND]->(b) RETURN b.name AS friend } RETURN a.name, friend` |
-| CALL with YIELD(+WHERE) | `CALL { MATCH (n:Person) RETURN n.name AS name, n.age AS age } YIELD name WHERE name <> "Bob" RETURN name` |
-| Nested CALL | `CALL { CALL { MATCH (n:Person) RETURN n.name AS name } RETURN name }` |
-| Shortest path | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) RETURN shortestPath((a)-[*]->(b)) AS path` |
-| Shortest path (typed/directed) | `RETURN shortestPath((a)-[:TCP*]->(b))` or `allShortestPaths((a)-[*]-(b))` |
+| CASE | `MATCH (n) RETURN n.name, CASE WHEN n.type = "RPC" THEN "svc" ELSE "other" END AS cat` |
+| CASE (ORDER BY) | `MATCH (n) RETURN n.name ORDER BY CASE n.type WHEN "RPC" THEN 0 ELSE 1 END` |
+| Path var | `MATCH path=(a)-[r]->(b) RETURN path, nodes(path), relationships(path)` |
+| labels() | `MATCH (n) RETURN labels(n)` |
+| CALL | `CALL { MATCH (n:Person) RETURN n.name AS name }` |
+| CALL (outer) | `MATCH (a:Person) CALL { MATCH (a)-[:FRIEND]->(b) RETURN b.name AS friend } RETURN a.name, friend` |
+| CALL (YIELD) | `CALL { MATCH (n:Person) RETURN n.name AS name, n.age AS age } YIELD name WHERE name <> "Bob" RETURN name` |
+| CALL (nested) | `CALL { CALL { MATCH (n:Person) RETURN n.name AS name } RETURN name }` |
+| shortestPath() | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) RETURN shortestPath((a)-[*]->(b)) AS path` |
+| shortestPath (typed) | `RETURN shortestPath((a)-[:TCP*]->(b))` or `allShortestPaths((a)-[*]-(b))` |
 | count(*) | `MATCH (n) RETURN count(*) AS total` |
-| collect / collect DISTINCT | `MATCH (u:User) RETURN collect(u.name) AS names, collect(DISTINCT u.dept) AS depts` |
+| collect | `MATCH (u:User) RETURN collect(u.name) AS names, collect(DISTINCT u.dept) AS depts` |
 | reduce | `RETURN reduce(total = 0, x IN [1,2,3] | total + x) AS sum` |
-| reduce + collect | `MATCH (u:User) RETURN reduce(total = 0, x IN collect(u.age) | total + x) AS totalAge` |
+| reduce (collect) | `MATCH (u:User) RETURN reduce(total = 0, x IN collect(u.age) | total + x) AS totalAge` |
 | quantifiers | `MATCH (n) WHERE ALL/ANY/SINGLE/NONE(x IN n.tags WHERE x = "a") RETURN n` |
-| pattern comprehension | `MATCH (a:Person) RETURN [(a)-->(b:Person) | b.name] AS friends` |
-| pattern comprehension (incoming) | `MATCH (a:Person) RETURN [(a)<--(b:Person) | b.name] AS incoming` |
-| pattern comprehension (with WHERE) | `MATCH (a:Person) RETURN [(a)-->(b:Person) WHERE b.age > 30 | b.name]` |
-| pattern comprehension (size) | `MATCH (a:Person) RETURN a.name, size([(a)-->(b:Person) | b.name]) AS count` |
+| Pattern comp | `MATCH (a:Person) RETURN [(a)-->(b:Person) | b.name] AS friends` |
+| Pattern comp (in/WHERE) | `MATCH (a:Person) RETURN [(a)<--(b:Person) WHERE b.age > 30 | b.name]` |
+| Pattern comp (size) | `MATCH (a:Person) RETURN a.name, size([(a)-->(b:Person) | b.name]) AS count` |
 | EXISTS | `MATCH (n) WHERE EXISTS(n.prop) OR NOT EXISTS(n.prop) RETURN n` |
-| UNWIND WHERE (+WITH) | `UNWIND [1,2,3,4,5] AS x WHERE x > 1 WITH x WHERE x < 5 RETURN x` |
-| ORDER BY NULLS FIRST/LAST | `MATCH (n) RETURN n.name, n.score ORDER BY n.score NULLS FIRST` |
+| UNWIND | `UNWIND [1,2,3,4,5] AS x WHERE x > 1 WITH x WHERE x < 5 RETURN x` |
+| NULLS | `MATCH (n) RETURN n.name, n.score ORDER BY n.score NULLS FIRST` |
 | LOAD CSV | `LOAD CSV [WITH HEADERS] FROM 'file.csv' AS row RETURN row.name, row.age` |
-| LOAD CSV + MATCH | `LOAD CSV WITH HEADERS FROM 'users.csv' AS row MATCH (u:User {name: row.name}) RETURN row.name, u` |
-| LOAD CSV + CREATE | `LOAD CSV WITH HEADERS FROM 'people.csv' AS row CREATE (p:Person {name: row.name}) RETURN p` |
-| LOAD CSV (custom delim) | `LOAD CSV FROM 'data.tsv' AS row FIELDS TERMINATED BY '\t' RETURN row` |
-| LOAD CSV inside CALL | `CALL { LOAD CSV WITH HEADERS FROM 'data.csv' AS row RETURN row.name AS name } RETURN name` |
+| LOAD CSV (MATCH) | `LOAD CSV WITH HEADERS FROM 'users.csv' AS row MATCH (u:User {name: row.name}) RETURN row.name, u` |
+| LOAD CSV (delim) | `LOAD CSV FROM 'data.tsv' AS row FIELDS TERMINATED BY '\t' RETURN row` |
 | EXPLAIN | `gcyphrq --explain -e 'MATCH (u:User) RETURN u'` |
-| timestamp/datetime/date | `RETURN timestamp() AS ts, datetime(2023,6,15,14,30,45) AS dt, date(2023,6,15) AS d` |
-| time/localdatetime/localtime | `RETURN time(14,30,45) AS t, localdatetime() AS dt, localtime() AS lt` |
-| duration | `RETURN duration({hours:1, minutes:30}) AS dur, duration('P1Y2M3DT4H5M6S') AS dur2` |
-| temporal extractors | `RETURN year(n.createdAt) AS y, month(n.createdAt) AS m, epochseconds(n.createdAt) AS epoch` |
-| temporal WHERE/ORDER BY | `MATCH (n) WHERE n.createdAt > '2023-01-01T00:00:00.000Z' RETURN n.name ORDER BY n.createdAt DESC` |
+| timestamp() | `RETURN timestamp() AS ts, datetime(2023,6,15,14,30,45) AS dt, date(2023,6,15) AS d` |
+| duration/extractors | `RETURN time(14,30,45) AS t, duration({hours:1,minutes:30}) AS dur, year(n.createdAt) AS y, epochseconds(n.createdAt) AS epoch` |
+| temporal WHERE | `MATCH (n) WHERE n.createdAt > '2023-01-01T00:00:00.000Z' RETURN n.name ORDER BY n.createdAt DESC` |
+| Graph stats | `RETURN numNodes() AS n, numRelationships() AS e, density() AS d, averageDegree() AS avgDeg, diameter() AS diam` |
+| PageRank | `RETURN pagerank() AS scores` |
+| PageRank (node) | `MATCH (n) RETURN n.name, pagerank(n) AS pr ORDER BY pr DESC` |
+| Centrality | `MATCH (n) RETURN n.name, degreeCentrality(n) AS dc, betweennessCentrality(n) AS bc ORDER BY dc DESC` |
+| Top-N | `MATCH (n) RETURN n.name, pagerank(n) AS pr ORDER BY pr DESC LIMIT 5` |
+| Subgraph | `MATCH (n) WHERE n.type = "RPC" WITH collect(n) AS nodes RETURN subgraph(nodes) AS sg` |
+| Ego / component | `MATCH (n {name: "X"}) RETURN egoGraph(n, 2) AS sg, connectedComponent(n) AS cc` |
 
 See `references/queries.md` for more patterns.
 

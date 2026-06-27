@@ -21,6 +21,7 @@ const Ctx = {
   DeleteClause: 'DeleteClauseContext',
   Expression: 'ExpressionContext',
   FloatLiteral: 'FloatLiteralContext',
+  DoubleLiteral: 'DoubleLiteralContext',
   FunctionInvocation: 'FunctionInvocationContext',
   FunctionInvocationBody: 'FunctionInvocationBodyContext',
   FunctionName: 'FunctionNameContext',
