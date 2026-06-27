@@ -519,6 +519,60 @@ MATCH (n) WHERE 'a' IN 'abc' RETURN n.name
 
 ---
 
+### Pattern Comprehensions
+
+Traverse the graph from a bound anchor node and collect results into a list using `[(pattern) [WHERE predicate] | generator]`. The pattern comprehension starts from an already-bound variable, walks relationships to find matching target nodes, optionally filters with a `WHERE` clause, applies the generator expression, and returns a new list.
+
+```cypher
+-- Collect names of connected nodes
+MATCH (a:Person {name: "Alice"}) RETURN [(a)-->(b:Person) | b.name] AS friends
+-- Result: [{ friends: ["Bob", "Charlie"] }]
+
+-- With typed relationship
+MATCH (a:Person {name: "Alice"}) RETURN [(a)-[:KNOWS]->(b:Person) | b.name] AS friends
+
+-- Incoming edges
+MATCH (a:Person {name: "Charlie"}) RETURN [(a)<--(b:Person) | b.name] AS incoming
+
+-- Undirected edges
+MATCH (a:Person {name: "Charlie"}) RETURN [(a)--(b:Person) | b.name] AS connections
+
+-- With WHERE filter
+MATCH (a:Person {name: "Alice"}) RETURN [(a)-->(b:Person) WHERE b.age > 30 | b.name] AS olderFriends
+
+-- With relationship variable
+MATCH (a:Person {name: "Alice"}) RETURN [(a)-[r:KNOWS]->(b:Person) | r] AS rels
+
+-- Computed generator expression
+MATCH (a:Person {name: "Alice"}) RETURN [(a)-->(b:Person) | toUpper(b.name)] AS upperNames
+
+-- Map literal generator
+MATCH (a:Person {name: "Alice"}) RETURN [(a)-->(b:Person) | {name: b.name, age: b.age}] AS friendInfo
+
+-- With variable-length patterns
+MATCH (a:Person {name: "Alice"}) RETURN [(a)-[*1..2]->(b:Person) | b.name] AS reachable
+```
+
+Pattern comprehensions work in `RETURN`, `WHERE`, and `WITH` clauses. They can be nested inside functions like `size()`, `head()`, `tail()`, and inside list comprehensions:
+
+```cypher
+-- Count connections
+MATCH (a:Person) RETURN a.name, size([(a)-->(b:Person) | b.name]) AS friendCount
+
+-- First connection only
+MATCH (a:Person {name: "Alice"}) RETURN head([(a)-->(b:Person) | b.name]) AS firstFriend
+
+-- Nested in list comprehension
+MATCH (a:Person {name: "Alice"}) RETURN [x IN [(a)-->(b:Person) | b.name] | toUpper(x)] AS upperFriends
+
+-- In WHERE clause
+MATCH (a:Person) WHERE size([(a)-->(b:Person) | b.name]) > 1 RETURN a.name
+```
+
+> **Note:** The anchor node (source pattern variable) must be bound in the query context (e.g., via a preceding `MATCH`). The relationship variable `r` binds to an array of edges along the path. For single-hop patterns, access via `r[0].property`. Directional edges (`->`, `<-`, `-`) control traversal direction.
+
+---
+
 ### Scalar functions
 
 Scalar functions operate on individual values and work in `RETURN`, `WHERE`, `WITH`, and `ORDER BY` clauses. Nested calls are supported.

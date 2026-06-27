@@ -188,6 +188,9 @@ function describeExpression(expr: Expression): string {
   if (expr.type === 'ListComprehension') {
     return '[...]';
   }
+  if (expr.type === 'PatternComprehension') {
+    return '[...]';
+  }
   return '...';
 }
 
@@ -237,6 +240,9 @@ function computeDefaultAlias(expr: Expression): string {
     return 'EXISTS()';
   }
   if (expr.type === 'ListComprehension') {
+    return '[...]';
+  }
+  if (expr.type === 'PatternComprehension') {
     return '[...]';
   }
   return String(expr.value);

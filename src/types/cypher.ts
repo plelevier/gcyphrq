@@ -354,7 +354,22 @@ export interface ListComprehensionExpression {
   generator: Expression;
 }
 
-export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression | PathExpression | ReduceExpression | QuantifierExpression | ExistsExpression | ListComprehensionExpression;
+/** A pattern comprehension: `[(pattern) [WHERE predicate] | generator]`. */
+export interface PatternComprehensionExpression {
+  type: 'PatternComprehension';
+  /** Source node pattern (e.g., `(a)` in `[(a)-->(b) | b.name]`). */
+  sourcePattern: NodePattern;
+  /** Relationship pattern (type, direction, variable-length). Undefined when no relationship in pattern. */
+  relationPattern: RelationPattern | undefined;
+  /** Target node pattern (e.g., `(b:Person)` in `[(a)-->(b:Person) | b.name]`). */
+  targetPattern: NodePattern;
+  /** Optional WHERE predicate. */
+  predicate: WhereExpression | undefined;
+  /** Generator expression (after the `|`). */
+  generator: Expression;
+}
+
+export type Expression = PropertyAccessExpression | LiteralExpression | ListLiteralExpression | MapLiteralExpression | AggregationExpression | FunctionCallExpression | ListSliceExpression | ArithmeticExpression | CaseExpression | PathExpression | ReduceExpression | QuantifierExpression | ExistsExpression | ListComprehensionExpression | PatternComprehensionExpression;
 
 export interface BinaryExpression {
   type: 'BinaryExpression';

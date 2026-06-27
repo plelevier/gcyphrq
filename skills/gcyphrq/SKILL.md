@@ -13,54 +13,47 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 2. Build Cypher query from patterns below or `references/queries.md`
 3. Run: `gcyphrq -g <graph.json> -e '<cypher>'`
 
-## CLI Reference
+## CLI
 
-`gcyphrq -g <graph.json> -e '<cypher>'`. Flags: `-e` (query, required), `-g` (file or `-` stdin, required), `-nl` (label property, default `"label"`), `-et` (edge type property, default `"type"`), `--format graph|rows`. Output chainable via `-g -`; scalars auto-fallback to rows.
+`gcyphrq -g <file|-> -e '<cypher>'`. Flags: `-e` (query, required), `-g` (file or `-` stdin, required), `-nl` (label property, default `"label"`), `-et` (edge type property, default `"type"`), `--format graph|rows`. Chain outputs via `-g -`; scalars auto-fallback to rows.
 
 ## Graph File Format
 
 ```json
-{
-  "nodes": [{ "key": "id1", "attributes": { "label": "Service", "name": "api", "region": "us-east-1" } }],
-  "edges": [{ "source": "id1", "target": "id2", "attributes": { "type": "TCP" } }]
-}
+{ "nodes": [{ "key": "id1", "attributes": { "label": "Service", "name": "api" } }],
+  "edges": [{ "source": "id1", "target": "id2", "attributes": { "type": "TCP" } }] }
 ```
 
-- `attributes.label` → Cypher node label (`:Service`). Can be string or array of strings (`["Service","Infrastructure"]`). Customize with `-nl` flag.
-- `attributes.type` on edges → relationship type (`[:TCP]`). Customize with `-et` flag.
-- All other attributes → filterable properties (`{name: "X"}`, `{region: "us-east-1"}`)
-- Optional `options.allowSelfLoops: true` enables self-loop edges (`source = target`). Defaults to `false`.
-- Optional `options.multi: true` enables parallel edges (multiple edges between same nodes). Defaults to `false`.
+- `attributes.label` → Cypher label (`:Service`). String or array (`["Service","Infra"]`). Override with `-nl`.
+- `attributes.type` on edges → relationship type (`[:TCP]`). Override with `-et`.
+- All other attributes → filterable properties (`{name: "X"}`).
+- Optional `options.type: "directed"|"undirected"|"mixed"` (default `"directed"`). `options.allowSelfLoops: true` / `options.multi: true` (parallel edges).
 
 ## Supported Cypher
 
-See `AGENTS.md` → Supported Cypher for full details. Key highlights:
-
-- **Matching:** `MATCH`, `OPTIONAL MATCH`, chained `MATCH` (cartesian), labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges
+- **Matching:** `MATCH`, `OPTIONAL MATCH`, chained `MATCH` (cartesian), labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges (`->`, `<-`, `-`)
 - **Filtering:** `WHERE` with `=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `IS NULL`, `AND`/`OR`/`NOT`, map comparison
+- **Pipelining:** `WITH` + aggregations (`count`, `count(*)`, `sum`, `avg`, `min`, `max`, `collect`, all with `DISTINCT`)
 - **CASE:** general (`CASE WHEN cond THEN result`) and simple (`CASE expr WHEN val THEN result`). Nested. In RETURN/WHERE/WITH/ORDER BY/SET
-- **Pipelining:** `WITH` + `count()`, `count(*)`, `sum()`, `avg()`, `min()`, `max()`, `collect()`, `collect(DISTINCT)`, `count(DISTINCT)`, `sum(DISTINCT)`, `avg(DISTINCT)`
-- **UNWIND with WHERE:** filter unwound elements (`UNWIND list AS x WHERE x > 0`). Supports all WHERE operators. Combine with `WITH` for multi-stage filtering.
-- **ORDER BY NULLS FIRST/LAST:** default `NULLS LAST` for ASC, `NULLS FIRST` for DESC. Works in RETURN and WITH.
-- **Reduce:** `reduce(init, var IN list | body)`. Not itself an aggregation — triggers grouping only when sub-expressions contain aggregations.
-- **UNION/UNION ALL:** each branch must end with `RETURN`. ORDER BY/SKIP/LIMIT on combined result.
+- **Reduce:** `reduce(init, var IN list | body)`. Not itself an aggregation — triggers grouping only when sub-expressions contain aggregations
+- **List comprehensions:** `[var IN list [WHERE pred] | expr]`
+- **Pattern comprehensions:** `[(pattern) [WHERE pred] | expr]`. Traverses from bound anchor node, collects into list. Supports directional edges, typed relationships, variable-length. Works in RETURN/WHERE/WITH, nested in `size()`, `head()`, list comprehensions
+- **Quantifiers:** `ALL/ANY/SINGLE/NONE(x IN list WHERE pred)`. Empty list: ALL/NONE → true, ANY/SINGLE → false
+- **EXISTS:** `EXISTS(expr)` — true if not null/undefined. Use with `NOT` in WHERE
+- **UNWIND with WHERE:** `UNWIND list AS x WHERE x > 0`. Combine with `WITH` for multi-stage filtering
+- **ORDER BY NULLS FIRST/LAST:** default `NULLS LAST` for ASC, `NULLS FIRST` for DESC
+- **UNION/UNION ALL:** each branch must end with `RETURN`. ORDER BY/SKIP/LIMIT on combined result
+- **Arithmetic:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`. `+` concatenates strings. Null propagation, div/mod by zero → null
+- **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices
+- **Strings as char lists:** `head()`, `last()`, `tail()`, `reverse()`, slicing, comprehensions, quantifiers, `reduce()`, `UNWIND`, `FOREACH`, `IN`. `tail()`/`reverse()`/slicing on strings return strings; others yield char lists
 - **Scalar functions:** 40+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `labels` (sole RETURN only), `labelsOf` (everywhere), `nodes`/`relationships` (sole RETURN only), etc.)
-- **Temporal functions:** `timestamp()`, `datetime()`, `date()`, `time()`, `localdatetime()`, `localtime()`, `datetimewithtimezone()`, `timewithzone()`, `duration()`. Extractors: `year()`, `month()`, `day()`, `hour()`, `minute()`, `second()`, `millisecond()`, `timezone()`, `epochseconds()`, `epochmillisecond()`, `totalSeconds()`, `totalMinutes()`. Temporal comparison in WHERE/ORDER BY is chronological and timezone-aware.
-- **Path expressions:** `shortestPath((a)-[*]->(b))` (single BFS); `allShortestPaths((a)-[*]->(b))` (all min-length). Supports type filtering (`[:TYPE*]`), direction (`->`, `<-`, `-`), depth bounds (`*min..max`). Variables must be bound.
-- **Arithmetic:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`. `+` concatenates strings. Null propagation, div/mod by zero → null.
-- **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices.
-- **Quantifiers:** `ALL/ANY/SINGLE/NONE(x IN list WHERE pred)`. Empty list: ALL/NONE → true, ANY/SINGLE → false.
-- **Strings as char lists:** `head()`, `last()`, `tail()`, `reverse()`, slicing, comprehensions, quantifiers, `reduce()`, `UNWIND`, `FOREACH`, `IN`. `tail()`/`reverse()`/slicing on strings return strings; others yield char lists.
-- **EXISTS:** `EXISTS(expr)` — true if not null/undefined. Use with `NOT` in WHERE.
-- **Mutations:** `CREATE` (single node or chain `(a)-[r:TYPE]->(b)`), `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `MERGE` (in-memory). MERGE: WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE.
-- **CALL { ... } subqueries:** inline (reference outer vars), YIELD filtering, nested, CREATE/SET/DELETE inside, ORDER BY inside. Stored procedures not supported.
-- **LOAD CSV:** `LOAD CSV [WITH HEADERS] FROM 'source' AS var`. Local files and HTTP/HTTPS. With HEADERS: `{ headerName: value }` map; without: string array. `FIELDS TERMINATED BY`, `OPTIONALLY ENCLOSED BY`. Works inside CALL. Combines with MATCH, WHERE, CREATE, aggregations.
+- **Temporal:** `timestamp()`, `datetime()`, `date()`, `time()`, `localdatetime()`, `localtime()`, `datetimewithtimezone()`, `timewithzone()`, `duration()`. Extractors: `year()`, `month()`, `day()`, `hour()`, `minute()`, `second()`, `millisecond()`, `timezone()`, `epochseconds()`, `epochmillisecond()`, `totalSeconds()`, `totalMinutes()`. WHERE/ORDER BY comparison is chronological and timezone-aware
+- **Path expressions:** `shortestPath((a)-[*]->(b))` (single BFS); `allShortestPaths((a)-[*]->(b))` (all min-length). Supports type filtering, direction, depth bounds. Variables must be bound
+- **CALL { ... } subqueries:** inline (reference outer vars), YIELD filtering, nested, CREATE/SET/DELETE inside, ORDER BY inside. Stored procedures not supported
+- **LOAD CSV:** `LOAD CSV [WITH HEADERS] FROM 'source' AS var`. Local files and HTTP/HTTPS. `FIELDS TERMINATED BY`, `OPTIONALLY ENCLOSED BY`. Works inside CALL
+- **Mutations:** `CREATE` (single node or chain), `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `MERGE` (WHERE filter, ON CREATE/ON MATCH with SET/DELETE/DETACH DELETE/REMOVE)
 - **Not supported:** stored procedures, APOC, regex in WHERE
 - **Notes:** `startnode()`/`endnode()` return string IDs; `avg()`/`min()`/`max()` return null on empty sets
-
-## When to Use
-
-Service dependencies, blast radius, path tracing, shortest path, infrastructure topology, monitoring coverage, degree analysis, graph mutations, idempotent seeding with MERGE.
 
 ## Cypher Patterns
 
@@ -76,8 +69,7 @@ Service dependencies, blast radius, path tracing, shortest path, infrastructure 
 | Incoming connections | `MATCH (s)-[:TCP]->(db:Database {name: "PostgreSQL"}) RETURN s` |
 | Outgoing connections | `MATCH (db:Database)-[]->(t) RETURN db, t` |
 | Path tracing | `MATCH (a {name: "X"})-[r*1..3]->(b {name: "Y"}) RETURN a, r, b` |
-| Blast radius (all) | `MATCH (root {name: "X"})-[r*1..2]-(affected) RETURN root, r, affected` |
-| Blast radius (down) | `MATCH (root {name: "X"})-[r*1..2]->(d) RETURN root, r, d` |
+| Blast radius (all/down) | `MATCH (root {name: "X"})-[r*1..2]-(affected) RETURN root, r, affected` |
 | Out-degree | `MATCH (n)-[]->(t) WITH n, count(t) AS deg RETURN n, deg` |
 | Group by | `MATCH (n:Service) WITH n.type AS t, count(n) AS c RETURN t, c` |
 | CREATE | `CREATE (n:Service {name: "X", type: "RPC"}) RETURN n` |
@@ -85,8 +77,7 @@ Service dependencies, blast radius, path tracing, shortest path, infrastructure 
 | SET | `MATCH (n {name: "X"}) SET n.status = "updated" RETURN n` |
 | SET multi-items | `MATCH (n) SET n:Label, n.prop = val, n.count = 5 RETURN n` |
 | FOREACH SET label + property | `MATCH (u) FOREACH (x IN u.items | SET x:Processed, x.reviewed = true) RETURN u` |
-| DELETE | `MATCH (n {name: "X"}) DELETE n` |
-| DETACH DELETE | `MATCH (n {name: "X"}) DETACH DELETE n` |
+| DELETE / DETACH DELETE | `MATCH (n {name: "X"}) DELETE n` or `DETACH DELETE n` |
 | REMOVE | `MATCH (n) REMOVE n:Label, n.prop RETURN n` |
 | MERGE | `MERGE (n:User {name: "Alice"}) ON CREATE SET n.createdAt = 0 RETURN n` |
 | UNION ALL | `MATCH (u:User) RETURN u.name UNION ALL MATCH (u:Admin) RETURN u.name` |
@@ -99,7 +90,6 @@ Service dependencies, blast radius, path tracing, shortest path, infrastructure 
 | CALL subquery | `CALL { MATCH (n:Person) RETURN n.name AS name }` |
 | CALL with outer var | `MATCH (a:Person) CALL { MATCH (a)-[:FRIEND]->(b) RETURN b.name AS friend } RETURN a.name, friend` |
 | CALL with YIELD(+WHERE) | `CALL { MATCH (n:Person) RETURN n.name AS name, n.age AS age } YIELD name WHERE name <> "Bob" RETURN name` |
-| CALL with WHERE | `CALL { MATCH (n:Person) RETURN n.age AS age } WHERE age > 28 RETURN age` |
 | Nested CALL | `CALL { CALL { MATCH (n:Person) RETURN n.name AS name } RETURN name }` |
 | Shortest path | `MATCH (a {name: "X"}) MATCH (b {name: "Y"}) RETURN shortestPath((a)-[*]->(b)) AS path` |
 | Shortest path (typed/directed) | `RETURN shortestPath((a)-[:TCP*]->(b))` or `allShortestPaths((a)-[*]-(b))` |
@@ -108,6 +98,10 @@ Service dependencies, blast radius, path tracing, shortest path, infrastructure 
 | reduce | `RETURN reduce(total = 0, x IN [1,2,3] | total + x) AS sum` |
 | reduce + collect | `MATCH (u:User) RETURN reduce(total = 0, x IN collect(u.age) | total + x) AS totalAge` |
 | quantifiers | `MATCH (n) WHERE ALL/ANY/SINGLE/NONE(x IN n.tags WHERE x = "a") RETURN n` |
+| pattern comprehension | `MATCH (a:Person) RETURN [(a)-->(b:Person) | b.name] AS friends` |
+| pattern comprehension (incoming) | `MATCH (a:Person) RETURN [(a)<--(b:Person) | b.name] AS incoming` |
+| pattern comprehension (with WHERE) | `MATCH (a:Person) RETURN [(a)-->(b:Person) WHERE b.age > 30 | b.name]` |
+| pattern comprehension (size) | `MATCH (a:Person) RETURN a.name, size([(a)-->(b:Person) | b.name]) AS count` |
 | EXISTS | `MATCH (n) WHERE EXISTS(n.prop) OR NOT EXISTS(n.prop) RETURN n` |
 | UNWIND WHERE (+WITH) | `UNWIND [1,2,3,4,5] AS x WHERE x > 1 WITH x WHERE x < 5 RETURN x` |
 | ORDER BY NULLS FIRST/LAST | `MATCH (n) RETURN n.name, n.score ORDER BY n.score NULLS FIRST` |

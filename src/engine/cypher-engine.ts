@@ -16,6 +16,7 @@ import type {
   LoadCsvClause,
   MergeClause,
   OrderByItem,
+  PatternComprehensionExpression,
   Projection,
   QueryContext,
   ReturnClause,
@@ -30,7 +31,7 @@ import type { GraphInstance } from '../graph';
 // ── Module imports ───────────────────────────────────────────────────────────
 
 import { isContextChain, materialiseChain, resolveChainValue, type ContextChain, CHAIN_BASE, CHAIN_OVERRIDES } from './context-chain';
-import { executeMatch, getMatchingNodeIds, matchNodeCriteria, deepEquals, getNodeLabels } from './match';
+import { executeMatch, getMatchingNodeIds, matchNodeCriteria, deepEquals, getNodeLabels, buildNeighborGetter } from './match';
 import { evaluateWhere as evaluateWhereCore, isWhereExpression, extractListValues, mapsEqual as mapsEqualImpl, compareValues as compareValuesImpl, compareValuesWithNulls as compareValuesWithNullsImpl, applyOrderByToContexts as applyOrderByToContextsImpl, applyOrderByToRows as applyOrderByToRowsImpl } from './where';
 import { evaluateExpression as evaluateExpressionImpl, evaluateCase as evaluateCaseImpl, evaluateStringFunction as evaluateStringFunctionImpl, asList } from './expression';
 import { containsAggregation, containsAggregationInWhere, collectAggregations, collectAggregationsInWhere, computeAggregations as computeAggregationsImpl, getAggKey } from './aggregation';
@@ -318,8 +319,130 @@ export class AdvancedCypherGraphologyEngine {
 
   private evaluateExpression(expr: Expression, context: QueryContext): CypherValue | undefined {
     if (expr.type === 'Path') return evaluatePathExpressionImpl(this.graph, this.config, expr, context);
+    if (expr.type === 'PatternComprehension') return this.evaluatePatternComprehension(expr, context);
     if (expr.type === 'Case') return this.evaluateCase(expr, context);
-    return evaluateExpressionImpl(expr, context, this.config, (name, args) => this.evaluateStringFunction(name, args), (w, c) => this.evaluateWhere(w, c));
+    return evaluateExpressionImpl(expr, context, this.config, (name, args) => this.evaluateStringFunction(name, args), (w, c) => this.evaluateWhere(w, c), (e, c) => this.evaluateExpression(e, c) as CypherValue);
+  }
+
+  /** Evaluate a pattern comprehension: `[(pattern) [WHERE predicate] | generator]`. */
+  private evaluatePatternComprehension(expr: PatternComprehensionExpression, context: QueryContext): CypherValue {
+    return this.evaluatePatternComprehensionCore(expr, context, (e, c) => this.evaluateExpression(e, c) as CypherValue, (w, c) => this.evaluateWhere(w, c));
+  }
+
+  /** Evaluate a pattern comprehension with aggregation-aware evaluation. */
+  private evaluatePatternComprehensionWithAggregations(
+    expr: PatternComprehensionExpression,
+    context: QueryContext,
+    aggResults: Map<string, CypherValue>,
+  ): CypherValue {
+    return this.evaluatePatternComprehensionCore(expr, context, (e, c) => this.evaluateExpressionWithAggregations(e, c, aggResults), (w, c) => this.evaluateWhereWithAggregations(w, c, aggResults));
+  }
+
+  /** Core pattern comprehension traversal. */
+  private evaluatePatternComprehensionCore(
+    expr: PatternComprehensionExpression,
+    context: QueryContext,
+    evalExpr: (e: Expression, c: QueryContext) => CypherValue,
+    evalWhere: (w: WhereExpression, c: QueryContext) => boolean,
+  ): CypherValue {
+    const { sourcePattern, relationPattern, targetPattern, predicate, generator } = expr;
+    const result: CypherValue[] = [];
+
+    // Resolve the source node from context (always the anchor/start point)
+    const sourceValue = context[sourcePattern.variable];
+    if (!sourceValue || typeof sourceValue !== 'object' || !('id' in sourceValue)) {
+      return [] as CypherValue;
+    }
+    const sourceId = (sourceValue as CypherNode).id;
+    if (!this.graph.hasNode(sourceId)) {
+      return [] as CypherValue;
+    }
+
+    // Get eligible target node IDs (matching target pattern)
+    const targetResult = getMatchingNodeIds(this.graph, this.indexes, this.config, targetPattern, this.warnedNoLabels, this.onWarning);
+    this.warnedNoLabels = targetResult.warned;
+    const eligibleTargetIds = new Set(targetResult.ids);
+
+    // Build neighbor getter for traversal
+    const relPatt = relationPattern ?? {
+      variable: undefined,
+      type: undefined,
+      minDepth: undefined,
+      maxDepth: undefined,
+      variableLength: false,
+      direction: 'UNDIRECTED',
+    };
+    const getNeighbors = buildNeighborGetter(this.graph, this.indexes, this.config, relPatt, this.warnedNoEdgeTypes, this.onWarning);
+
+    const minDepth = relPatt.minDepth ?? 1;
+    const maxDepth = relPatt.maxDepth ?? (relPatt.variableLength ? 100 : minDepth);
+
+    const onStack = new Set<string>();
+    type EdgeStep = { edgeId: string; source: string; target: string };
+    const edgeHistory: EdgeStep[] = [];
+
+    const explore = (currentId: string) => {
+      if (onStack.has(currentId)) return;
+      onStack.add(currentId);
+
+      if (edgeHistory.length >= minDepth && eligibleTargetIds.has(currentId)) {
+        const targetAttr = this.graph.getNodeAttributes(currentId);
+        const targetNode = { id: currentId, ...targetAttr } as CypherNode;
+
+        // Build edge array for relationship variable
+        const edges = edgeHistory.map(({ edgeId, source, target }) =>
+          ({ id: edgeId, source, target, ...this.graph.getEdgeAttributes(edgeId) } as CypherEdge)
+        );
+
+        // Build loop context with bound variables
+        const loopContext: QueryContext = { ...context };
+        loopContext[targetPattern.variable] = targetNode;
+        if (relPatt.variable) {
+          loopContext[relPatt.variable] = edges;
+        }
+
+        // Apply WHERE predicate if present
+        if (predicate) {
+          if (!evalWhere(predicate, loopContext)) return;
+        }
+
+        // Evaluate generator expression
+        const genValue = evalExpr(generator, loopContext);
+        result.push(genValue as CypherValue);
+      }
+
+      if (edgeHistory.length >= maxDepth) { onStack.delete(currentId); return; }
+
+      getNeighbors(currentId, (neighborId, edgeId) => {
+        if (neighborId === currentId) {
+          if (edgeHistory.length + 1 >= minDepth && eligibleTargetIds.has(currentId)) {
+            const targetAttr = this.graph.getNodeAttributes(currentId);
+            const targetNode = { id: currentId, ...targetAttr } as CypherNode;
+            const allSteps = [...edgeHistory, { edgeId, source: currentId, target: currentId }];
+            const edges = allSteps.map(({ edgeId: eid, source, target }) =>
+              ({ id: eid, source, target, ...this.graph.getEdgeAttributes(eid) } as CypherEdge)
+            );
+            const loopContext: QueryContext = { ...context };
+            loopContext[targetPattern.variable] = targetNode;
+            if (relPatt.variable) loopContext[relPatt.variable] = edges;
+            if (!predicate || evalWhere(predicate, loopContext)) {
+              const genValue = evalExpr(generator, loopContext);
+              result.push(genValue as CypherValue);
+            }
+          }
+          return;
+        }
+        edgeHistory.push({ edgeId, source: currentId, target: neighborId });
+        explore(neighborId);
+        edgeHistory.pop();
+      });
+
+      onStack.delete(currentId);
+    };
+
+    explore(sourceId);
+
+    return result as CypherValue;
   }
 
   /** Evaluate a CASE expression. */
@@ -409,6 +532,10 @@ export class AdvancedCypherGraphologyEngine {
       }
 
       return result as CypherValue;
+    }
+    if (expr.type === 'PatternComprehension') {
+      // Evaluate pattern comprehension with aggregation-aware evaluation
+      return this.evaluatePatternComprehensionWithAggregations(expr, context, aggResults);
     }
     return this.evaluateExpression(expr, context) ?? null;
   }
