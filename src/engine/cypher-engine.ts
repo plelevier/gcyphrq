@@ -55,12 +55,6 @@ import { loadCsv, buildCsvRows } from './csv-reader';
 
 // ── Engine ───────────────────────────────────────────────────────────────────
 
-/** Extension function (scalar or aggregation). */
-interface ExtensionFnEntry {
-  fn: (args: unknown[]) => unknown;
-  extName: string;
-}
-
 export class AdvancedCypherGraphologyEngine {
   private graph: GraphInstance;
   private indexes: GraphIndexes | undefined;
@@ -68,15 +62,15 @@ export class AdvancedCypherGraphologyEngine {
   private warnedNoLabels = false;
   private warnedNoEdgeTypes = false;
   private onWarning?: ((message: string) => void) | undefined;
-  private extensionFunctions: Map<string, ExtensionFnEntry>;
-  private extensionAggregations: Map<string, ExtensionFnEntry>;
+  private extensionFunctions: Map<string, (args: unknown[]) => unknown>;
+  private extensionAggregations: Map<string, (args: unknown[]) => unknown>;
 
   constructor(
     graph: GraphInstance,
     indexes?: GraphIndexes,
     onWarning?: (message: string) => void,
-    extensionFunctions?: Map<string, ExtensionFnEntry>,
-    extensionAggregations?: Map<string, ExtensionFnEntry>,
+    extensionFunctions?: Map<string, (args: unknown[]) => unknown>,
+    extensionAggregations?: Map<string, (args: unknown[]) => unknown>,
   ) {
     this.graph = graph;
     this.indexes = indexes;
@@ -613,7 +607,7 @@ export class AdvancedCypherGraphologyEngine {
     const extFn = this.extensionFunctions.get(cleanName);
     if (extFn) {
       try {
-        return extFn.fn(args) as CypherValue;
+        return extFn(args) as CypherValue;
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'FunctionError') {
           throw new Error(`Error in ${cleanName}: ${err.message}`);
@@ -626,7 +620,7 @@ export class AdvancedCypherGraphologyEngine {
     const extAgg = this.extensionAggregations.get(cleanName);
     if (extAgg) {
       try {
-        return extAgg.fn(args) as CypherValue;
+        return extAgg(args) as CypherValue;
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'FunctionError') {
           throw new Error(`Error in ${cleanName}: ${err.message}`);

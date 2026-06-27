@@ -82,19 +82,7 @@ describe('Extension integration', () => {
         const graph = createGraph(graphData);
         const indexes = buildGraphIndexes(graphData, graph);
 
-        // Get extension functions for the engine
-        const extFunctions = getExtensionFunctions();
-        const extAggregations = getExtensionAggregations();
-        const extFnEntries = new Map<string, { fn: (args: unknown[]) => unknown; extName: string }>();
-        for (const [name, fn] of extFunctions) {
-          extFnEntries.set(name, { fn, extName: 'mock-fn' });
-        }
-        const extAggEntries = new Map<string, { fn: (args: unknown[]) => unknown; extName: string }>();
-        for (const [name, fn] of extAggregations) {
-          extAggEntries.set(name, { fn, extName: 'mock-fn' });
-        }
-
-        const engine = new GraphEngine(graph, indexes, undefined, extFnEntries, extAggEntries);
+        const engine = new GraphEngine(graph, indexes, undefined, getExtensionFunctions(), getExtensionAggregations());
 
         // Pre-process the query to handle dotted function name
         let query = 'RETURN mock.hello("World") AS greeting';
@@ -122,13 +110,7 @@ describe('Extension integration', () => {
         const graph = createGraph(graphData);
         const indexes = buildGraphIndexes(graphData, graph);
 
-        const extFunctions = getExtensionFunctions();
-        const extFnEntries = new Map<string, { fn: (args: unknown[]) => unknown; extName: string }>();
-        for (const [name, fn] of extFunctions) {
-          extFnEntries.set(name, { fn, extName: 'mock-fn' });
-        }
-
-        const engine = new GraphEngine(graph, indexes, undefined, extFnEntries, new Map());
+        const engine = new GraphEngine(graph, indexes, undefined, getExtensionFunctions(), new Map());
 
         let query = 'RETURN mock.double(21) AS doubled';
         query = preprocessQueryForExtensions(query);
@@ -155,13 +137,7 @@ describe('Extension integration', () => {
         const graph = createGraph(graphData);
         const indexes = buildGraphIndexes(graphData, graph);
 
-        const extFunctions = getExtensionFunctions();
-        const extFnEntries = new Map<string, { fn: (args: unknown[]) => unknown; extName: string }>();
-        for (const [name, fn] of extFunctions) {
-          extFnEntries.set(name, { fn, extName: 'mock-fn' });
-        }
-
-        const engine = new GraphEngine(graph, indexes, undefined, extFnEntries, new Map());
+        const engine = new GraphEngine(graph, indexes, undefined, getExtensionFunctions(), new Map());
 
         // mock.double expects a number, null should return null
         let query = 'RETURN mock.double(null) AS result';
@@ -189,13 +165,7 @@ describe('Extension integration', () => {
         const graph = createGraph(graphData);
         const indexes = buildGraphIndexes(graphData, graph);
 
-        const extFunctions = getExtensionFunctions();
-        const extFnEntries = new Map<string, { fn: (args: unknown[]) => unknown; extName: string }>();
-        for (const [name, fn] of extFunctions) {
-          extFnEntries.set(name, { fn, extName: 'mock-fn' });
-        }
-
-        const engine = new GraphEngine(graph, indexes, undefined, extFnEntries, new Map());
+        const engine = new GraphEngine(graph, indexes, undefined, getExtensionFunctions(), new Map());
 
         // mock.hello with no argument should use default "World"
         let query = 'RETURN mock.hello() AS greeting';
@@ -279,13 +249,7 @@ describe('Extension integration', () => {
         const graph = createGraph(graphData);
         const indexes = buildGraphIndexes(graphData, graph);
 
-        const extFunctions = getExtensionFunctions();
-        const extFnEntries = new Map<string, { fn: (args: unknown[]) => unknown; extName: string }>();
-        for (const [name, fn] of extFunctions) {
-          extFnEntries.set(name, { fn, extName: 'mock-fn' });
-        }
-
-        const engine = new GraphEngine(graph, indexes, undefined, extFnEntries, new Map());
+        const engine = new GraphEngine(graph, indexes, undefined, getExtensionFunctions(), new Map());
 
         // Use extension function in query against converted graph
         let query = 'MATCH (n) RETURN mock.hello(n.name) AS greeting';

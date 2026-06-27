@@ -447,19 +447,32 @@ describe('CLI - graph format output', () => {
 });
 
 describe('CLI - extensions', () => {
+  // Unique mock extension name to avoid conflicts with stale copies from crashed runs.
+  const mockExtPkg = `gcyphrq-ext-mock-cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  let mockExtDest: string;
+
   beforeAll(() => {
     cliTmpRoot = join(tmpdir(), 'gcyphrq-cli-tests');
     mkdirSync(cliTmpRoot, { recursive: true });
+
+    // Install mock extension once for all extension tests.
+    mockExtDest = join(PROJECT_ROOT, 'node_modules', mockExtPkg);
+    mkdirSync(mockExtDest, { recursive: true });
+    const mockSrc = join(PROJECT_ROOT, 'test', 'ext', 'mock-extension');
+    for (const file of ['package.json', 'mock-graph.js', 'mock-fn.js']) {
+      writeFileSync(join(mockExtDest, file), readFileSync(join(mockSrc, file), 'utf-8'));
+    }
   });
 
   afterAll(() => {
     if (cliTmpRoot) rmSync(cliTmpRoot, { recursive: true, force: true });
+    if (mockExtDest) rmSync(mockExtDest, { recursive: true, force: true });
   });
 
-  it('shows --list-extensions output when no extensions installed', async () => {
+  it('lists installed extensions via --list-extensions', async () => {
     const { stdout, code } = await runCli(['--list-extensions']);
     expect(code).toBe(0);
-    expect(stdout).toContain('No extensions installed');
+    expect(stdout).toContain('mock-fn');
   });
 
   it('errors when --ext is used without -g', async () => {
@@ -524,58 +537,33 @@ describe('CLI - extensions', () => {
   });
 
   it('runs extension function via --ext-fn end-to-end', async () => {
-    // Temporarily install mock extension into node_modules
-    const mockDest = join(PROJECT_ROOT, 'node_modules', 'gcyphrq-ext-mock');
-    mkdirSync(mockDest, { recursive: true });
-
-    try {
-      const mockSrc = join(PROJECT_ROOT, 'test', 'ext', 'mock-extension');
-      for (const file of ['package.json', 'mock-graph.js', 'mock-fn.js']) {
-        writeFileSync(join(mockDest, file), readFileSync(join(mockSrc, file), 'utf-8'));
-      }
-
-      const d = mkSubdir('ext-fn-e2e');
-      const path = writeFile(d, 'graph.json', simpleGraph);
-      const { stdout, code } = await runCli([
-        '-g', path,
-        '--ext-fn', 'mock-fn',
-        '-e', 'RETURN mock.hello("CLI") AS greeting',
-        '--format', 'rows',
-      ]);
-      expect(code).toBe(0);
-      const parsed = JSON.parse(stdout);
-      expect(parsed).toHaveLength(1);
-      expect(parsed[0].greeting).toBe('Hello, CLI!');
-    } finally {
-      rmSync(mockDest, { recursive: true, force: true });
-    }
+    const d = mkSubdir('ext-fn-e2e');
+    const path = writeFile(d, 'graph.json', simpleGraph);
+    const { stdout, code } = await runCli([
+      '-g', path,
+      '--ext-fn', 'mock-fn',
+      '-e', 'RETURN mock.hello("CLI") AS greeting',
+      '--format', 'rows',
+    ]);
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].greeting).toBe('Hello, CLI!');
   });
 
   it('runs extension function with node property via --ext-fn', async () => {
-    const mockDest = join(PROJECT_ROOT, 'node_modules', 'gcyphrq-ext-mock');
-    mkdirSync(mockDest, { recursive: true });
-
-    try {
-      const mockSrc = join(PROJECT_ROOT, 'test', 'ext', 'mock-extension');
-      for (const file of ['package.json', 'mock-graph.js', 'mock-fn.js']) {
-        writeFileSync(join(mockDest, file), readFileSync(join(mockSrc, file), 'utf-8'));
-      }
-
-      const d = mkSubdir('ext-fn-prop');
-      const path = writeFile(d, 'graph.json', simpleGraph);
-      const { stdout, code } = await runCli([
-        '-g', path,
-        '--ext-fn', 'mock-fn',
-        '-e', 'MATCH (u:User) RETURN mock.hello(u.name) AS greeting ORDER BY greeting',
-        '--format', 'rows',
-      ]);
-      expect(code).toBe(0);
-      const parsed = JSON.parse(stdout);
-      expect(parsed).toHaveLength(2);
-      expect(parsed[0].greeting).toBe('Hello, Alice!');
-      expect(parsed[1].greeting).toBe('Hello, Bob!');
-    } finally {
-      rmSync(mockDest, { recursive: true, force: true });
-    }
+    const d = mkSubdir('ext-fn-prop');
+    const path = writeFile(d, 'graph.json', simpleGraph);
+    const { stdout, code } = await runCli([
+      '-g', path,
+      '--ext-fn', 'mock-fn',
+      '-e', 'MATCH (u:User) RETURN mock.hello(u.name) AS greeting ORDER BY greeting',
+      '--format', 'rows',
+    ]);
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0].greeting).toBe('Hello, Alice!');
+    expect(parsed[1].greeting).toBe('Hello, Bob!');
   });
 });

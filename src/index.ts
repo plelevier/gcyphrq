@@ -470,19 +470,7 @@ async function main(): Promise<void> {
     const graph = createGraph(graphData, { onWarning: (msg) => console.warn(msg) });
     const indexes = buildGraphIndexes(graphData, graph, { config, onWarning: (msg) => console.warn(msg) });
 
-    // Build extension function entries for the engine
-    const extFunctions = getExtensionFunctions();
-    const extAggregations = getExtensionAggregations();
-    const extFnEntries = new Map<string, { fn: (args: unknown[]) => unknown; extName: string }>();
-    for (const [name, fn] of extFunctions) {
-      extFnEntries.set(name, { fn, extName: 'extension' });
-    }
-    const extAggEntries = new Map<string, { fn: (args: unknown[]) => unknown; extName: string }>();
-    for (const [name, fn] of extAggregations) {
-      extAggEntries.set(name, { fn, extName: 'extension' });
-    }
-
-    const engine = new GraphEngine(graph, indexes, undefined, extFnEntries, extAggEntries);
+    const engine = new GraphEngine(graph, indexes, undefined, getExtensionFunctions(), getExtensionAggregations());
     const ast = parseCypher(query);
     const results = ast.type === 'UnionQuery'
       ? await engine.executeUnion(ast)
