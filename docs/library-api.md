@@ -424,9 +424,9 @@ for (const ext of extensions) {
 }
 ```
 
-#### `helpers` and `validate`
+#### `helpers`, `validate`, and `FunctionError`
 
-Helper utilities for extension authors to validate function arguments:
+Helper utilities for extension authors to validate function arguments and throw user-friendly errors:
 
 ```ts
 import { helpers, validate, FunctionError } from 'gcyphrq';
@@ -442,6 +442,10 @@ const { sep, values } = validate(args, (v) => {
   v.arg(0, 'sep', helpers.isString);
   v.argsFrom(1, 'values');
 });
+
+// User-facing validation error
+throw new FunctionError('Cannot convert null to integer');
+// Engine reports: "Error in apoc.toInt: Cannot convert null to integer"
 ```
 
 See [Extensions Guide]({{ '/extensions/' | relative_url }}) for creating your own extensions.

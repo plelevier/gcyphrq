@@ -235,27 +235,26 @@ helpers.isRegExp(value);      // value is RegExp
 ### `validate(args, specFn)` (Argument Validator)
 
 ```ts
-const result = validate(args, (v) => {
-  // Count constraints
-  v.count(1);            // exactly 1 argument
-  v.minCount(2);         // at least 2 arguments
-  v.countRange(1, 3);    // between 1 and 3 arguments (inclusive)
-
-  // Individual argument validation
-  v.arg(0, 'name', helpers.isString);  // arg[0] must be string
-  v.arg(1, 'value', helpers.isNumber);  // arg[1] must be number
-  v.arg(2, 'custom', (val) => val !== null);  // custom predicate also accepted
-
-  // Bulk validation from index N onwards
-  v.argsFrom(1, 'values', helpers.isNumber);
-
-  // Optional argument (no error if missing)
-  v.argOptional(2, 'defaultValue', helpers.isString);
+// Example: function requiring exactly 2 arguments
+const { sep, values } = validate(args, (v) => {
+  v.minCount(2);                            // at least 2 arguments
+  v.arg(0, 'sep', helpers.isString);        // arg[0] must be string
+  v.argsFrom(1, 'values');                  // remaining args into array
 });
-
-// Result has validated arguments named by the spec
-// result.name === args[0], result.value === args[1], etc.
 ```
+
+**Available methods (chainable, pick what fits your function):**
+
+| Method | Description |
+|---|---|
+| `v.count(n)` | Require exactly `n` arguments |
+| `v.minCount(n)` | Require at least `n` arguments |
+| `v.countRange(min, max)` | Require between `min` and `max` arguments (inclusive) |
+| `v.arg(index, key, typeCheck?)` | Extract required arg at `index` |
+| `v.argOptional(index, key, typeCheck?)` | Extract optional arg at `index` (stores `undefined` if missing) |
+| `v.argsFrom(index, key, typeCheck?)` | Extract all args from `index` onwards into an array |
+
+> **Note:** Only one count constraint (`count`, `minCount`, or `countRange`) should be used per call. Using contradictory constraints (e.g., `count(1)` and `minCount(2)`) will cause validation to fail for all inputs.
 
 ## Query Syntax for Extension Functions
 
