@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { execSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ExtensionManifest, ResolvedExtension } from './types';
@@ -36,19 +37,46 @@ export function findNodeModules(): string | null {
   return null;
 }
 
+let globalNodeModulesCache: string | null | undefined = undefined;
+
 /**
- * Scan for installed gcyphrq-ext-* packages.
- * Returns all packages that have a valid gcyphrqExtensions field.
+ * Reset the global node_modules cache (for testing).
+ * @internal
  */
-export function discoverExtensionPackages(): Array<{
+export function resetGlobalNodeModulesCache(): void {
+  globalNodeModulesCache = undefined;
+}
+
+/**
+ * Find the global node_modules directory.
+ * Uses `npm root -g` to locate it. Result is cached across calls.
+ */
+function findGlobalNodeModules(): string | null {
+  if (globalNodeModulesCache !== undefined) {
+    return globalNodeModulesCache;
+  }
+  try {
+    const output = execSync('npm root -g', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim();
+    if (output && readdirSync(output).length > 0) {
+      globalNodeModulesCache = output;
+      return output;
+    }
+  } catch {
+    // npm not available or command failed
+  }
+  globalNodeModulesCache = null;
+  return null;
+}
+
+/**
+ * Scan a single node_modules directory for gcyphrq-ext-* packages.
+ */
+function scanNodeModules(nodeModules: string): Array<{
   name: string;
   path: string;
   version: string;
   extensions: Record<string, ExtensionManifest>;
 }> {
-  const nodeModules = findNodeModules();
-  if (!nodeModules) return [];
-
   const results: Array<{ name: string; path: string; version: string; extensions: Record<string, ExtensionManifest> }> = [];
   try {
     const entries = readdirSync(nodeModules).filter(
@@ -74,6 +102,45 @@ export function discoverExtensionPackages(): Array<{
   } catch {
     // node_modules not readable
   }
+  return results;
+}
+
+/**
+ * Scan for installed gcyphrq-ext-* packages.
+ * Checks both local node_modules (nearest to cwd) and global node_modules.
+ * Local packages take precedence over global ones (deduplicated by package name).
+ */
+export function discoverExtensionPackages(): Array<{
+  name: string;
+  path: string;
+  version: string;
+  extensions: Record<string, ExtensionManifest>;
+}> {
+  const seen = new Set<string>();
+  const results: Array<{ name: string; path: string; version: string; extensions: Record<string, ExtensionManifest> }> = [];
+
+  // 1. Scan local node_modules (nearest to cwd) — highest priority
+  const localNodeModules = findNodeModules();
+  if (localNodeModules) {
+    for (const pkg of scanNodeModules(localNodeModules)) {
+      if (!seen.has(pkg.name)) {
+        seen.add(pkg.name);
+        results.push(pkg);
+      }
+    }
+  }
+
+  // 2. Scan global node_modules — fallback
+  const globalNodeModules = findGlobalNodeModules();
+  if (globalNodeModules) {
+    for (const pkg of scanNodeModules(globalNodeModules)) {
+      if (!seen.has(pkg.name)) {
+        seen.add(pkg.name);
+        results.push(pkg);
+      }
+    }
+  }
+
   return results;
 }
 

@@ -19,7 +19,7 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 
 ## Extensions
 
-gcyphrq supports pluggable extensions for non-JSON input formats and custom functions. Extensions are npm packages named `gcyphrq-ext-*`.
+gcyphrq supports pluggable extensions for non-JSON input formats and custom functions. Extensions are npm packages named `gcyphrq-ext-*`. Both local (`node_modules/` near cwd) and global (`npm root -g`) packages are discovered; local takes precedence.
 
 - **Discover installed extensions:** `gcyphrq --list-extensions` (run first to see what's available)
 - **Graph-input extensions:** `gcyphrq -g <file> --ext <name> -e '<cypher>'` (e.g., `--ext gexf` for GEXF files)

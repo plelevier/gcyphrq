@@ -9,7 +9,7 @@ import type {
   AggregationFunction,
 } from './types';
 import { FunctionError } from './types';
-import { resolveAllExtensions } from './loader';
+import { resolveAllExtensions, resetGlobalNodeModulesCache } from './loader';
 import { GraphError } from '../error';
 
 // ── Caches ──────────────────────────────────────────────────────────────
@@ -27,6 +27,7 @@ const loadedExtensionsCache = new Map<string, LoadedExtension>();
 export function resetCaches(): void {
   resolvedExtensionsCache = null;
   loadedExtensionsCache.clear();
+  resetGlobalNodeModulesCache();
 }
 
 // ── Discovery ───────────────────────────────────────────────────────────
@@ -273,9 +274,9 @@ export function formatExtensionsList(): string {
   if (extensions.length === 0) {
     return `No extensions installed.
 
-Install extensions with:
-  npm install gcyphrq-ext-graph-formats    # GEXF, GraphML, DOT
-  npm install gcyphrq-ext-apoc             # APOC functions
+Install extensions locally or globally:
+  npm install gcyphrq-ext-<name>        # local (project)
+  npm install -g gcyphrq-ext-<name>    # global
 
 See https://www.npmjs.com/search?q=gcyphrq-ext for available extensions.`;
   }
