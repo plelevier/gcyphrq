@@ -1,22 +1,7 @@
-import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ExtensionManifest, ResolvedExtension } from './types';
-
-/**
- * Resolve a package from the user's node_modules.
- * Uses process.cwd() as the resolution anchor.
- */
-export function resolvePackage(packageName: string): string | null {
-  const requireFromCwd = createRequire(process.cwd() + '/');
-  try {
-    const pkgPath = requireFromCwd.resolve(`${packageName}/package.json`);
-    return dirname(pkgPath);
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Find the node_modules directory that contains extension packages.
