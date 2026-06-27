@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ExtensionManifest, ResolvedExtension } from './types';
@@ -48,15 +48,30 @@ export function resetGlobalNodeModulesCache(): void {
 }
 
 /**
+ * Override the global node_modules path for testing.
+ * When set, `findGlobalNodeModules` returns this value directly (bypassing npm spawn).
+ * @internal
+ */
+export function setGlobalNodeModulesForTest(path: string | null): void {
+  globalNodeModulesCache = path;
+}
+
+/**
  * Find the global node_modules directory.
  * Uses `npm root -g` to locate it. Result is cached across calls.
+ * @internal
  */
-function findGlobalNodeModules(): string | null {
+export function findGlobalNodeModules(): string | null {
   if (globalNodeModulesCache !== undefined) {
     return globalNodeModulesCache;
   }
   try {
-    const output = execSync('npm root -g', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim();
+    const result = spawnSync('npm', ['root', '-g'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+      timeout: 5000,
+    });
+    const output = result.status === 0 ? result.stdout.trim() : '';
     if (output && existsSync(output)) {
       globalNodeModulesCache = output;
       return output;
@@ -115,9 +130,10 @@ export function discoverExtensionPackages(): Array<{
   path: string;
   version: string;
   extensions: Record<string, ExtensionManifest>;
+  source: 'local' | 'global';
 }> {
   const seen = new Set<string>();
-  const results: Array<{ name: string; path: string; version: string; extensions: Record<string, ExtensionManifest> }> = [];
+  const results: Array<{ name: string; path: string; version: string; extensions: Record<string, ExtensionManifest>; source: 'local' | 'global' }> = [];
 
   // 1. Scan local node_modules (nearest to cwd) — highest priority
   const localNodeModules = findNodeModules();
@@ -125,7 +141,7 @@ export function discoverExtensionPackages(): Array<{
     for (const pkg of scanNodeModules(localNodeModules)) {
       if (!seen.has(pkg.name)) {
         seen.add(pkg.name);
-        results.push(pkg);
+        results.push({ ...pkg, source: 'local' as const });
       }
     }
   }
@@ -136,7 +152,7 @@ export function discoverExtensionPackages(): Array<{
     for (const pkg of scanNodeModules(globalNodeModules)) {
       if (!seen.has(pkg.name)) {
         seen.add(pkg.name);
-        results.push(pkg);
+        results.push({ ...pkg, source: 'global' as const });
       }
     }
   }
@@ -161,11 +177,10 @@ export function resolveAllExtensions(): ResolvedExtension[] {
         packageVersion: pkg.version,
         packagePath: pkg.path,
         entryPoint,
+        source: pkg.source,
       });
     }
   }
 
   return extensions;
 }
-
-

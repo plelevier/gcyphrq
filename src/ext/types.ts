@@ -87,6 +87,8 @@ export interface ResolvedExtension {
   packagePath: string;
   /** Resolved absolute path to the entry point. */
   entryPoint: string;
+  /** Whether the package was found in local or global node_modules. */
+  source: 'local' | 'global';
 }
 
 // ── Loaded extension ────────────────────────────────────────────────────

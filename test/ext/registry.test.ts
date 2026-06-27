@@ -12,7 +12,7 @@ import {
   formatExtensionsList,
   preprocessQueryForExtensions,
 } from '../../src/ext/registry';
-import { findNodeModules, discoverExtensionPackages, resetGlobalNodeModulesCache } from '../../src/ext/loader';
+import { findNodeModules, discoverExtensionPackages, resetGlobalNodeModulesCache, setGlobalNodeModulesForTest, findGlobalNodeModules } from '../../src/ext/loader';
 import { helpers, validate, FunctionError } from '../../src/ext/types';
 import { GraphError } from '../../src/lib';
 import { mkdirSync, writeFileSync, rmSync, readFileSync } from 'fs';
@@ -149,28 +149,54 @@ describe('Extension loader', () => {
   });
 
   it('findGlobalNodeModules caches result', () => {
-    // First call runs npm root -g, second call returns cache
-    // We can't directly call findGlobalNodeModules (private), but we can
-    // verify that resetGlobalNodeModulesCache resets the cache
     resetGlobalNodeModulesCache();
-    // After reset, discoverExtensionPackages should re-run discovery
-    const packages1 = discoverExtensionPackages();
+    const result1 = findGlobalNodeModules();
+    const result2 = findGlobalNodeModules();
+    expect(result1).toBe(result2); // same reference (cached)
     resetGlobalNodeModulesCache();
-    const packages2 = discoverExtensionPackages();
-    // Both calls should succeed (no crash) and return same results
-    expect(packages1.map(p => p.name)).toEqual(packages2.map(p => p.name));
+    expect(findGlobalNodeModules()).toBe(result1); // re-resolves to same path
   });
 
-  it('discoverExtensionPackages returns local packages and deduplicates by name', () => {
+  it('setGlobalNodeModulesForTest overrides global path', () => {
+    setGlobalNodeModulesForTest('/nonexistent/path');
+    try {
+      expect(findGlobalNodeModules()).toBe('/nonexistent/path');
+    } finally {
+      resetGlobalNodeModulesCache();
+    }
+  });
+
+  it('discoverExtensionPackages deduplicates local vs global by name', () => {
     const origCwd = process.cwd();
     const testDir = join(tmpdir(), `gcyphrq-dedup-${Date.now()}`);
     const localNm = join(testDir, 'node_modules');
     mkdirSync(localNm, { recursive: true });
 
-    // Create a package in local node_modules
-    const pkgDir = join(localNm, 'gcyphrq-ext-dedup-test');
-    mkdirSync(pkgDir, { recursive: true });
-    writeFileSync(join(pkgDir, 'package.json'), JSON.stringify({
+    // Create a fake global node_modules with a package
+    const fakeGlobalNm = join(testDir, 'fake-global', 'node_modules');
+    mkdirSync(fakeGlobalNm, { recursive: true });
+    const globalPkgDir = join(fakeGlobalNm, 'gcyphrq-ext-dedup-test');
+    mkdirSync(globalPkgDir, { recursive: true });
+    writeFileSync(join(globalPkgDir, 'package.json'), JSON.stringify({
+      name: 'gcyphrq-ext-dedup-test',
+      version: '2.0.0',
+      type: 'module',
+      gcyphrqExtensions: {
+        'dedup-ext': {
+          type: 'function',
+          version: '2.0.0',
+          namespace: 'dedup',
+          description: 'Global dedup test extension',
+          entryPoint: './index.js',
+        },
+      },
+    }));
+    writeFileSync(join(globalPkgDir, 'index.js'), 'export default { register() {} }');
+
+    // Create same package name in local node_modules (different version)
+    const localPkgDir = join(localNm, 'gcyphrq-ext-dedup-test');
+    mkdirSync(localPkgDir, { recursive: true });
+    writeFileSync(join(localPkgDir, 'package.json'), JSON.stringify({
       name: 'gcyphrq-ext-dedup-test',
       version: '1.0.0',
       type: 'module',
@@ -179,22 +205,25 @@ describe('Extension loader', () => {
           type: 'function',
           version: '1.0.0',
           namespace: 'dedup',
-          description: 'Dedup test extension',
+          description: 'Local dedup test extension',
           entryPoint: './index.js',
         },
       },
     }));
-    writeFileSync(join(pkgDir, 'index.js'), 'export default { register() {} }');
+    writeFileSync(join(localPkgDir, 'index.js'), 'export default { register() {} }');
 
+    setGlobalNodeModulesForTest(fakeGlobalNm);
     process.chdir(testDir);
     try {
       const packages = discoverExtensionPackages();
       const dedupPkgs = packages.filter(p => p.name === 'gcyphrq-ext-dedup-test');
-      // Should appear exactly once (local takes precedence, deduped against any global copy)
+      // Should appear exactly once, local takes precedence
       expect(dedupPkgs).toHaveLength(1);
       expect(dedupPkgs[0]!.version).toBe('1.0.0');
+      expect(dedupPkgs[0]!.source).toBe('local');
     } finally {
       process.chdir(origCwd);
+      resetGlobalNodeModulesCache();
       rmSync(testDir, { recursive: true, force: true });
     }
   });
@@ -431,6 +460,7 @@ describe('Extension registry', () => {
 
   describe('formatExtensionsList', () => {
     it('formats installed extensions', () => {
+      setGlobalNodeModulesForTest('/nonexistent'); // isolate from real global packages
       const origCwd = process.cwd();
       process.chdir(testCwd);
       try {
@@ -441,9 +471,26 @@ describe('Extension registry', () => {
         expect(output).toContain('[graph-input]');
         expect(output).toContain('[function]');
         expect(output).toContain('ns:mock');
+        // Local extensions should not show (global) tag
+        expect(output).not.toContain('(global)');
       } finally {
         process.chdir(origCwd);
+        resetGlobalNodeModulesCache();
       }
+    });
+
+    it('shows (global) tag for global extensions', () => {
+      const output = formatExtensionsList([{
+        name: 'test-ext',
+        type: 'function',
+        description: 'Test extension',
+        version: '1.0.0',
+        namespace: 'test',
+        packageName: 'gcyphrq-ext-test',
+        packageVersion: '1.0.0',
+        source: 'global',
+      }]);
+      expect(output).toContain('(global)');
     });
 
     it('shows install instructions when no extensions found', () => {
