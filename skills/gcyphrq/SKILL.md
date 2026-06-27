@@ -17,6 +17,18 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 
 `gcyphrq -g <file|-> -e '<cypher>'`. `-e` query (required), `-g` file/stdin (required), `-nl` label prop (default `"label"`), `-et` edge type (default `"type"`), `--format graph|rows`. Chain via `-g -`.
 
+## Extensions
+
+gcyphrq supports pluggable extensions for non-JSON input formats and custom functions. Extensions are npm packages named `gcyphrq-ext-*`.
+
+- **Discover installed extensions:** `gcyphrq --list-extensions` (run first to see what's available)
+- **Graph-input extensions:** `gcyphrq -g <file> --ext <name> -e '<cypher>'` (e.g., `--ext gexf` for GEXF files)
+- **Function extensions:** `gcyphrq -g <file> --ext-fn <name> -e '<cypher>'` (repeatable, e.g., `--ext-fn apoc-commons`)
+- **Combined:** `gcyphrq -g data.gexf --ext gexf --ext-fn apoc-commons -e '<cypher>'`
+- **Function syntax:** `<namespace>.<name>()` (e.g., `RETURN apoc.text.join(", ", ["a","b"])`)
+
+When a non-JSON graph file is provided, check `--list-extensions` for a matching `--ext` handler.
+
 ## Graph File Format
 
 ```json
