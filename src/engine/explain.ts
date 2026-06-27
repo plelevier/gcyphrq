@@ -104,7 +104,7 @@ function extractExpressionVariables(expr: Expression | undefined): string[] {
         if (e.predicate) walkWhere(e.predicate, vars);
         break;
       case 'PatternComprehension': {
-        const pe = e as any;
+        const pe = e as Extract<Expression, { type: 'PatternComprehension' }>;
         if (pe.sourcePattern?.variable) vars.add(pe.sourcePattern.variable);
         if (pe.targetPattern?.variable) vars.add(pe.targetPattern.variable);
         if (pe.relationPattern?.variable) vars.add(pe.relationPattern.variable);
@@ -572,7 +572,7 @@ function describeExpression(expr: Expression | undefined): string {
     case 'ListComprehension':
       return `[${expr.loopVariable} IN ${describeExpression(expr.list)}${expr.predicate ? ' WHERE ...' : ''} | ${describeExpression(expr.generator)}]`;
     case 'PatternComprehension': {
-      const pe = expr as any;
+      const pe = expr as Extract<Expression, { type: 'PatternComprehension' }>;
       const src = pe.sourcePattern?.variable ?? '?';
       const tgt = pe.targetPattern?.variable ?? '?';
       return `[((${src})-[]->(${tgt}))${pe.predicate ? ' WHERE ...' : ''} | ${describeExpression(pe.generator)}]`;

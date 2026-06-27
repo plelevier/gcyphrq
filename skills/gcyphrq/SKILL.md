@@ -43,6 +43,7 @@ See `AGENTS.md` → Supported Cypher for full details. Key highlights:
 - **UNWIND with WHERE:** filter unwound elements (`UNWIND list AS x WHERE x > 0`). Supports all WHERE operators. Combine with `WITH` for multi-stage filtering.
 - **ORDER BY NULLS FIRST/LAST:** default `NULLS LAST` for ASC, `NULLS FIRST` for DESC. Works in RETURN and WITH.
 - **Reduce:** `reduce(init, var IN list | body)`. Not itself an aggregation — triggers grouping only when sub-expressions contain aggregations.
+- **Pattern comprehensions:** `[(pattern) [WHERE pred] | expr]`. Traverses graph from bound anchor node, collects results into list. Supports directional edges, typed relationships, variable-length patterns. Works in RETURN/WHERE/WITH, nested in `size()`, `head()`, list comprehensions.
 - **UNION/UNION ALL:** each branch must end with `RETURN`. ORDER BY/SKIP/LIMIT on combined result.
 - **Scalar functions:** 40+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `labels` (sole RETURN only), `labelsOf` (everywhere), `nodes`/`relationships` (sole RETURN only), etc.)
 - **Temporal functions:** `timestamp()`, `datetime()`, `date()`, `time()`, `localdatetime()`, `localtime()`, `datetimewithtimezone()`, `timewithzone()`, `duration()`. Extractors: `year()`, `month()`, `day()`, `hour()`, `minute()`, `second()`, `millisecond()`, `timezone()`, `epochseconds()`, `epochmillisecond()`, `totalSeconds()`, `totalMinutes()`. Temporal comparison in WHERE/ORDER BY is chronological and timezone-aware.
@@ -108,6 +109,10 @@ Service dependencies, blast radius, path tracing, shortest path, infrastructure 
 | reduce | `RETURN reduce(total = 0, x IN [1,2,3] | total + x) AS sum` |
 | reduce + collect | `MATCH (u:User) RETURN reduce(total = 0, x IN collect(u.age) | total + x) AS totalAge` |
 | quantifiers | `MATCH (n) WHERE ALL/ANY/SINGLE/NONE(x IN n.tags WHERE x = "a") RETURN n` |
+| pattern comprehension | `MATCH (a:Person) RETURN [(a)-->(b:Person) | b.name] AS friends` |
+| pattern comprehension (incoming) | `MATCH (a:Person) RETURN [(a)<--(b:Person) | b.name] AS incoming` |
+| pattern comprehension (with WHERE) | `MATCH (a:Person) RETURN [(a)-->(b:Person) WHERE b.age > 30 | b.name]` |
+| pattern comprehension (size) | `MATCH (a:Person) RETURN a.name, size([(a)-->(b:Person) | b.name]) AS count` |
 | EXISTS | `MATCH (n) WHERE EXISTS(n.prop) OR NOT EXISTS(n.prop) RETURN n` |
 | UNWIND WHERE (+WITH) | `UNWIND [1,2,3,4,5] AS x WHERE x > 1 WITH x WHERE x < 5 RETURN x` |
 | ORDER BY NULLS FIRST/LAST | `MATCH (n) RETURN n.name, n.score ORDER BY n.score NULLS FIRST` |

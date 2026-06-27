@@ -326,6 +326,25 @@ export class AdvancedCypherGraphologyEngine {
 
   /** Evaluate a pattern comprehension: `[(pattern) [WHERE predicate] | generator]`. */
   private evaluatePatternComprehension(expr: PatternComprehensionExpression, context: QueryContext): CypherValue {
+    return this.evaluatePatternComprehensionCore(expr, context, (e, c) => this.evaluateExpression(e, c) as CypherValue, (w, c) => this.evaluateWhere(w, c));
+  }
+
+  /** Evaluate a pattern comprehension with aggregation-aware evaluation. */
+  private evaluatePatternComprehensionWithAggregations(
+    expr: PatternComprehensionExpression,
+    context: QueryContext,
+    aggResults: Map<string, CypherValue>,
+  ): CypherValue {
+    return this.evaluatePatternComprehensionCore(expr, context, (e, c) => this.evaluateExpressionWithAggregations(e, c, aggResults), (w, c) => this.evaluateWhereWithAggregations(w, c, aggResults));
+  }
+
+  /** Core pattern comprehension traversal. */
+  private evaluatePatternComprehensionCore(
+    expr: PatternComprehensionExpression,
+    context: QueryContext,
+    evalExpr: (e: Expression, c: QueryContext) => CypherValue,
+    evalWhere: (w: WhereExpression, c: QueryContext) => boolean,
+  ): CypherValue {
     const { sourcePattern, relationPattern, targetPattern, predicate, generator } = expr;
     const result: CypherValue[] = [];
 
@@ -384,11 +403,11 @@ export class AdvancedCypherGraphologyEngine {
 
         // Apply WHERE predicate if present
         if (predicate) {
-          if (!this.evaluateWhere(predicate, loopContext)) return;
+          if (!evalWhere(predicate, loopContext)) return;
         }
 
         // Evaluate generator expression
-        const genValue = this.evaluateExpression(generator, loopContext);
+        const genValue = evalExpr(generator, loopContext);
         result.push(genValue as CypherValue);
       }
 
@@ -406,104 +425,8 @@ export class AdvancedCypherGraphologyEngine {
             const loopContext: QueryContext = { ...context };
             loopContext[targetPattern.variable] = targetNode;
             if (relPatt.variable) loopContext[relPatt.variable] = edges;
-            if (!predicate || this.evaluateWhere(predicate, loopContext)) {
-              const genValue = this.evaluateExpression(generator, loopContext);
-              result.push(genValue as CypherValue);
-            }
-          }
-          return;
-        }
-        edgeHistory.push({ edgeId, source: currentId, target: neighborId });
-        explore(neighborId);
-        edgeHistory.pop();
-      });
-
-      onStack.delete(currentId);
-    };
-
-    explore(sourceId);
-
-    return result as CypherValue;
-  }
-
-  /** Evaluate a pattern comprehension with aggregation-aware evaluation. */
-  private evaluatePatternComprehensionWithAggregations(
-    expr: PatternComprehensionExpression,
-    context: QueryContext,
-    aggResults: Map<string, CypherValue>,
-  ): CypherValue {
-    const { sourcePattern, relationPattern, targetPattern, predicate, generator } = expr;
-    const result: CypherValue[] = [];
-
-    const sourceValue = context[sourcePattern.variable];
-    if (!sourceValue || typeof sourceValue !== 'object' || !('id' in sourceValue)) {
-      return [] as CypherValue;
-    }
-    const sourceId = (sourceValue as CypherNode).id;
-    if (!this.graph.hasNode(sourceId)) {
-      return [] as CypherValue;
-    }
-
-    const targetResult = getMatchingNodeIds(this.graph, this.indexes, this.config, targetPattern, this.warnedNoLabels, this.onWarning);
-    this.warnedNoLabels = targetResult.warned;
-    const eligibleTargetIds = new Set(targetResult.ids);
-
-    const relPatt = relationPattern ?? {
-      variable: undefined,
-      type: undefined,
-      minDepth: undefined,
-      maxDepth: undefined,
-      variableLength: false,
-      direction: 'UNDIRECTED',
-    };
-    const getNeighbors = buildNeighborGetter(this.graph, this.indexes, this.config, relPatt, this.warnedNoEdgeTypes, this.onWarning);
-
-    const minDepth = relPatt.minDepth ?? 1;
-    const maxDepth = relPatt.maxDepth ?? (relPatt.variableLength ? 100 : minDepth);
-
-    const onStack = new Set<string>();
-    type EdgeStep = { edgeId: string; source: string; target: string };
-    const edgeHistory: EdgeStep[] = [];
-
-    const explore = (currentId: string) => {
-      if (onStack.has(currentId)) return;
-      onStack.add(currentId);
-
-      if (edgeHistory.length >= minDepth && eligibleTargetIds.has(currentId)) {
-        const targetAttr = this.graph.getNodeAttributes(currentId);
-        const targetNode = { id: currentId, ...targetAttr } as CypherNode;
-        const edges = edgeHistory.map(({ edgeId, source, target }) =>
-          ({ id: edgeId, source, target, ...this.graph.getEdgeAttributes(edgeId) } as CypherEdge)
-        );
-
-        const loopContext: QueryContext = { ...context };
-        loopContext[targetPattern.variable] = targetNode;
-        if (relPatt.variable) loopContext[relPatt.variable] = edges;
-
-        if (predicate) {
-          if (!this.evaluateWhereWithAggregations(predicate, loopContext, aggResults)) return;
-        }
-
-        const genValue = this.evaluateExpressionWithAggregations(generator, loopContext, aggResults);
-        result.push(genValue as CypherValue);
-      }
-
-      if (edgeHistory.length >= maxDepth) { onStack.delete(currentId); return; }
-
-      getNeighbors(currentId, (neighborId, edgeId) => {
-        if (neighborId === currentId) {
-          if (edgeHistory.length + 1 >= minDepth && eligibleTargetIds.has(currentId)) {
-            const targetAttr = this.graph.getNodeAttributes(currentId);
-            const targetNode = { id: currentId, ...targetAttr } as CypherNode;
-            const allSteps = [...edgeHistory, { edgeId, source: currentId, target: currentId }];
-            const edges = allSteps.map(({ edgeId: eid, source, target }) =>
-              ({ id: eid, source, target, ...this.graph.getEdgeAttributes(eid) } as CypherEdge)
-            );
-            const loopContext: QueryContext = { ...context };
-            loopContext[targetPattern.variable] = targetNode;
-            if (relPatt.variable) loopContext[relPatt.variable] = edges;
-            if (!predicate || this.evaluateWhereWithAggregations(predicate, loopContext, aggResults)) {
-              const genValue = this.evaluateExpressionWithAggregations(generator, loopContext, aggResults);
+            if (!predicate || evalWhere(predicate, loopContext)) {
+              const genValue = evalExpr(generator, loopContext);
               result.push(genValue as CypherValue);
             }
           }
