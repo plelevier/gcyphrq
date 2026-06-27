@@ -87,26 +87,44 @@ a:hover { text-decoration: underline; }
 .main-nav ul {
   display: flex;
   list-style: none;
-  gap: 0.25rem;
+  gap: 0;
+  align-items: center;
+}
+
+.main-nav li + li::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-border);
+  margin: 0 0.55rem;
+  flex-shrink: 0;
 }
 
 .main-nav a {
   display: block;
-  padding: 0.4rem 0.85rem;
-  border-radius: 6px;
-  font-size: 0.9rem;
+  padding: 0.3rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.82rem;
   font-weight: 500;
   color: var(--color-text-secondary);
-  transition: background 0.15s, color 0.15s;
+  letter-spacing: 0.01em;
+  transition: color 0.15s;
 }
 
-.main-nav a:hover, .main-nav a.active {
-  background: var(--color-accent-light);
-  color: var(--color-accent);
+.main-nav a:hover {
+  color: var(--color-text);
   text-decoration: none;
 }
 
-.external-icon { font-size: 0.75rem; opacity: 0.6; }
+.main-nav a.active {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.external-icon { font-size: 0.7rem; opacity: 0.5; margin-left: 0.15rem; }
 
 .nav-toggle { display: none; }
 .nav-toggle-label { display: none; flex-direction: column; gap: 4px; cursor: pointer; padding: 0.5rem; }
@@ -126,6 +144,7 @@ a:hover { text-decoration: underline; }
     padding: 0.5rem;
     gap: 0;
   }
+  .main-nav li + li::before { display: none; }
   .nav-toggle:checked ~ ul { display: flex; }
   .main-nav a { padding: 0.6rem 0.85rem; }
 }
