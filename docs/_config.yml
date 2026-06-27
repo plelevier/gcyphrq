@@ -21,6 +21,8 @@ plugins: []
 
 # Navigation
 nav:
+  - title: Home
+    url: /
   - title: Getting Started
     url: /getting-started/
   - title: CLI
