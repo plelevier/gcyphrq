@@ -228,6 +228,20 @@ gcyphrq -g graph.json -e "LOAD CSV WITH HEADERS FROM 'data.csv' AS row CREATE (n
 
 gcyphrq supports pluggable extensions for non-JSON input formats and custom functions. Extensions are independent npm packages published under the `gcyphrq-ext-*` naming convention.
 
+### Installing Extensions
+
+Install extensions like any other npm package. Use local install for project-specific extensions or global install for system-wide availability:
+
+```bash
+# Install locally (in current project's node_modules)
+npm install gcyphrq-ext-<name>
+
+# Install globally (available from any directory)
+npm install -g gcyphrq-ext-<name>
+```
+
+Extensions are discovered from both local and global `node_modules` directories.
+
 ### Listing Extensions
 
 ```bash
