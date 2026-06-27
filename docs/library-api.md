@@ -393,6 +393,11 @@ Load a function extension and register its functions. Multiple extensions can sh
 
 **Returns:** `Promise<void>`
 
+> **Note on aggregations:** Extension "aggregations" registered via `addAggregation` are callable as regular functions receiving all arguments directly. For aggregation over multiple rows, combine with `collect()`:
+> ```cypher
+> MATCH (n) RETURN myext.myAgg(collect(n.score))
+> ```
+
 ```ts
 import { registerFunctionExtension, executeQuery } from 'gcyphrq';
 
@@ -630,10 +635,13 @@ import type {
   GraphInputExtensionContext,
   FunctionExtension,
   FunctionRegistry,
+  ScalarFunction,
+  AggregationFunction,
   ExtensionManifest,
   ResolvedExtension,
   LoadedExtension,
   ArgHelpers,
+  ArgValidator,
 } from 'gcyphrq';
 ```
 

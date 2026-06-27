@@ -513,4 +513,13 @@ describe('CLI - extensions', () => {
     expect(code).toBe(1);
     expect(stderr).toContain('requires a value');
   });
+
+  it('allows --ext and --ext-fn to be combined (fails on extension not found, not flag conflict)', async () => {
+    const d = mkSubdir('ext-combined');
+    const path = writeFile(d, 'graph.json', simpleGraph);
+    const { stderr, code } = await runCli(['-g', path, '--ext', 'nonexistent', '--ext-fn', 'also-nonexistent', '-e', 'MATCH (n) RETURN n']);
+    expect(code).toBe(1);
+    // Should fail on extension not found, not on a flag conflict
+    expect(stderr).toContain('not found');
+  });
 });

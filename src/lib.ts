@@ -754,10 +754,13 @@ export type {
   GraphInputExtensionContext,
   FunctionExtension,
   FunctionRegistry,
+  ScalarFunction,
+  AggregationFunction,
   ExtensionManifest,
   ResolvedExtension,
   LoadedExtension,
   ArgHelpers,
+  ArgValidator,
 } from './ext/types';
 
 // Re-export extension helpers

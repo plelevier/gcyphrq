@@ -115,7 +115,7 @@ export default {
 
 ## Creating a Function Extension
 
-A function extension exports `functions`, `aggregations` (optional), and a `register` function.
+A function extension exports a default object with a `register` method. The `functions` and `aggregations` properties shown below are optional helper properties — only `register` is required.
 
 ### Entry Point (`apoc/index.js`)
 
@@ -162,6 +162,9 @@ export default {
   },
 
   // Aggregation functions (optional)
+  // Note: extension aggregations are called as scalar functions receiving all arguments.
+  // In an aggregation context (e.g., with MATCH), use collect() to gather values first:
+  //   MATCH (n) RETURN myext.avgOrNull(collect(n.score)) AS avg
   aggregations: {
     /** Average of non-null values (returns null if all null). */
     avgOrNull(args) {
@@ -259,11 +262,10 @@ Extension functions are called using `<namespace>.<name>()` syntax:
 
 ```cypher
 RETURN apoc.text.join(", ", ["a", "b", "c"])
+RETURN apoc.text.capitalize("hello")
 ```
 
 > **Note:** Function names are case-insensitive — the Cypher grammar lowercases all function names. Register `"join"` and call it as `apoc.join()`, `apoc.Join()`, or `apoc.JOIN()`; all resolve to the same function.
-RETURN apoc.text.capitalize("hello")
-```
 
 The engine pre-processes dotted function names into backtick-quoted identifiers so the ANTLR4 parser accepts them.
 
