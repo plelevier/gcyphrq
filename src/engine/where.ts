@@ -131,7 +131,7 @@ export function extractListValues(expr: Expression, evalExpr: (e: Expression) =>
     if (typeof val === 'string') return [...val];
     return [val];
   }
-  if (expr.type === 'PropertyAccess' || expr.type === 'FunctionCall' || expr.type === 'Case' || expr.type === 'ListComprehension') {
+  if (expr.type === 'PropertyAccess' || expr.type === 'FunctionCall' || expr.type === 'Case' || expr.type === 'ListComprehension' || expr.type === 'PatternComprehension') {
     const val = evalExpr(expr);
     if (Array.isArray(val)) return val;
     if (typeof val === 'string') return [...val];

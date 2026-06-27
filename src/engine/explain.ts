@@ -103,6 +103,15 @@ function extractExpressionVariables(expr: Expression | undefined): string[] {
         walk(e.generator);
         if (e.predicate) walkWhere(e.predicate, vars);
         break;
+      case 'PatternComprehension': {
+        const pe = e as any;
+        if (pe.sourcePattern?.variable) vars.add(pe.sourcePattern.variable);
+        if (pe.targetPattern?.variable) vars.add(pe.targetPattern.variable);
+        if (pe.relationPattern?.variable) vars.add(pe.relationPattern.variable);
+        walk(pe.generator);
+        if (pe.predicate) walkWhere(pe.predicate, vars);
+        break;
+      }
       case 'Case':
         if (e.subject) walk(e.subject);
         e.branches.forEach((b) => {
@@ -562,6 +571,12 @@ function describeExpression(expr: Expression | undefined): string {
       return `EXISTS(${describeExpression(expr.expression)})`;
     case 'ListComprehension':
       return `[${expr.loopVariable} IN ${describeExpression(expr.list)}${expr.predicate ? ' WHERE ...' : ''} | ${describeExpression(expr.generator)}]`;
+    case 'PatternComprehension': {
+      const pe = expr as any;
+      const src = pe.sourcePattern?.variable ?? '?';
+      const tgt = pe.targetPattern?.variable ?? '?';
+      return `[((${src})-[]->(${tgt}))${pe.predicate ? ' WHERE ...' : ''} | ${describeExpression(pe.generator)}]`;
+    }
     case 'ListSlice':
       return `${describeExpression(expr.list)}[${describeExpression(expr.start)}..${describeExpression(expr.end)}]`;
     case 'Case':

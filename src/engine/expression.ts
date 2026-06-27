@@ -19,6 +19,7 @@ export function evaluateExpression(
   config: GraphConfig,
   evalFunc: (name: string, args: CypherValue[]) => CypherValue,
   evalWhere?: (w: WhereExpression, ctx: QueryContext) => boolean,
+  evalPatternComprehension?: (expr: Extract<Expression, { type: 'PatternComprehension' }>, ctx: QueryContext) => CypherValue,
 ): CypherValue | undefined {
   if (expr.type === 'PropertyAccess') {
     const obj = context[expr.variable];
@@ -30,26 +31,26 @@ export function evaluateExpression(
   if (expr.type === 'Literal') return expr.value;
   if (expr.type === 'ListLiteral') {
     const values: CypherValue[] = [];
-    for (const le of expr.values) { const val = evaluateExpression(le, context, config, evalFunc, evalWhere); values.push(val as CypherValue); }
+    for (const le of expr.values) { const val = evaluateExpression(le, context, config, evalFunc, evalWhere, evalPatternComprehension); values.push(val as CypherValue); }
     return values as CypherValue;
   }
   if (expr.type === 'MapLiteral') {
     const values: Record<string, CypherValue> = {};
-    for (const entry of expr.entries) { const val = evaluateExpression(entry.value, context, config, evalFunc, evalWhere); values[entry.key] = val as CypherValue; }
+    for (const entry of expr.entries) { const val = evaluateExpression(entry.value, context, config, evalFunc, evalWhere, evalPatternComprehension); values[entry.key] = val as CypherValue; }
     return values as CypherValue;
   }
   if (expr.type === 'Aggregation') return undefined;
   if (expr.type === 'FunctionCall') {
-    const args = expr.arguments.map((a) => evaluateExpression(a, context, config, evalFunc, evalWhere));
+    const args = expr.arguments.map((a) => evaluateExpression(a, context, config, evalFunc, evalWhere, evalPatternComprehension));
     return evalFunc(expr.functionName, args);
   }
   if (expr.type === 'ListSlice') {
-    const listRaw = evaluateExpression(expr.list, context, config, evalFunc, evalWhere);
+    const listRaw = evaluateExpression(expr.list, context, config, evalFunc, evalWhere, evalPatternComprehension);
     const wasString = typeof listRaw === 'string';
     const list = asList(listRaw);
     if (!list) return null;
-    const startVal = evaluateExpression(expr.start, context, config, evalFunc, evalWhere);
-    const endVal = evaluateExpression(expr.end, context, config, evalFunc, evalWhere);
+    const startVal = evaluateExpression(expr.start, context, config, evalFunc, evalWhere, evalPatternComprehension);
+    const endVal = evaluateExpression(expr.end, context, config, evalFunc, evalWhere, evalPatternComprehension);
     if (expr.start === expr.end) {
       const idx = startVal != null ? Number(startVal) : 0;
       const adjIdx = idx < 0 ? list.length + idx : idx;
@@ -65,25 +66,30 @@ export function evaluateExpression(
     return sliced as unknown as CypherValue;
   }
   if (expr.type === 'Arithmetic') {
-    return evaluateArithmeticCore(expr, (e) => evaluateExpression(e, context, config, evalFunc, evalWhere));
+    return evaluateArithmeticCore(expr, (e) => evaluateExpression(e, context, config, evalFunc, evalWhere, evalPatternComprehension));
   }
   if (expr.type === 'Case') {
-    return evaluateCase(expr, context, config, evalFunc, evalWhere);
+    return evaluateCase(expr, context, config, evalFunc, evalWhere, evalPatternComprehension);
   }
   if (expr.type === 'Path') return undefined; // handled separately
   if (expr.type === 'Exists') {
-    const value = evaluateExpression(expr.expression, context, config, evalFunc, evalWhere);
+    const value = evaluateExpression(expr.expression, context, config, evalFunc, evalWhere, evalPatternComprehension);
     return value !== null && value !== undefined;
   }
   if (expr.type === 'ListComprehension') {
-    return evaluateListComprehension(expr, context, config, evalFunc, evalWhere);
+    return evaluateListComprehension(expr, context, config, evalFunc, evalWhere, evalPatternComprehension);
+  }
+  if (expr.type === 'PatternComprehension') {
+    // Pattern comprehensions require graph access — delegated via callback
+    if (evalPatternComprehension) return evalPatternComprehension(expr, context);
+    return undefined;
   }
   if (expr.type === 'Reduce') {
-    return evaluateReduce(expr, context, config, evalFunc, evalWhere);
+    return evaluateReduce(expr, context, config, evalFunc, evalWhere, evalPatternComprehension);
   }
   if (expr.type === 'Quantifier') {
     if (!evalWhere) return undefined;
-    return evaluateQuantifier(expr, context, config, evalFunc, evalWhere);
+    return evaluateQuantifier(expr, context, config, evalFunc, evalWhere, evalPatternComprehension);
   }
   return undefined;
 }
@@ -95,8 +101,9 @@ function evaluateListComprehension(
   config: GraphConfig,
   evalFunc: (name: string, args: CypherValue[]) => CypherValue,
   evalWhere?: (w: WhereExpression, ctx: QueryContext) => boolean,
+  evalPatternComprehension?: (expr: Extract<Expression, { type: 'PatternComprehension' }>, ctx: QueryContext) => CypherValue,
 ): CypherValue {
-  const listRaw = evaluateExpression(expr.list, context, config, evalFunc, evalWhere);
+  const listRaw = evaluateExpression(expr.list, context, config, evalFunc, evalWhere, evalPatternComprehension);
   const list = asList(listRaw);
   if (!list) return [] as CypherValue;
 
@@ -111,7 +118,7 @@ function evaluateListComprehension(
       if (!predicateResult) continue;
     }
 
-    const genValue = evaluateExpression(expr.generator, loopContext, config, evalFunc, evalWhere);
+    const genValue = evaluateExpression(expr.generator, loopContext, config, evalFunc, evalWhere, evalPatternComprehension);
     result.push(genValue as CypherValue);
   }
 
@@ -125,8 +132,9 @@ function evaluateReduce(
   config: GraphConfig,
   evalFunc: (name: string, args: CypherValue[]) => CypherValue,
   evalWhere?: (w: WhereExpression, ctx: QueryContext) => boolean,
+  evalPatternComprehension?: (expr: Extract<Expression, { type: 'PatternComprehension' }>, ctx: QueryContext) => CypherValue,
 ): CypherValue {
-  const evalExpr = (e: Expression, ctx?: QueryContext) => evaluateExpression(e, ctx ?? context, config, evalFunc, evalWhere);
+  const evalExpr = (e: Expression, ctx?: QueryContext) => evaluateExpression(e, ctx ?? context, config, evalFunc, evalWhere, evalPatternComprehension);
 
   let accumulator = evalExpr(expr.initial);
   if (accumulator === null || accumulator === undefined) return null;
@@ -137,7 +145,7 @@ function evaluateReduce(
 
   for (const element of list) {
     const loopContext: QueryContext = { ...context, [expr.accumulator]: accumulator, [expr.loopVariable]: element };
-    const bodyValue = evaluateExpression(expr.body, loopContext, config, evalFunc, evalWhere);
+    const bodyValue = evaluateExpression(expr.body, loopContext, config, evalFunc, evalWhere, evalPatternComprehension);
     if (bodyValue === null || bodyValue === undefined) {
       accumulator = null;
       break;
@@ -155,8 +163,9 @@ function evaluateQuantifier(
   config: GraphConfig,
   evalFunc: (name: string, args: CypherValue[]) => CypherValue,
   evalWhere: (w: WhereExpression, ctx: QueryContext) => boolean,
+  evalPatternComprehension?: (expr: Extract<Expression, { type: 'PatternComprehension' }>, ctx: QueryContext) => CypherValue,
 ): boolean {
-  const listRaw = evaluateExpression(expr.list, context, config, evalFunc, evalWhere);
+  const listRaw = evaluateExpression(expr.list, context, config, evalFunc, evalWhere, evalPatternComprehension);
   const list = asList(listRaw);
   if (!list) return false;
 
@@ -193,8 +202,8 @@ function evaluateQuantifier(
 }
 
 /** Evaluate a CASE expression. */
-export function evaluateCase(expr: Extract<Expression, { type: 'Case' }>, context: QueryContext, config: GraphConfig, evalFunc: (name: string, args: CypherValue[]) => CypherValue, evalWhere?: (w: WhereExpression, ctx: QueryContext) => boolean): CypherValue {
-  const evalExpr = (e: Expression) => evaluateExpression(e, context, config, evalFunc, evalWhere);
+export function evaluateCase(expr: Extract<Expression, { type: 'Case' }>, context: QueryContext, config: GraphConfig, evalFunc: (name: string, args: CypherValue[]) => CypherValue, evalWhere?: (w: WhereExpression, ctx: QueryContext) => boolean, evalPatternComprehension?: (expr: Extract<Expression, { type: 'PatternComprehension' }>, ctx: QueryContext) => CypherValue): CypherValue {
+  const evalExpr = (e: Expression) => evaluateExpression(e, context, config, evalFunc, evalWhere, evalPatternComprehension);
 
   if (expr.subject !== undefined) {
     const subjectVal = evalExpr(expr.subject);

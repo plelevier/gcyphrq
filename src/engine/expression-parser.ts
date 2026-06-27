@@ -6,6 +6,7 @@ import type {
   QuantifierExpression,
   ExistsExpression,
   ListComprehensionExpression,
+  PatternComprehensionExpression,
   CypherLiteral,
   CypherValue,
   WhereExpression,
@@ -27,7 +28,7 @@ import {
   unescapeStringLiteral,
 } from './tree-utils';
 import type { TreeNode } from './tree-utils';
-import { extractPathExpression } from './pattern-parser';
+import { extractPathExpression, extractNodePattern, extractRelationPattern, extractDirection } from './pattern-parser';
 
 // ── Arithmetic expression extraction ─────────────────────────────────────────
 
@@ -529,6 +530,105 @@ export function extractListComprehensionExpression(
 }
 
 /**
+ * Extract a pattern comprehension expression: `[(pattern) [WHERE predicate] | generator]`.
+ */
+export function extractPatternComprehensionExpression(
+  atom: TreeNode,
+  extractWhere?: (ctx: TreeNode) => WhereExpression | undefined,
+): PatternComprehensionExpression | undefined {
+  if (!atom) return undefined;
+
+  const pcCtx = findChild(atom, Ctx.PatternComprehension);
+  if (!pcCtx) return undefined;
+
+  // Find the RelationshipsPattern child (the pattern to match)
+  const relPatternCtx = findChild(pcCtx, Ctx.RelationshipsPattern);
+  if (!relPatternCtx) return undefined;
+
+  // The source node is always the first direct child of RelationshipsPattern
+  const sourceNodeCtx = findChild(relPatternCtx, Ctx.NodePattern);
+  if (!sourceNodeCtx) return undefined;
+  const sourcePattern = extractNodePattern(sourceNodeCtx);
+
+  // Extract relationship pattern and target from PatternElementChain
+  const chains = findAllChildren(relPatternCtx, Ctx.PatternElementChain);
+  let relationPattern = undefined;
+  let targetPattern = undefined;
+
+  if (chains.length > 0) {
+    const chain = chains[0];
+    const relPattCtx = findChild(chain, Ctx.RelationshipPattern);
+    relationPattern = extractRelationPattern(relPattCtx);
+
+    const targetNodeCtx = findChild(chain, Ctx.NodePattern);
+    if (targetNodeCtx) {
+      targetPattern = extractNodePattern(targetNodeCtx);
+    }
+  }
+
+  if (!targetPattern) return undefined;
+
+  // Find the pipe `|` to separate WHERE from generator
+  const pipeIndex = pcCtx.children?.findIndex((c: ParseTreeNode) =>
+    c.constructor.name === Ctx.TerminalNode && c.symbol?.text === '|',
+  ) ?? -1;
+  if (pipeIndex === -1) return undefined;
+
+  // Extract optional WHERE predicate (between pattern and pipe)
+  let predicate: WhereExpression | undefined;
+  const whereCtx = findChild(pcCtx, Ctx.Where);
+  if (!whereCtx) {
+    // Check for WHERE as a direct child (it may not be wrapped in a Where context)
+    // Look for WHERE keyword followed by an Expression before the pipe
+    if (pcCtx.children) {
+      for (let i = 0; i < pipeIndex; i++) {
+        const child = pcCtx.children[i];
+        if (child && child.constructor.name === Ctx.TerminalNode && child.symbol?.text === 'WHERE') {
+          // Find the Expression after WHERE
+          for (let j = i + 1; j < pipeIndex; j++) {
+            const exprChild = pcCtx.children[j];
+            if (exprChild && exprChild.constructor.name === Ctx.Expression) {
+              if (extractWhere) {
+                predicate = extractWhere(exprChild);
+              }
+              break;
+            }
+          }
+          break;
+        }
+      }
+    }
+  } else if (extractWhere) {
+    const whereExprCtx = findChild(whereCtx, Ctx.Expression);
+    if (whereExprCtx) {
+      predicate = extractWhere(whereExprCtx);
+    }
+  }
+
+  // Find the generator expression (after the pipe)
+  let generatorExpr: Expression | undefined;
+  if (pcCtx.children) {
+    for (let i = pipeIndex + 1; i < pcCtx.children.length; i++) {
+      const child = pcCtx.children[i];
+      if (child && child.constructor.name === Ctx.Expression) {
+        generatorExpr = evaluateExpression(child, extractWhere);
+        break;
+      }
+    }
+  }
+  if (!generatorExpr) return undefined;
+
+  return {
+    type: 'PatternComprehension' as const,
+    sourcePattern,
+    relationPattern,
+    targetPattern,
+    predicate,
+    generator: generatorExpr,
+  };
+}
+
+/**
  * Evaluate an expression from an Atom context (without slice detection).
  * Optional `extractWhere` callback is used for CASE expressions.
  */
@@ -564,6 +664,10 @@ export function evaluateExpressionFromAtom(
   // EXISTS function
   const existsExpr = extractExistsExpression(atom);
   if (existsExpr) return existsExpr;
+
+  // Pattern comprehension: [(pattern) [WHERE predicate] | generator]
+  const pcExpr = extractPatternComprehensionExpression(atom, extractWhere);
+  if (pcExpr) return pcExpr;
 
   // List comprehension: [var IN list [WHERE predicate] | generator]
   const lcExpr = extractListComprehensionExpression(atom, extractWhere);
@@ -945,6 +1049,10 @@ export function extractValueExpressionFromPropertyOrLabels(
     }
   }
 
+  // Pattern comprehension: [(pattern) [WHERE predicate] | generator]
+  const pcExpr2 = extractPatternComprehensionExpression(atom, extractWhere);
+  if (pcExpr2) return pcExpr2;
+
   // List comprehension: [var IN list [WHERE predicate] | generator]
   const lcExpr = extractListComprehensionExpression(atom, extractWhere);
   if (lcExpr) return lcExpr;
@@ -1009,6 +1117,10 @@ export function extractValueExpression(
       if (funcCall) return funcCall;
     }
   }
+
+  // Pattern comprehension: [(pattern) [WHERE predicate] | generator]
+  const pcExpr3 = extractPatternComprehensionExpression(atom, extractWhere);
+  if (pcExpr3) return pcExpr3;
 
   // List comprehension: [var IN list [WHERE predicate] | generator]
   const lcExpr = extractListComprehensionExpression(atom, extractWhere);

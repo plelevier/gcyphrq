@@ -1,4 +1,4 @@
-import type { AggregationExpression, CypherNode, CypherValue, Expression, ListComprehensionExpression, Projection, QueryContext, WhereExpression, ReduceExpression } from '../types/cypher';
+import type { AggregationExpression, CypherNode, CypherValue, Expression, ListComprehensionExpression, PatternComprehensionExpression, Projection, QueryContext, WhereExpression, ReduceExpression } from '../types/cypher';
 
 /** Check if an expression contains any aggregation (excluding bare reduce). */
 export function containsAggregation(expr: Expression): boolean {
@@ -19,6 +19,10 @@ export function containsAggregation(expr: Expression): boolean {
   }
   if (expr.type === 'ListComprehension') {
     if (containsAggregation(expr.list)) return true;
+    if (containsAggregation(expr.generator)) return true;
+    if (expr.predicate && containsAggregationInWhere(expr.predicate)) return true;
+  }
+  if (expr.type === 'PatternComprehension') {
     if (containsAggregation(expr.generator)) return true;
     if (expr.predicate && containsAggregationInWhere(expr.predicate)) return true;
   }
@@ -54,6 +58,10 @@ export function collectAggregations(expr: Expression): AggregationExpression[] {
   }
   else if (expr.type === 'ListComprehension') {
     results.push(...collectAggregations(expr.list));
+    results.push(...collectAggregations(expr.generator));
+    if (expr.predicate) results.push(...collectAggregationsInWhere(expr.predicate));
+  }
+  else if (expr.type === 'PatternComprehension') {
     results.push(...collectAggregations(expr.generator));
     if (expr.predicate) results.push(...collectAggregationsInWhere(expr.predicate));
   }
