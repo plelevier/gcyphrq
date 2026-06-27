@@ -1,5 +1,5 @@
 import type { GraphInstance } from '../graph';
-import type { CypherNode, CypherValue } from '../types/cypher';
+import type { CypherValue } from '../types/cypher';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -196,10 +196,12 @@ export function pagerank(graph: GraphInstance, nodeArg?: CypherValue): CypherVal
   const tolerance = 1e-6;
   const maxIterations = 100;
 
-  // Build adjacency list (outbound for directed, both directions for undirected/mixed)
+  // Build adjacency lists
   const outEdges = new Map<string, string[]>();
+  const inEdges = new Map<string, string[]>();
   for (const id of nodeIds) {
     outEdges.set(id, []);
+    inEdges.set(id, []);
   }
 
   graph.forEachEdge((_edgeId, attrs, source, target) => {
@@ -209,10 +211,12 @@ export function pagerank(graph: GraphInstance, nodeArg?: CypherValue): CypherVal
 
     // Always add source -> target
     outEdges.get(s)!.push(t);
+    inEdges.get(t)!.push(s);
 
     // For undirected edges, also add target -> source
     if (isUndirected && s !== t) {
       outEdges.get(t)!.push(s);
+      inEdges.get(s)!.push(t);
     }
   });
 
@@ -238,10 +242,9 @@ export function pagerank(graph: GraphInstance, nodeArg?: CypherValue): CypherVal
     for (const id of nodeIds) {
       let sum = 0;
       // Sum contributions from nodes that link to this node
-      for (const otherId of nodeIds) {
-        const neighbors = outEdges.get(otherId)!;
-        const outDegree = neighbors.length;
-        if (outDegree > 0 && neighbors.includes(id)) {
+      for (const otherId of inEdges.get(id)!) {
+        const outDegree = outEdges.get(otherId)!.length;
+        if (outDegree > 0) {
           sum += rank.get(otherId)! / outDegree;
         }
       }

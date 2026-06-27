@@ -678,4 +678,73 @@ describe('graph functions edge cases', () => {
     const results = await e.execute(ast);
     expect(results[0]!.score).toBeNull();
   });
+
+  it('centrality functions on disconnected graph', async () => {
+    const g = createDisconnectedGraph();
+    const e = createEngine(g);
+
+    // Pagerank on disconnected graph should still return scores
+    const ast1 = parseCypher('RETURN pagerank() AS scores');
+    const results1 = await e.execute(ast1);
+    const scores1 = results1[0]!.scores as Record<string, number>;
+    expect(Object.keys(scores1)).toHaveLength(4);
+    const sum1 = Object.values(scores1).reduce((a, b) => a + b, 0);
+    expect(sum1).toBeCloseTo(1, 4);
+
+    // Degree centrality on disconnected graph
+    const ast2 = parseCypher('MATCH (n) RETURN degreeCentrality(n) AS score, n.name AS name ORDER BY name');
+    const results2 = await e.execute(ast2);
+    const scores2: Record<string, number> = {};
+    for (const r of results2) {
+      scores2[r.name as string] = r.score as number;
+    }
+    // Each node has 1 neighbor out of 3 max = 1/3
+    for (const [, v] of Object.entries(scores2)) {
+      expect(v).toBeCloseTo(1 / 3, 3);
+    }
+
+    // Betweenness centrality on disconnected graph
+    const ast3 = parseCypher('RETURN betweennessCentrality() AS scores');
+    const results3 = await e.execute(ast3);
+    const scores3 = results3[0]!.scores as Record<string, number>;
+    // All nodes have 0 betweenness in a disconnected graph with only 2-node components
+    for (const [, v] of Object.entries(scores3)) {
+      expect(v).toBe(0);
+    }
+  });
+
+  it('pagerank on two-node graph', async () => {
+    const g = new Graph();
+    g.addNode('a', { label: 'Node', name: 'A' });
+    g.addNode('b', { label: 'Node', name: 'B' });
+    g.addEdge('a', 'b', { type: 'LINK' });
+    const e = createEngine(g);
+    const ast = parseCypher('RETURN pagerank() AS scores');
+    const results = await e.execute(ast);
+    const scores = results[0]!.scores as Record<string, number>;
+    // B (sink) should have higher PageRank than A (source)
+    expect(scores['b']!).toBeGreaterThan(scores['a']!);
+    const sum = scores['a']! + scores['b']!;
+    expect(sum).toBeCloseTo(1, 4);
+  });
+
+  it('self-loop graph', async () => {
+    const g = new Graph({ allowSelfLoops: true });
+    g.addNode('a', { label: 'Node', name: 'A' });
+    g.addNode('b', { label: 'Node', name: 'B' });
+    g.addEdge('a', 'a', { type: 'SELF' });
+    g.addEdge('a', 'b', { type: 'LINK' });
+    const e = createEngine(g);
+
+    // Self-loop adds 2 to degree (standard graph theory)
+    const ast1 = parseCypher('RETURN averageDegree() AS avgDeg');
+    const results1 = await e.execute(ast1);
+    // A: self-loop (2) + outbound to B (1) = 3; B: inbound from A (1) = 1; avg = 2
+    expect(results1[0]!.avgDeg).toBe(2);
+
+    // Diameter should be 1 (A and B are directly connected)
+    const ast2 = parseCypher('RETURN diameter() AS d');
+    const results2 = await e.execute(ast2);
+    expect(results2[0]!.d).toBe(1);
+  });
 });

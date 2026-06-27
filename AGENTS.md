@@ -27,7 +27,8 @@ src/
 ├── arithmetic.ts            # Shared arithmetic evaluation
 ├── engine/
 │   ├── cypher-parser.ts     # ANTLR4 Cypher → AST
-│   └── cypher-engine.ts     # AST execution engine
+│   ├── cypher-engine.ts     # AST execution engine
+│   └── graph-functions.ts   # Graph statistics + centrality functions
 └── types/
     ├── cypher.ts            # AST types
     └── antlr4.d.ts          # ANTLR4 declarations
@@ -60,6 +61,10 @@ src/
 **Temporal functions:** `timestamp()`, `datetime()`, `date()`, `time()`, `localdatetime()`, `localtime()`, `datetimewithtimezone()`, `timewithzone()`, `duration()`. Extractors: `year()`, `month()`, `day()`, `hour()`, `minute()`, `second()`, `millisecond()`, `timezone()`, `epochseconds()`, `epochmillisecond()`, `totalSeconds()`, `totalMinutes()`. Constructors accept components, maps, strings, or epoch numbers. Temporal comparison in WHERE/ORDER BY uses epoch-based chronological ordering (timezone-aware).
 
 **Path expressions:** `shortestPath((a)-[*]->(b))` returns the single shortest path (unweighted BFS); `allShortestPaths((a)-[*]->(b))` returns all paths of minimum length. Support type filtering (`[:TYPE*]`), direction (`->`, `<-`, `-`), and variable-length bounds (`*min..max`). Variables `a`/`b` must be bound in the query context. Uses `graphology-shortest-path` library.
+
+**Graph statistics:** `numNodes()`, `numRelationships()`, `density()`, `averageDegree()`, `diameter()` (returns -1 if disconnected). All edges treated as bidirectional for diameter. Density accounts for directed vs. undirected graph type.
+
+**Centrality functions:** `pagerank()` (power iteration, damping=0.85), `degreeCentrality()` (normalized unique neighbors), `betweennessCentrality()` (Brandes' algorithm). All support global (no args → `{nodeId: score}` map) and per-node (with node arg → single score) forms. Betweenness treats all edges as bidirectional.
 
 **Arithmetic expressions:** `+`, `-`, `*`, `/`, `%`, `^`, unary `+`/`-`. Work in RETURN/WHERE/WITH/ORDER BY/SET. Parentheses for grouping. Null propagation (any null operand → null). Division/modulo by zero → null.
 

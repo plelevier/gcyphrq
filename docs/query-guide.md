@@ -1791,6 +1791,90 @@ console.log(JSON.stringify(plan, null, 2));
 
 ---
 
+## Graph Functions
+
+Graph functions provide whole-graph analytics without requiring `MATCH` clauses. They operate on the entire graph and return aggregate statistics or per-node centrality scores.
+
+### Graph Statistics
+
+| Function | Description | Return |
+|---|---|---|
+| `numNodes()` | Total number of nodes | `number` |
+| `numRelationships()` | Total number of edges | `number` |
+| `density()` | Edge density ratio (0..1) | `number` |
+| `averageDegree()` | Mean node degree | `number` |
+| `diameter()` | Longest shortest path between any two nodes | `number` (returns -1 if disconnected) |
+
+```cypher
+-- Basic graph statistics
+RETURN numNodes() AS nodes, numRelationships() AS edges, density() AS d
+
+-- Combine with average degree and diameter
+RETURN numNodes() AS n, averageDegree() AS avgDeg, diameter() AS diam
+
+-- Use in WHERE clause
+MATCH (n) WHERE numNodes() > 10 RETURN n.name
+```
+
+**Density calculation:**
+- Directed graphs: `E / (V * (V-1))`
+- Undirected graphs: `2E / (V * (V-1))`
+- Mixed graphs: treated as directed
+- Returns 0 for graphs with 0 or 1 nodes
+
+**Diameter:** All edges are treated as bidirectional (standard graph analytics approach). Returns -1 for disconnected graphs where not all nodes are reachable from each other.
+
+**Average degree:** Counts both inbound and outbound edges for directed graphs. Self-loops add 2 to the degree (standard graph theory convention).
+
+### Centrality Functions
+
+Centrality functions measure the importance of nodes in the graph. All three support two calling forms:
+
+- **Global (no arguments):** Returns a `{ nodeId: score }` map for all nodes
+- **Per-node (with node argument):** Returns the score for a specific node
+
+| Function | Description | Algorithm |
+|---|---|---|
+| `pagerank()` | PageRank centrality | Power iteration (damping=0.85) |
+| `degreeCentrality()` | Normalized degree centrality | Unique neighbors / (V-1) |
+| `betweennessCentrality()` | Betweenness centrality | Brandes' algorithm |
+
+```cypher
+-- Global PageRank scores (returns map)
+RETURN pagerank() AS scores
+
+-- Per-node PageRank (returns single score)
+MATCH (n) RETURN n.name, pagerank(n) AS pr ORDER BY pr DESC
+
+-- Top-5 nodes by degree centrality
+MATCH (n) RETURN n.name, degreeCentrality(n) AS dc ORDER BY dc DESC LIMIT 5
+
+-- Betweenness centrality for all nodes
+RETURN betweennessCentrality() AS scores
+
+-- Combine multiple centrality measures
+MATCH (n) RETURN n.name,
+  pagerank(n) AS pr,
+  degreeCentrality(n) AS dc,
+  betweennessCentrality(n) AS bc
+ORDER BY pr DESC
+```
+
+**PageRank:** Uses power iteration with damping factor 0.85, tolerance 1e-6, and up to 100 iterations. For directed graphs, follows outbound edges. For undirected/mixed graphs, treats undirected edges as bidirectional. Sink nodes (no outbound edges) accumulate higher scores.
+
+**Degree centrality:** Counts unique neighbors (combining inbound and outbound for directed graphs). Normalized by dividing by (V-1), so scores range from 0 to 1.
+
+**Betweenness centrality:** Measures how often a node appears on shortest paths between other nodes. All edges are treated as bidirectional. Normalized by dividing by 2 (each pair counted twice in undirected treatment). Returns 0 for graphs with 2 or fewer nodes.
+
+### Edge Cases
+
+- **Empty graph:** Statistics return 0; centrality functions return `{}` (global) or `null` (per-node)
+- **Single node:** All statistics return 0 or appropriate defaults; centrality returns 0
+- **Disconnected graph:** `diameter()` returns -1; centrality functions still compute scores within each component
+- **Null argument:** `pagerank(null)`, `degreeCentrality(null)`, `betweennessCentrality(null)` all return `null`
+
+---
+
 ## Unsupported Features
 
 The following Cypher features are **not** supported by the engine:

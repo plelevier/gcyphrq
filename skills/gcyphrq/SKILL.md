@@ -47,6 +47,8 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 - **List/Map literals:** dynamic values, list slicing `[start..end]` with negative indices
 - **Strings as char lists:** `head()`, `last()`, `tail()`, `reverse()`, slicing, comprehensions, quantifiers, `reduce()`, `UNWIND`, `FOREACH`, `IN`. `tail()`/`reverse()`/slicing on strings return strings; others yield char lists
 - **Scalar functions:** 40+ (`toLower`, `substring`, `split`, `coalesce`, `size`, `labels` (sole RETURN only), `labelsOf` (everywhere), `nodes`/`relationships` (sole RETURN only), etc.)
+- **Graph statistics:** `numNodes()`, `numRelationships()`, `density()`, `averageDegree()`, `diameter()` (returns -1 if disconnected). All edges treated as bidirectional for diameter.
+- **Centrality:** `pagerank()` (power iteration, damping=0.85), `degreeCentrality()` (normalized unique neighbors), `betweennessCentrality()` (Brandes' algorithm). All support global (no args → `{nodeId: score}` map) and per-node (with node arg → single score) forms. Betweenness treats all edges as bidirectional.
 - **Temporal:** `timestamp()`, `datetime()`, `date()`, `time()`, `localdatetime()`, `localtime()`, `datetimewithtimezone()`, `timewithzone()`, `duration()`. Extractors: `year()`, `month()`, `day()`, `hour()`, `minute()`, `second()`, `millisecond()`, `timezone()`, `epochseconds()`, `epochmillisecond()`, `totalSeconds()`, `totalMinutes()`. WHERE/ORDER BY comparison is chronological and timezone-aware
 - **Path expressions:** `shortestPath((a)-[*]->(b))` (single BFS); `allShortestPaths((a)-[*]->(b))` (all min-length). Supports type filtering, direction, depth bounds. Variables must be bound
 - **CALL { ... } subqueries:** inline (reference outer vars), YIELD filtering, nested, CREATE/SET/DELETE inside, ORDER BY inside. Stored procedures not supported
@@ -116,6 +118,12 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 | duration | `RETURN duration({hours:1, minutes:30}) AS dur, duration('P1Y2M3DT4H5M6S') AS dur2` |
 | temporal extractors | `RETURN year(n.createdAt) AS y, month(n.createdAt) AS m, epochseconds(n.createdAt) AS epoch` |
 | temporal WHERE/ORDER BY | `MATCH (n) WHERE n.createdAt > '2023-01-01T00:00:00.000Z' RETURN n.name ORDER BY n.createdAt DESC` |
+| Graph statistics | `RETURN numNodes() AS n, numRelationships() AS e, density() AS d, averageDegree() AS avgDeg, diameter() AS diam` |
+| PageRank (global) | `RETURN pagerank() AS scores` |
+| PageRank (per-node) | `MATCH (n) RETURN n.name, pagerank(n) AS pr ORDER BY pr DESC` |
+| Degree centrality | `MATCH (n) RETURN n.name, degreeCentrality(n) AS dc ORDER BY dc DESC` |
+| Betweenness centrality | `MATCH (n) RETURN n.name, betweennessCentrality(n) AS bc ORDER BY bc DESC` |
+| Top-N by centrality | `MATCH (n) RETURN n.name, pagerank(n) AS pr ORDER BY pr DESC LIMIT 5` |
 
 See `references/queries.md` for more patterns.
 
