@@ -187,8 +187,17 @@ export class AdvancedCypherGraphologyEngine {
       if (listValue === null || listValue === undefined) continue;
       const list: CypherValue[] = typeof listValue === 'string' ? [...listValue] : Array.isArray(listValue) ? listValue : [];
       for (const element of list) {
+        // Evaluate WHERE filter if present
+        if (clause.where) {
+          const loopContext: QueryContext = { ...context, [clause.variable]: element };
+          const shouldExecute = this.evaluateWhere(clause.where, loopContext);
+          if (!shouldExecute) continue;
+        }
         const loopContext: QueryContext = { ...context, [clause.variable]: element };
-        this.executeWrite(clause.innerClause, [loopContext]);
+        // Execute all inner clauses
+        for (const innerClause of clause.innerClauses) {
+          this.executeWrite(innerClause, [loopContext]);
+        }
       }
     }
 

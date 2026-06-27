@@ -150,7 +150,19 @@ describe('EXPLAIN FOREACH', () => {
     const plan = explainQuery('MATCH (u:User) FOREACH (x IN u.tags | SET x:Processed) RETURN u');
     expect(plan.stages[1]?.type).toBe('FOREACH');
     expect(plan.stages[1]?.variables).toEqual(['x']);
-    expect(plan.stages[1]?.details?.innerClauseType).toBe('SET');
+    expect(plan.stages[1]?.details?.innerClauses).toEqual(['SET']);
+  });
+
+  it('explains FOREACH with WHERE', () => {
+    const plan = explainQuery('MATCH (u:User) FOREACH (x IN u.tags WHERE x <> "admin" | SET x:Processed) RETURN u');
+    expect(plan.stages[1]?.type).toBe('FOREACH');
+    expect(plan.stages[1]?.details?.where).toBe('<filter>');
+  });
+
+  it('explains FOREACH with multiple inner clauses', () => {
+    const plan = explainQuery('MATCH (u:User) FOREACH (x IN u.items | SET x:Tagged, SET x.active = true) RETURN u');
+    expect(plan.stages[1]?.type).toBe('FOREACH');
+    expect(plan.stages[1]?.details?.innerClauses).toEqual(['SET', 'SET']);
   });
 });
 

@@ -1285,6 +1285,42 @@ FOREACH (x IN u.roles | CREATE (r:Role {name: x}))
 RETURN u.name
 ```
 
+#### FOREACH with WHERE
+
+Filter elements before executing inner clauses. Only elements matching the WHERE predicate trigger the mutations.
+
+```cypher
+-- Only process positive values
+MATCH (u:User) FOREACH (x IN u.values WHERE x > 0 | SET x.positive = true) RETURN u.name
+
+-- Skip admin tags
+MATCH (u:User) FOREACH (x IN u.tags WHERE x <> 'admin' | SET x:Processed) RETURN u.name
+
+-- Complex conditions (AND/OR/IS NOT NULL)
+MATCH (u:User) FOREACH (x IN u.items WHERE x.val > 0 AND x.active = true | SET x:Selected) RETURN u.name
+
+-- Bare property (truthy check)
+MATCH (u:User) FOREACH (x IN u.items WHERE x.active | SET x:Active) RETURN u.name
+
+-- NOT with bare property
+MATCH (u:User) FOREACH (x IN u.items WHERE NOT x.active | SET x:Inactive) RETURN u.name
+```
+
+#### FOREACH with Multiple Inner Statements
+
+Execute multiple mutations for each element, separated by commas. A comma separates clauses only when followed by SET, CREATE, DELETE, REMOVE, or DETACH.
+
+```cypher
+-- Two SET statements
+MATCH (u:User) FOREACH (x IN u.items | SET x:Tagged, SET x.active = true) RETURN u.name
+
+-- SET and CREATE
+MATCH (u:User) FOREACH (x IN u.tags | SET x:Tagged, CREATE (t:Tag {name: x})) RETURN u.name
+
+-- WHERE + multiple statements
+MATCH (u:User) FOREACH (x IN u.items WHERE x.val > 0 | SET x:Positive, SET x.marked = true) RETURN u.name
+```
+
 FOREACH works with both node and relationship objects stored in lists. The loop variable must resolve to an object with an `id` field that matches a node or edge in the graph.
 
 ```cypher

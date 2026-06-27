@@ -264,9 +264,9 @@ describe('FOREACH with DETACH DELETE', () => {
     expect(foreachStage).toBeDefined();
     if (!foreachStage || foreachStage.type !== 'FOREACH') return;
     const clause = foreachStage.clause;
-    expect(clause.innerClause.type).toBe('DELETE');
-    if (clause.innerClause.type === 'DELETE') {
-      expect(clause.innerClause.detach).toBe(true);
+    expect(clause.innerClauses[0]?.type).toBe('DELETE');
+    if (clause.innerClauses[0]?.type === 'DELETE') {
+      expect(clause.innerClauses[0].detach).toBe(true);
     }
   });
 

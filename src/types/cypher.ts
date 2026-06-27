@@ -398,7 +398,7 @@ export interface IsNullExpression {
   negated: boolean; // true for IS NOT NULL, false for IS NULL
 }
 
-export type WhereExpression = BinaryExpression | LogicalExpression | NotExpression | IsNullExpression | QuantifierExpression | ExistsExpression | FunctionCallExpression;
+export type WhereExpression = BinaryExpression | LogicalExpression | NotExpression | IsNullExpression | QuantifierExpression | ExistsExpression | FunctionCallExpression | PropertyAccessExpression | LiteralExpression;
 
 export interface Projection {
   expression: Expression;
@@ -442,8 +442,10 @@ export interface ForeachClause {
   variable: string;
   /** List expression to iterate over (e.g., n.tags). */
   expression: Expression;
-  /** Inner write clause to execute for each element. */
-  innerClause: WriteClause;
+  /** Optional WHERE filter applied before executing inner clauses (e.g., `FOREACH (x IN list WHERE x > 0 | ...)`). */
+  where: WhereExpression | undefined;
+  /** Inner write clauses to execute for each element. Supports multiple inner statements. */
+  innerClauses: WriteClause[];
 }
 
 // ── CALL (subquery) clause types ─────────────────────────────────────────────

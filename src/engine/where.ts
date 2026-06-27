@@ -46,6 +46,13 @@ export function evaluateWhereCore(
     const value = evalExpr(whereNode);
     return !!value;
   }
+  if (whereNode.type === 'PropertyAccess') {
+    const value = evalExpr(whereNode);
+    return !!value;
+  }
+  if (whereNode.type === 'Literal') {
+    return !!whereNode.value;
+  }
 
   // BinaryExpression
   const leftValue = evalExpr(whereNode.left);
@@ -116,7 +123,7 @@ export function evaluateWhereCore(
 
 /** Check if a value is a valid WhereExpression (including quantifier/exists expressions). */
 export function isWhereExpression(value: Expression | WhereExpression): value is WhereExpression {
-  return value.type === 'BinaryExpression' || value.type === 'LogicalExpression' || value.type === 'NotExpression' || value.type === 'IsNull' || value.type === 'Quantifier' || value.type === 'Exists' || value.type === 'FunctionCall';
+  return value.type === 'BinaryExpression' || value.type === 'LogicalExpression' || value.type === 'NotExpression' || value.type === 'IsNull' || value.type === 'Quantifier' || value.type === 'Exists' || value.type === 'FunctionCall' || value.type === 'PropertyAccess' || value.type === 'Literal';
 }
 
 /** Extract list values from expression. Strings are treated as lists of characters. */

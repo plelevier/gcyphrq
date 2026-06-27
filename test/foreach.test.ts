@@ -27,60 +27,61 @@ describe('FOREACH parser', () => {
       expect(clause.expression.variable).toBe('n');
       expect(clause.expression.property).toBe('tags');
     }
-    expect(clause.innerClause.type).toBe('SET');
-    if (clause.innerClause.type === 'SET') {
-      expect(clause.innerClause.items[0]?.variable).toBe('x');
-      expect(clause.innerClause.items[0]?.property).toBe('active');
+    expect(clause.innerClauses.length).toBe(1);
+    expect(clause.innerClauses[0]?.type).toBe('SET');
+    if (clause.innerClauses[0]?.type === 'SET') {
+      expect(clause.innerClauses[0].items[0]?.variable).toBe('x');
+      expect(clause.innerClauses[0].items[0]?.property).toBe('active');
     }
   });
 
   it('parses FOREACH with SET label', async () => {
     const ast = parseCypher('MATCH (n) FOREACH (x IN n.tags | SET x:Tag) RETURN n');
     const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
-    expect(clause.innerClause.type).toBe('SET');
-    if (clause.innerClause.type === 'SET') {
-      expect(clause.innerClause.items[0]?.labels).toEqual(['Tag']);
+    expect(clause.innerClauses[0]?.type).toBe('SET');
+    if (clause.innerClauses[0]?.type === 'SET') {
+      expect(clause.innerClauses[0].items[0]?.labels).toEqual(['Tag']);
     }
   });
 
   it('parses FOREACH with CREATE', async () => {
     const ast = parseCypher('MATCH (n) FOREACH (x IN n.tags | CREATE (t:Tag {name: x})) RETURN n');
     const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
-    expect(clause.innerClause.type).toBe('CREATE');
-    if (clause.innerClause.type === 'CREATE') {
-      expect(clause.innerClause.variable).toBe('t');
-      expect(clause.innerClause.labels).toEqual(['Tag']);
-      expect(clause.innerClause.propertiesExpr).toBeDefined();
-      expect(clause.innerClause.propertiesExpr?.['name']).toBeDefined();
+    expect(clause.innerClauses[0]?.type).toBe('CREATE');
+    if (clause.innerClauses[0]?.type === 'CREATE') {
+      expect(clause.innerClauses[0].variable).toBe('t');
+      expect(clause.innerClauses[0].labels).toEqual(['Tag']);
+      expect(clause.innerClauses[0].propertiesExpr).toBeDefined();
+      expect(clause.innerClauses[0].propertiesExpr?.['name']).toBeDefined();
     }
   });
 
   it('parses FOREACH with DELETE', async () => {
     const ast = parseCypher('MATCH (n) FOREACH (x IN n.tags | DELETE x) RETURN n');
     const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
-    expect(clause.innerClause.type).toBe('DELETE');
-    if (clause.innerClause.type === 'DELETE') {
-      expect(clause.innerClause.variables).toEqual(['x']);
+    expect(clause.innerClauses[0]?.type).toBe('DELETE');
+    if (clause.innerClauses[0]?.type === 'DELETE') {
+      expect(clause.innerClauses[0].variables).toEqual(['x']);
     }
   });
 
   it('parses FOREACH with REMOVE property', async () => {
     const ast = parseCypher('MATCH (n) FOREACH (x IN n.items | REMOVE x.temp) RETURN n');
     const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
-    expect(clause.innerClause.type).toBe('REMOVE');
-    if (clause.innerClause.type === 'REMOVE') {
-      expect(clause.innerClause.items[0]?.variable).toBe('x');
-      expect(clause.innerClause.items[0]?.property).toBe('temp');
+    expect(clause.innerClauses[0]?.type).toBe('REMOVE');
+    if (clause.innerClauses[0]?.type === 'REMOVE') {
+      expect(clause.innerClauses[0].items[0]?.variable).toBe('x');
+      expect(clause.innerClauses[0].items[0]?.property).toBe('temp');
     }
   });
 
   it('parses FOREACH with REMOVE label', async () => {
     const ast = parseCypher('MATCH (n) FOREACH (x IN n.items | REMOVE x:Temp) RETURN n');
     const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
-    expect(clause.innerClause.type).toBe('REMOVE');
-    if (clause.innerClause.type === 'REMOVE') {
-      expect(clause.innerClause.items[0]?.variable).toBe('x');
-      expect(clause.innerClause.items[0]?.labels).toEqual(['Temp']);
+    expect(clause.innerClauses[0]?.type).toBe('REMOVE');
+    if (clause.innerClauses[0]?.type === 'REMOVE') {
+      expect(clause.innerClauses[0].items[0]?.variable).toBe('x');
+      expect(clause.innerClauses[0].items[0]?.labels).toEqual(['Temp']);
     }
   });
 });
@@ -757,5 +758,544 @@ describe('FOREACH engine: relationship objects in lists', () => {
     const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     expect(graph.getEdgeAttributes('r1').active).toBeUndefined();
+  });
+});
+
+// ── Parser tests: FOREACH with WHERE ─────────────────────────────────────────
+
+describe('FOREACH parser: WHERE', () => {
+  it('parses FOREACH with WHERE filter', async () => {
+    const ast = parseCypher('MATCH (n) FOREACH (x IN n.tags WHERE x <> "admin" | SET x:Tagged) RETURN n');
+    const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
+    expect(clause.variable).toBe('x');
+    expect(clause.where).toBeDefined();
+    expect(clause.where?.type).toBe('BinaryExpression');
+    if (clause.where?.type === 'BinaryExpression') {
+      expect(clause.where.operator).toBe('<>');
+    }
+    expect(clause.innerClauses.length).toBe(1);
+    expect(clause.innerClauses[0]?.type).toBe('SET');
+  });
+
+  it('parses FOREACH with WHERE using numeric comparison', async () => {
+    const ast = parseCypher('MATCH (n) FOREACH (x IN n.values WHERE x > 0 | SET x.positive = true) RETURN n');
+    const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
+    expect(clause.where).toBeDefined();
+    expect(clause.where?.type).toBe('BinaryExpression');
+    if (clause.where?.type === 'BinaryExpression') {
+      expect(clause.where.operator).toBe('>');
+    }
+  });
+
+  it('parses FOREACH with WHERE using CONTAINS', async () => {
+    const ast = parseCypher("MATCH (n) FOREACH (x IN n.tags WHERE x CONTAINS 'test' | SET x:Tested) RETURN n");
+    const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
+    expect(clause.where).toBeDefined();
+    expect(clause.where?.type).toBe('BinaryExpression');
+    if (clause.where?.type === 'BinaryExpression') {
+      expect(clause.where.operator).toBe('CONTAINS');
+    }
+  });
+
+  it('parses FOREACH without WHERE (no filter)', async () => {
+    const ast = parseCypher('MATCH (n) FOREACH (x IN n.tags | SET x:Tagged) RETURN n');
+    const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
+    expect(clause.where).toBeUndefined();
+  });
+
+  it('parses FOREACH with bare property in WHERE', async () => {
+    const ast = parseCypher('MATCH (n) FOREACH (x IN n.items WHERE x.active | SET x:Active) RETURN n');
+    const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
+    expect(clause.where).toBeDefined();
+    expect(clause.where?.type).toBe('PropertyAccess');
+    if (clause.where?.type === 'PropertyAccess') {
+      expect(clause.where.variable).toBe('x');
+      expect(clause.where.property).toBe('active');
+    }
+  });
+
+  it('parses FOREACH with bare variable in WHERE', async () => {
+    const ast = parseCypher('MATCH (n) FOREACH (x IN n.items WHERE x | SET x:Active) RETURN n');
+    const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
+    expect(clause.where).toBeDefined();
+    expect(clause.where?.type).toBe('PropertyAccess');
+    if (clause.where?.type === 'PropertyAccess') {
+      expect(clause.where.variable).toBe('x');
+    }
+  });
+
+  it('parses FOREACH with bare property AND comparison', async () => {
+    const ast = parseCypher('MATCH (n) FOREACH (x IN n.items WHERE x.active AND x.val > 0 | SET x:Active) RETURN n');
+    const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
+    expect(clause.where).toBeDefined();
+    expect(clause.where?.type).toBe('LogicalExpression');
+    if (clause.where?.type === 'LogicalExpression') {
+      expect(clause.where.operator).toBe('AND');
+      expect(clause.where.left.type).toBe('PropertyAccess');
+      expect(clause.where.right.type).toBe('BinaryExpression');
+    }
+  });
+
+  it('parses FOREACH with NOT bare property', async () => {
+    const ast = parseCypher('MATCH (n) FOREACH (x IN n.items WHERE NOT x.active | SET x:Inactive) RETURN n');
+    const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
+    expect(clause.where).toBeDefined();
+    expect(clause.where?.type).toBe('NotExpression');
+    if (clause.where?.type === 'NotExpression') {
+      expect(clause.where.expression.type).toBe('PropertyAccess');
+    }
+  });
+});
+
+// ── Parser tests: FOREACH with multiple inner statements ─────────────────────
+
+describe('FOREACH parser: multiple inner statements', () => {
+  it('parses FOREACH with two SET statements', async () => {
+    const ast = parseCypher('MATCH (n) FOREACH (x IN n.items | SET x:Tagged, SET x.active = true) RETURN n');
+    const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
+    expect(clause.innerClauses.length).toBe(2);
+    expect(clause.innerClauses[0]?.type).toBe('SET');
+    expect(clause.innerClauses[1]?.type).toBe('SET');
+    if (clause.innerClauses[0]?.type === 'SET') {
+      expect(clause.innerClauses[0].items[0]?.labels).toEqual(['Tagged']);
+    }
+    if (clause.innerClauses[1]?.type === 'SET') {
+      expect(clause.innerClauses[1].items[0]?.property).toBe('active');
+    }
+  });
+
+  it('parses FOREACH with SET and CREATE', async () => {
+    const ast = parseCypher('MATCH (n) FOREACH (x IN n.tags | SET x:Tagged, CREATE (t:Tag {name: x})) RETURN n');
+    const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
+    expect(clause.innerClauses.length).toBe(2);
+    expect(clause.innerClauses[0]?.type).toBe('SET');
+    expect(clause.innerClauses[1]?.type).toBe('CREATE');
+  });
+
+  it('parses FOREACH with SET and DELETE', async () => {
+    const ast = parseCypher('MATCH (n) FOREACH (x IN n.items | SET x.deleted = true, DELETE x) RETURN n');
+    const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
+    expect(clause.innerClauses.length).toBe(2);
+    expect(clause.innerClauses[0]?.type).toBe('SET');
+    expect(clause.innerClauses[1]?.type).toBe('DELETE');
+  });
+
+  it('parses FOREACH with WHERE and multiple inner statements', async () => {
+    const ast = parseCypher('MATCH (n) FOREACH (x IN n.items WHERE x > 0 | SET x:Positive, SET x.marked = true) RETURN n');
+    const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
+    expect(clause.where).toBeDefined();
+    expect(clause.innerClauses.length).toBe(2);
+    expect(clause.innerClauses[0]?.type).toBe('SET');
+    expect(clause.innerClauses[1]?.type).toBe('SET');
+  });
+
+  it('parses FOREACH with three inner statements', async () => {
+    const ast = parseCypher('MATCH (n) FOREACH (x IN n.items | SET x:Tagged, SET x.active = true, SET x.count = x.count + 1) RETURN n');
+    const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
+    expect(clause.innerClauses.length).toBe(3);
+    expect(clause.innerClauses[0]?.type).toBe('SET');
+    expect(clause.innerClauses[1]?.type).toBe('SET');
+    expect(clause.innerClauses[2]?.type).toBe('SET');
+  });
+});
+
+// ── Engine tests: FOREACH with WHERE ─────────────────────────────────────────
+
+describe('FOREACH engine: WHERE filter', () => {
+  let graph: GraphInstance;
+
+  beforeEach(() => {
+    graph = new Graph();
+    graph.addNode('u1', { label: 'User', name: 'Alice', values: [1, -2, 3, -4, 5] });
+    graph.addNode('p1', { label: 'Item', val: 1 });
+    graph.addNode('p2', { label: 'Item', val: 3 });
+    graph.addNode('p3', { label: 'Item', val: 5 });
+  });
+
+  it('executes inner clause only when WHERE predicate is true', async () => {
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'MATCH (u:User) FOREACH (x IN u.values WHERE x > 0 | SET x.positive = true) RETURN u.name AS userName',
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+  });
+
+  it('skips elements that do not match WHERE predicate', async () => {
+    graph.addNode('a', { label: 'Item', val: 1 });
+    graph.addNode('b', { label: 'Item', val: -2 });
+    graph.addNode('c', { label: 'Item', val: 3 });
+    graph.setNodeAttribute('u1', 'items', [
+      { id: 'a', label: 'Item', val: 1 },
+      { id: 'b', label: 'Item', val: -2 },
+      { id: 'c', label: 'Item', val: 3 },
+    ]);
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'MATCH (u:User) FOREACH (x IN u.items WHERE x.val > 0 | SET x:Positive) RETURN u.name AS userName',
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+
+    // Only items with val > 0 should have the label
+    const attrsA = graph.getNodeAttributes('a');
+    const attrsB = graph.getNodeAttributes('b');
+    const attrsC = graph.getNodeAttributes('c');
+    expect(Array.isArray(attrsA.label)).toBe(true);
+    expect(attrsA.label).toContain('Positive');
+    // b should NOT have the label (val = -2)
+    expect(attrsB.label).toBe('Item');
+    expect(Array.isArray(attrsC.label)).toBe(true);
+    expect(attrsC.label).toContain('Positive');
+  });
+
+  it('WHERE with string comparison', async () => {
+    graph.addNode('t1', { label: 'Tag', name: 'admin' });
+    graph.addNode('t2', { label: 'Tag', name: 'user' });
+    graph.addNode('t3', { label: 'Tag', name: 'guest' });
+    graph.setNodeAttribute('u1', 'tags', [
+      { id: 't1', label: 'Tag', name: 'admin' },
+      { id: 't2', label: 'Tag', name: 'user' },
+      { id: 't3', label: 'Tag', name: 'guest' },
+    ]);
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      "MATCH (u:User) FOREACH (x IN u.tags WHERE x.name <> 'admin' | SET x:Processed) RETURN u.name AS userName",
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+
+    // admin should NOT be processed
+    const attrsT1 = graph.getNodeAttributes('t1');
+    expect(attrsT1.label).toBe('Tag');
+    // user and guest should be processed
+    const attrsT2 = graph.getNodeAttributes('t2');
+    const attrsT3 = graph.getNodeAttributes('t3');
+    expect(Array.isArray(attrsT2.label)).toBe(true);
+    expect(attrsT2.label).toContain('Processed');
+    expect(Array.isArray(attrsT3.label)).toBe(true);
+    expect(attrsT3.label).toContain('Processed');
+  });
+
+  it('WHERE with CONTAINS', async () => {
+    graph.setNodeAttribute('u1', 'tags', ['hello', 'world', 'testing', 'test']);
+    // With strings, WHERE filters but SET on strings won't modify graph nodes
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      "MATCH (u:User) FOREACH (x IN u.tags WHERE x CONTAINS 'test' | SET x.matched = true) RETURN u.name AS userName",
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+  });
+
+  it('WHERE with AND condition', async () => {
+    graph.setNodeAttribute('u1', 'items', [
+      { id: 'p1', label: 'Item', val: 1, active: true },
+      { id: 'p2', label: 'Item', val: 3, active: false },
+      { id: 'p3', label: 'Item', val: 5, active: true },
+    ]);
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'MATCH (u:User) FOREACH (x IN u.items WHERE x.val > 0 AND x.active = true | SET x:Selected) RETURN u.name AS userName',
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+
+    const attrsP1 = graph.getNodeAttributes('p1');
+    const attrsP2 = graph.getNodeAttributes('p2');
+    const attrsP3 = graph.getNodeAttributes('p3');
+    expect(Array.isArray(attrsP1.label)).toBe(true);
+    expect(attrsP1.label).toContain('Selected');
+    expect(attrsP2.label).toBe('Item'); // active = false, should not match
+    expect(Array.isArray(attrsP3.label)).toBe(true);
+    expect(attrsP3.label).toContain('Selected');
+  });
+
+  it('WHERE with OR condition', async () => {
+    graph.setNodeAttribute('u1', 'items', [
+      { id: 'p1', label: 'Item', val: 1, active: true },
+      { id: 'p2', label: 'Item', val: -3, active: true },
+      { id: 'p3', label: 'Item', val: 5, active: false },
+    ]);
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'MATCH (u:User) FOREACH (x IN u.items WHERE x.val > 0 OR x.active = true | SET x:Selected) RETURN u.name AS userName',
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+
+    const attrsP1 = graph.getNodeAttributes('p1');
+    const attrsP2 = graph.getNodeAttributes('p2');
+    const attrsP3 = graph.getNodeAttributes('p3');
+    expect(Array.isArray(attrsP1.label)).toBe(true);
+    expect(attrsP1.label).toContain('Selected');
+    expect(Array.isArray(attrsP2.label)).toBe(true);
+    expect(attrsP2.label).toContain('Selected');
+    expect(Array.isArray(attrsP3.label)).toBe(true);
+    expect(attrsP3.label).toContain('Selected');
+  });
+
+  it('WHERE with IS NOT NULL', async () => {
+    graph.setNodeAttribute('u1', 'items', [
+      { id: 'p1', label: 'Item', val: 1, name: 'first' },
+      { id: 'p2', label: 'Item', val: 2 },
+      { id: 'p3', label: 'Item', val: 3, name: 'third' },
+    ]);
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'MATCH (u:User) FOREACH (x IN u.items WHERE x.name IS NOT NULL | SET x:Named) RETURN u.name AS userName',
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+
+    const attrsP1 = graph.getNodeAttributes('p1');
+    const attrsP2 = graph.getNodeAttributes('p2');
+    const attrsP3 = graph.getNodeAttributes('p3');
+    expect(Array.isArray(attrsP1.label)).toBe(true);
+    expect(attrsP1.label).toContain('Named');
+    expect(attrsP2.label).toBe('Item'); // no name property
+    expect(Array.isArray(attrsP3.label)).toBe(true);
+    expect(attrsP3.label).toContain('Named');
+  });
+
+  it('WHERE with all elements filtered out (no-op)', async () => {
+    graph.setNodeAttribute('u1', 'items', [
+      { id: 'p1', label: 'Item', val: -1 },
+      { id: 'p2', label: 'Item', val: -2 },
+    ]);
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'MATCH (u:User) FOREACH (x IN u.items WHERE x.val > 0 | SET x:Positive) RETURN u.name AS userName',
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+
+    // No items should have the label
+    const attrsP1 = graph.getNodeAttributes('p1');
+    const attrsP2 = graph.getNodeAttributes('p2');
+    expect(attrsP1.label).toBe('Item');
+    expect(attrsP2.label).toBe('Item');
+  });
+
+  it('WHERE with bare property (truthy check)', async () => {
+    graph.addNode('a', { label: 'Item', active: true });
+    graph.addNode('b', { label: 'Item', active: false });
+    graph.addNode('c', { label: 'Item', active: true });
+    graph.setNodeAttribute('u1', 'items', [
+      { id: 'a', label: 'Item', active: true },
+      { id: 'b', label: 'Item', active: false },
+      { id: 'c', label: 'Item', active: true },
+    ]);
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'MATCH (u:User) FOREACH (x IN u.items WHERE x.active | SET x:Active) RETURN u.name AS userName',
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+
+    // Only items with active = true should have the label
+    const attrsA = graph.getNodeAttributes('a');
+    const attrsB = graph.getNodeAttributes('b');
+    const attrsC = graph.getNodeAttributes('c');
+    expect(Array.isArray(attrsA.label)).toBe(true);
+    expect(attrsA.label).toContain('Active');
+    expect(attrsB.label).toBe('Item'); // active = false, should not match
+    expect(Array.isArray(attrsC.label)).toBe(true);
+    expect(attrsC.label).toContain('Active');
+  });
+});
+
+// ── Engine tests: FOREACH with multiple inner statements ─────────────────────
+
+describe('FOREACH engine: multiple inner statements', () => {
+  let graph: GraphInstance;
+
+  beforeEach(() => {
+    graph = new Graph();
+    graph.addNode('u1', { label: 'User', name: 'Alice' });
+    graph.addNode('i1', { label: 'Item', name: 'first', val: 10 });
+    graph.addNode('i2', { label: 'Item', name: 'second', val: 20 });
+    graph.setNodeAttribute('u1', 'items', [
+      { id: 'i1', label: 'Item', name: 'first', val: 10 },
+      { id: 'i2', label: 'Item', name: 'second', val: 20 },
+    ]);
+  });
+
+  it('executes two SET statements', async () => {
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'MATCH (u:User) FOREACH (x IN u.items | SET x:Processed, SET x.reviewed = true) RETURN u.name AS userName',
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+
+    // Verify both SET operations were applied
+    const attrsI1 = graph.getNodeAttributes('i1');
+    expect(Array.isArray(attrsI1.label)).toBe(true);
+    expect(attrsI1.label).toContain('Processed');
+    expect(attrsI1.reviewed).toBe(true);
+
+    const attrsI2 = graph.getNodeAttributes('i2');
+    expect(Array.isArray(attrsI2.label)).toBe(true);
+    expect(attrsI2.label).toContain('Processed');
+    expect(attrsI2.reviewed).toBe(true);
+  });
+
+  it('executes SET and CREATE', async () => {
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'MATCH (u:User) FOREACH (x IN u.items | SET x:Processed, CREATE (n:Log {item: x.name, val: x.val})) RETURN u.name AS userName',
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+
+    // Verify SET was applied
+    const attrsI1 = graph.getNodeAttributes('i1');
+    expect(Array.isArray(attrsI1.label)).toBe(true);
+    expect(attrsI1.label).toContain('Processed');
+
+    // Verify CREATE was applied (2 new Log nodes)
+    const allNodes = graph.filterNodes(() => true);
+    const logNodes = allNodes.filter((id) => {
+      const attrs = graph.getNodeAttributes(id);
+      return attrs.label === 'Log';
+    });
+    expect(logNodes.length).toBe(2);
+    const logItems = logNodes.map((id) => graph.getNodeAttributes(id).item).sort();
+    expect(logItems).toEqual(['first', 'second']);
+  });
+
+  it('executes three SET statements', async () => {
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'MATCH (u:User) FOREACH (x IN u.items | SET x:Processed, SET x.reviewed = true, SET x.count = x.val * 2) RETURN u.name AS userName',
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+
+    const attrsI1 = graph.getNodeAttributes('i1');
+    expect(Array.isArray(attrsI1.label)).toBe(true);
+    expect(attrsI1.label).toContain('Processed');
+    expect(attrsI1.reviewed).toBe(true);
+    expect(attrsI1.count).toBe(20);
+
+    const attrsI2 = graph.getNodeAttributes('i2');
+    expect(attrsI2.count).toBe(40);
+  });
+
+  it('executes SET and REMOVE', async () => {
+    graph.setNodeAttribute('i1', 'temp', 'toRemove');
+    graph.setNodeAttribute('i2', 'temp', 'toRemove');
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'MATCH (u:User) FOREACH (x IN u.items | SET x:Processed, REMOVE x.temp) RETURN u.name AS userName',
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+
+    const attrsI1 = graph.getNodeAttributes('i1');
+    expect(Array.isArray(attrsI1.label)).toBe(true);
+    expect(attrsI1.label).toContain('Processed');
+    expect(attrsI1.temp).toBeUndefined();
+
+    const attrsI2 = graph.getNodeAttributes('i2');
+    expect(attrsI2.temp).toBeUndefined();
+  });
+});
+
+// ── Engine tests: FOREACH with WHERE and multiple inner statements ───────────
+
+describe('FOREACH engine: WHERE + multiple inner statements', () => {
+  let graph: GraphInstance;
+
+  beforeEach(() => {
+    graph = new Graph();
+    graph.addNode('u1', { label: 'User', name: 'Alice' });
+    graph.addNode('i1', { label: 'Item', name: 'first', val: 10 });
+    graph.addNode('i2', { label: 'Item', name: 'second', val: -5 });
+    graph.addNode('i3', { label: 'Item', name: 'third', val: 30 });
+    graph.setNodeAttribute('u1', 'items', [
+      { id: 'i1', label: 'Item', name: 'first', val: 10 },
+      { id: 'i2', label: 'Item', name: 'second', val: -5 },
+      { id: 'i3', label: 'Item', name: 'third', val: 30 },
+    ]);
+  });
+
+  it('WHERE filter + two SET statements', async () => {
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'MATCH (u:User) FOREACH (x IN u.items WHERE x.val > 0 | SET x:Positive, SET x.marked = true) RETURN u.name AS userName',
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+
+    // i1 (val=10) and i3 (val=30) should be processed
+    const attrsI1 = graph.getNodeAttributes('i1');
+    expect(Array.isArray(attrsI1.label)).toBe(true);
+    expect(attrsI1.label).toContain('Positive');
+    expect(attrsI1.marked).toBe(true);
+
+    // i2 (val=-5) should NOT be processed
+    const attrsI2 = graph.getNodeAttributes('i2');
+    expect(attrsI2.label).toBe('Item');
+    expect(attrsI2.marked).toBeUndefined();
+
+    // i3 (val=30) should be processed
+    const attrsI3 = graph.getNodeAttributes('i3');
+    expect(Array.isArray(attrsI3.label)).toBe(true);
+    expect(attrsI3.label).toContain('Positive');
+    expect(attrsI3.marked).toBe(true);
+  });
+
+  it('WHERE filter + SET and CREATE', async () => {
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'MATCH (u:User) FOREACH (x IN u.items WHERE x.val > 0 | SET x:Positive, CREATE (n:Log {item: x.name})) RETURN u.name AS userName',
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+
+    // Only 2 Log nodes should be created (for i1 and i3)
+    const allNodes = graph.filterNodes(() => true);
+    const logNodes = allNodes.filter((id) => {
+      const attrs = graph.getNodeAttributes(id);
+      return attrs.label === 'Log';
+    });
+    expect(logNodes.length).toBe(2);
+    const logItems = logNodes.map((id) => graph.getNodeAttributes(id).item).sort();
+    expect(logItems).toEqual(['first', 'third']);
+  });
+
+  it('WHERE with AND + multiple inner statements', async () => {
+    graph.setNodeAttribute('i1', 'active', true);
+    graph.setNodeAttribute('i2', 'active', true);
+    graph.setNodeAttribute('i3', 'active', false);
+    graph.setNodeAttribute('u1', 'items', [
+      { id: 'i1', label: 'Item', name: 'first', val: 10, active: true },
+      { id: 'i2', label: 'Item', name: 'second', val: -5, active: true },
+      { id: 'i3', label: 'Item', name: 'third', val: 30, active: false },
+    ]);
+    const engine = createEngine(graph);
+    const ast = parseCypher(
+      'MATCH (u:User) FOREACH (x IN u.items WHERE x.val > 0 AND x.active = true | SET x:Selected, SET x.score = x.val * 2) RETURN u.name AS userName',
+    );
+    const results = await engine.execute(ast);
+    expect(results.length).toBe(1);
+
+    // Only i1 should be selected (val > 0 AND active = true)
+    const attrsI1 = graph.getNodeAttributes('i1');
+    expect(Array.isArray(attrsI1.label)).toBe(true);
+    expect(attrsI1.label).toContain('Selected');
+    expect(attrsI1.score).toBe(20);
+
+    // i2 should NOT be selected (val <= 0)
+    const attrsI2 = graph.getNodeAttributes('i2');
+    expect(attrsI2.label).toBe('Item');
+    expect(attrsI2.score).toBeUndefined();
+
+    // i3 should NOT be selected (active = false)
+    const attrsI3 = graph.getNodeAttributes('i3');
+    expect(attrsI3.label).toBe('Item');
+    expect(attrsI3.score).toBeUndefined();
   });
 });
