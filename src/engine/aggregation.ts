@@ -1,5 +1,25 @@
 import type { AggregationExpression, CypherNode, CypherValue, Expression, ListComprehensionExpression, PatternComprehensionExpression, Projection, QueryContext, WhereExpression, ReduceExpression } from '../types/cypher';
 
+/**
+ * Count pattern matches across all rows in a group.
+ * For `count((pattern))`, each row contributes the number of pattern matches (0+).
+ * The total is the sum of all match counts across the group.
+ */
+function computePatternCount(
+  rows: QueryContext[],
+  expr: AggregationExpression,
+  evalExpr: (expr: Expression, ctx: QueryContext) => CypherValue | undefined,
+): number {
+  let total = 0;
+  for (const row of rows) {
+    const result = evalExpr(expr.expression!, row);
+    if (Array.isArray(result)) {
+      total += result.length;
+    }
+  }
+  return total;
+}
+
 /** Check if an expression contains any aggregation (excluding bare reduce). */
 export function containsAggregation(expr: Expression): boolean {
   if (expr.type === 'Aggregation') return true;
@@ -167,6 +187,9 @@ export function computeAggregations(
     if (expr.isStar) {
       // count(*) counts all rows
       aggResults.set(aggKey, rows.length);
+    } else if (expr.isPattern) {
+      // count((pattern)) — sum of pattern match counts across all rows in the group
+      aggResults.set(aggKey, computePatternCount(rows, expr, evalExpr));
     } else if (expr.aggregationType === 'COUNT') {
       aggResults.set(aggKey, expr.distinct ? (distinctSeen.get(key)?.size ?? 0) : nonNullCount);
     } else if (expr.aggregationType === 'COLLECT') {

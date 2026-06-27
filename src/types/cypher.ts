@@ -246,6 +246,8 @@ export interface AggregationExpression {
   distinct: boolean;
   /** True for `count(*)` — counts all rows including nulls. */
   isStar?: boolean;
+  /** True for `count((pattern))` — expression is a PatternComprehension, value is number of matches. */
+  isPattern?: boolean;
 }
 
 /** A reduce expression: `reduce(initial, var IN list | expr)`. */
