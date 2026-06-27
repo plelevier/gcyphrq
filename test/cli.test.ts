@@ -445,3 +445,72 @@ describe('CLI - graph format output', () => {
     expect(secondParsed.attributes).toEqual({ name: 'My Graph', version: '1.0' });
   });
 });
+
+describe('CLI - extensions', () => {
+  beforeAll(() => {
+    cliTmpRoot = join(tmpdir(), 'gcyphrq-cli-tests');
+    mkdirSync(cliTmpRoot, { recursive: true });
+  });
+
+  afterAll(() => {
+    if (cliTmpRoot) rmSync(cliTmpRoot, { recursive: true, force: true });
+  });
+
+  it('shows --list-extensions output when no extensions installed', async () => {
+    const { stdout, code } = await runCli(['--list-extensions']);
+    expect(code).toBe(0);
+    expect(stdout).toContain('No extensions installed');
+  });
+
+  it('errors when --ext is used without -g', async () => {
+    const { stderr, code } = await runCli(['--ext', 'gexf', '-e', 'MATCH (n) RETURN n']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('--ext option requires -g');
+  });
+
+  it('errors when --ext is used with stdin', async () => {
+    const { stderr, code } = await runCli(['--ext', 'gexf', '-g', '-', '-e', 'MATCH (n) RETURN n']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('stdin');
+  });
+
+  it('errors when --ext is used with --explain', async () => {
+    const { stderr, code } = await runCli(['--ext', 'gexf', '-g', 'test.json', '--explain', '-e', 'MATCH (n) RETURN n']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('--explain');
+  });
+
+  it('errors when --ext-fn is used with --explain', async () => {
+    const { stderr, code } = await runCli(['--ext-fn', 'apoc', '--explain', '-e', 'RETURN 1']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('--explain');
+  });
+
+  it('errors when extension not found', async () => {
+    const d = mkSubdir('ext-not-found');
+    const path = writeFile(d, 'graph.json', simpleGraph);
+    const { stderr, code } = await runCli(['-g', path, '--ext', 'nonexistent', '-e', 'MATCH (n) RETURN n']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('not found');
+  });
+
+  it('errors when function extension not found', async () => {
+    const d = mkSubdir('ext-fn-not-found');
+    const path = writeFile(d, 'graph.json', simpleGraph);
+    const { stderr, code } = await runCli(['-g', path, '--ext-fn', 'nonexistent', '-e', 'RETURN 1']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('not found');
+  });
+
+  it('errors on unknown option --ext with missing value', async () => {
+    const { stderr, code } = await runCli(['--ext']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('requires a value');
+  });
+
+  it('errors on unknown option --ext-fn with missing value', async () => {
+    const { stderr, code } = await runCli(['--ext-fn']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('requires a value');
+  });
+});

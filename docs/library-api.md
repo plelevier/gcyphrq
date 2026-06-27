@@ -349,6 +349,95 @@ try {
 
 ---
 
+### Extension API
+
+gcyphrq supports pluggable extensions for non-JSON input formats and custom functions.
+
+#### `convertWithExtension(extensionName, context)`
+
+Load a graph-input extension and convert file content to `GraphInput`.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `extensionName` | `string` | Extension name (key in `gcyphrqExtensions`) |
+| `context` | [`GraphInputExtensionContext`](#graphinputextensioncontext) | File content and optional config |
+
+**Returns:** `Promise<GraphInput>`
+
+```ts
+import { convertWithExtension, executeQuery } from 'gcyphrq';
+import { readFileSync } from 'fs';
+
+const content = readFileSync('data.gexf', 'utf-8');
+const graphData = await convertWithExtension('gexf', {
+  content,
+  filePath: 'data.gexf',
+});
+const results = await executeQuery(graphData, 'MATCH (n) RETURN n');
+```
+
+#### `registerFunctionExtension(extensionName)`
+
+Load a function extension and register its functions. Multiple extensions can share the same namespace.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `extensionName` | `string` | Extension name (key in `gcyphrqExtensions`) |
+
+**Returns:** `Promise<void>`
+
+```ts
+import { registerFunctionExtension, executeQuery } from 'gcyphrq';
+
+await registerFunctionExtension('apoc-commons');
+await registerFunctionExtension('apoc-crypto');
+
+const results = await executeQuery(graphData, 'RETURN apoc.text.join(", ", ["a","b"])');
+```
+
+#### `listExtensions()`
+
+List all available extensions from installed `gcyphrq-ext-*` packages.
+
+**Returns:** Array of extension metadata
+
+```ts
+import { listExtensions } from 'gcyphrq';
+
+const extensions = listExtensions();
+for (const ext of extensions) {
+  console.log(`${ext.name} (${ext.type}) — ${ext.description}`);
+}
+```
+
+#### `helpers` and `validate`
+
+Helper utilities for extension authors to validate function arguments:
+
+```ts
+import { helpers, validate, FunctionError } from 'gcyphrq';
+
+// Type predicates
+helpers.isString(value);
+helpers.isNumber(value);
+helpers.isArray(value);
+
+// Argument validator
+const { sep, values } = validate(args, (v) => {
+  v.minCount(2);
+  v.arg(0, 'sep', helpers.isString);
+  v.argsFrom(1, 'values');
+});
+```
+
+See [Extensions Guide]({{ '/extensions/' | relative_url }}) for creating your own extensions.
+
+---
+
 ## Usage Patterns
 
 ### Pattern 1: One-shot query (simplest)
@@ -532,6 +621,16 @@ import type {
   CypherValue,
   CypherLiteral,
   SubgraphResult,
+
+  // Extension types
+  GraphInputExtension,
+  GraphInputExtensionContext,
+  FunctionExtension,
+  FunctionRegistry,
+  ExtensionManifest,
+  ResolvedExtension,
+  LoadedExtension,
+  ArgHelpers,
 } from 'gcyphrq';
 ```
 

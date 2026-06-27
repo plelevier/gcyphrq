@@ -16,6 +16,8 @@ npx tsx src/index.ts -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s
 
 Both `-e` (query) and `-g` (graph file or `-` for stdin) are required. Use `--explain` with `-e` only (no graph needed) to show the query execution plan.
 
+**Extensions:** Use `--ext <name>` for non-JSON input formats, `--ext-fn <name>` for custom functions (repeatable), `--list-extensions` to discover available extensions. Extensions are npm packages named `gcyphrq-ext-*`.
+
 ## Architecture
 
 ```
@@ -25,6 +27,10 @@ src/
 ├── graph.ts                 # Graphology wrapper
 ├── indexes.ts               # Pre-computed indexes
 ├── arithmetic.ts            # Shared arithmetic evaluation
+├── ext/                     # Extension system
+│   ├── types.ts             # Extension interfaces, helpers, validate, FunctionError
+│   ├── loader.ts            # node_modules/ scanning, package discovery
+│   └── registry.ts          # Lazy loading, caching, namespace prefixing
 ├── engine/
 │   ├── cypher-parser.ts     # ANTLR4 Cypher → AST
 │   ├── cypher-engine.ts     # AST execution engine
@@ -36,7 +42,7 @@ src/
 
 **Data flow:** CLI → `lib.ts` (validate, build graph + indexes) → `cypher-parser.ts` (Cypher → AST) → `cypher-engine.ts` (walk AST) → raw JSON stdout.
 
-**Library API (`lib.ts`):** `createGraph(data)`, `buildGraphIndexes(data, graph, opts?)`, `parseCypher(query)`, `executeQuery(graphData, query, opts?)`, `GraphEngine`. All accept `opts.config` except `createGraph`.
+**Library API (`lib.ts`):** `createGraph(data)`, `buildGraphIndexes(data, graph, opts?)`, `parseCypher(query)`, `executeQuery(graphData, query, opts?)`, `GraphEngine`. Extension API: `convertWithExtension(name, context)`, `registerFunctionExtension(name)`, `listExtensions()`. All accept `opts.config` except `createGraph`.
 
 **Graph format:** `{ nodes: [{key, attributes}], edges: [{source, target, attributes}] }`. `attributes.label` → Cypher label, `attributes.type` on edges → relationship type. Customize with `-nl`/`-et` CLI flags or `opts.config`. Optional `options.allowSelfLoops: true` enables self-loop edges. Optional `options.multi: true` enables parallel edges (multiple edges between the same nodes).
 

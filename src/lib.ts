@@ -611,6 +611,53 @@ export { AdvancedCypherGraphologyEngine as GraphEngine };
  */
 export { Graph };
 
+// ── Extension API ────────────────────────────────────────────────────────────
+
+/**
+ * Load a graph-input extension and convert file content to GraphInput.
+ * Scans node_modules for gcyphrq-ext-* packages and loads the named extension.
+ *
+ * @example
+ * ```ts
+ * import { convertWithExtension, executeQuery } from 'gcyphrq';
+ * import { readFileSync } from 'fs';
+ *
+ * const content = readFileSync('data.gexf', 'utf-8');
+ * const graphData = await convertWithExtension('gexf', {
+ *   content,
+ *   filePath: 'data.gexf',
+ * });
+ * const results = await executeQuery(graphData, 'MATCH (n) RETURN n');
+ * ```
+ */
+export { convertWithExtension } from './ext/registry';
+
+/**
+ * Load a function extension and register its functions with the Cypher engine.
+ * Can be called multiple times to register multiple function extensions.
+ *
+ * Multiple extensions can share the same namespace (e.g., `apoc-commons` and
+ * `apoc-crypto` both use `"apoc"`). If two extensions register a function with
+ * the same fully-qualified `<namespace>.<name>`, the second call throws at
+ * load time.
+ *
+ * @example
+ * ```ts
+ * import { registerFunctionExtension, executeQuery } from 'gcyphrq';
+ *
+ * await registerFunctionExtension('apoc-commons');
+ * await registerFunctionExtension('apoc-crypto');
+ *
+ * const results = await executeQuery(graphData, 'RETURN apoc.text.join(", ", ["a","b"])');
+ * ```
+ */
+export { registerFunctionExtension } from './ext/registry';
+
+/**
+ * List all available extensions from installed gcyphrq-ext-* packages.
+ */
+export { listExtensions } from './ext/registry';
+
 // ── Type re-exports ──────────────────────────────────────────────────────────
 
 /**
@@ -687,3 +734,18 @@ export type {
 
 // Re-export explain types
 export type { ExplainPlan, ExplainStage } from './engine/explain';
+
+// Re-export extension types
+export type {
+  GraphInputExtension,
+  GraphInputExtensionContext,
+  FunctionExtension,
+  FunctionRegistry,
+  ExtensionManifest,
+  ResolvedExtension,
+  LoadedExtension,
+  ArgHelpers,
+} from './ext/types';
+
+// Re-export extension helpers
+export { helpers, validate, FunctionError } from './ext/types';

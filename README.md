@@ -16,6 +16,7 @@ Available as a **CLI tool** and as a **library** for Node.js / TypeScript projec
 - **Aggregations** — `count()`, `sum()`, `avg()`, `min()`, `max()` with implicit grouping via `WITH`
 - **Directional filtering** — `->`, `<-`, `-`
 - **Library or CLI** — use as a dependency in your project or run from the terminal
+- **Extensions** — pluggable graph-input formats and custom functions via npm packages
 - **TypeScript support** — full type declarations shipped with the package
 
 ## Installation
@@ -50,6 +51,9 @@ Options:
   -e, --expr <query>     Cypher query expression (required for queries)
   -g, --graph <file>     Path to a JSON graph file (or "-" to read from stdin)
   --format <graph|rows>  Output format: "graph" (default) or "rows"
+  --ext <name>           Use a graph-input extension to parse the input file
+  --ext-fn <name>        Load a function extension (repeatable)
+  --list-extensions      List all available extensions
   --install-skill <mode> Install the gcyphrq skill for AI coding agents. Mode: "global" (symlinks) or "local" (copies into current directory)
   -v, --version          Show version number
   -h, --help             Show this help message

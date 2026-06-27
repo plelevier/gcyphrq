@@ -3,6 +3,8 @@ import { resolve } from 'path';
 import { GraphError, createGraph, parseCypher, GraphEngine, buildGraphIndexes, explainQuery } from './lib';
 import type { GraphInput } from './lib';
 import { runInstall } from './install';
+import { formatExtensionsList, convertWithExtension, registerFunctionExtension, preprocessQueryForExtensions } from './ext/registry';
+import { getExtensionFunctions, getExtensionAggregations } from './ext/registry';
 
 declare const __VERSION__: string;
 
@@ -24,6 +26,9 @@ Options:
   -et, --edge-type-property-name <prop>     Edge attribute key to use as Cypher relationship type (default: "type")
   --format <graph|rows>  Output format: "graph" (Graphology JSON, default) or "rows" (result rows)
   --explain              Show the query execution plan instead of executing. Does not require a graph file (-g is optional)
+  --ext <name>           Use a graph-input extension to parse the input file (e.g., --ext gexf)
+  --ext-fn <name>        Load a function extension (repeatable, e.g., --ext-fn apoc-commons)
+  --list-extensions      List all available extensions with descriptions
   --install-skill <mode> Install the gcyphrq skill for AI coding agents. Mode: "global" (symlinks) or "local" (copies into current directory)
   -v, --version          Show version number
   -h, --help             Show this help message
@@ -50,6 +55,9 @@ Examples:
   gcyphrq -g examples/cloud-infra.json -e 'MATCH (s:Service {type: "RPC"}) RETURN s.name'
   gcyphrq -g my-graph.json -nl kind -et rel -e 'MATCH (n:Service) RETURN n'
   cat my-graph.json | gcyphrq -g - -e 'MATCH (n) RETURN n'
+  gcyphrq -g data.gexf --ext gexf -e 'MATCH (n) RETURN n'
+  gcyphrq -g graph.json --ext-fn apoc-commons -e 'RETURN apoc.text.capitalize("hello")'
+  gcyphrq --list-extensions
   gcyphrq --install-skill global      # Install skill globally (symlinks)
   gcyphrq --install-skill local       # Install skill in current project (copies)
 `;
@@ -74,15 +82,19 @@ type ParsedArgs = {
   help: boolean;
   version: boolean;
   install: 'global' | 'local' | undefined;
+  ext: string | undefined;
+  extFn: string[];
+  listExtensions: boolean;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
-  const args: ParsedArgs = { expr: undefined, graph: undefined, labelProperty: undefined, edgeTypeProperty: undefined, format: undefined, explain: false, help: false, version: false, install: undefined };
+  const args: ParsedArgs = { expr: undefined, graph: undefined, labelProperty: undefined, edgeTypeProperty: undefined, format: undefined, explain: false, help: false, version: false, install: undefined, ext: undefined, extFn: [], listExtensions: false };
   let exprFlag: string | null = null;
   let graphFlag: string | null = null;
   let labelFlag: string | null = null;
   let typeFlag: string | null = null;
   let formatFlag: string | null = null;
+  let extFlag: string | null = null;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -176,6 +188,31 @@ function parseArgs(argv: string[]): ParsedArgs {
         throw new GraphError(`Invalid format "${formatValue}". Must be "graph" or "rows".`);
       }
       args.format = formatValue;
+      continue;
+    }
+
+    if (arg === '--ext') {
+      if (i + 1 >= argv.length) {
+        throw new GraphError('The --ext option requires a value.');
+      }
+      if (extFlag) {
+        throw new GraphError('The option "--ext" was provided multiple times. Use it only once.');
+      }
+      extFlag = arg;
+      args.ext = argv[++i]!;
+      continue;
+    }
+
+    if (arg === '--ext-fn') {
+      if (i + 1 >= argv.length) {
+        throw new GraphError('The --ext-fn option requires a value.');
+      }
+      args.extFn.push(argv[++i]!);
+      continue;
+    }
+
+    if (arg === '--list-extensions') {
+      args.listExtensions = true;
       continue;
     }
 
@@ -336,6 +373,13 @@ async function main(): Promise<void> {
       process.exit(0);
     }
 
+    // ── List extensions ────────────────────────────────────────────────
+
+    if (args.listExtensions) {
+      process.stdout.write(formatExtensionsList() + '\n');
+      process.exit(0);
+    }
+
     // ── Install command ────────────────────────────────────────────────
 
     if (args.install) {
@@ -353,6 +397,21 @@ async function main(): Promise<void> {
       throw new GraphError('Missing required option: -e, --expr <query>\n\nUse "gcyphrq --help" for usage information.');
     }
 
+    // ── Validation ─────────────────────────────────────────────────────
+
+    if (args.ext && !args.graph) {
+      throw new GraphError('The --ext option requires -g/--graph <file>.');
+    }
+    if (args.ext && args.graph === '-') {
+      throw new GraphError('The --ext option cannot be used with stdin (-g -).');
+    }
+    if (args.ext && args.explain) {
+      throw new GraphError('The --ext option cannot be used with --explain.');
+    }
+    if (args.extFn.length > 0 && args.explain) {
+      throw new GraphError('The --ext-fn option cannot be used with --explain.');
+    }
+
     if (!args.graph && !args.explain) {
       throw new GraphError('Missing required option: -g, --graph <file>\n\nUse "gcyphrq --help" for usage information.');
     }
@@ -365,10 +424,30 @@ async function main(): Promise<void> {
       process.exit(0);
     }
 
-    // Load graph data
-    const graphData = args.graph === '-'
-      ? await readJsonFile('stdin')
-      : await readJsonFile('file', args.graph);
+    // ── Load function extensions ───────────────────────────────────────
+
+    for (const extName of args.extFn) {
+      await registerFunctionExtension(extName);
+    }
+
+    // ── Load graph data ────────────────────────────────────────────────
+
+    let graphData: GraphInput;
+    if (args.ext) {
+      // Use graph-input extension to parse the file
+      const content = readFileSync(resolve(args.graph!), 'utf-8');
+      const extContext: import('./ext/types').GraphInputExtensionContext = {
+        content,
+        filePath: args.graph!,
+      };
+      if (args.labelProperty !== undefined) extContext.labelProperty = args.labelProperty;
+      if (args.edgeTypeProperty !== undefined) extContext.edgeTypeProperty = args.edgeTypeProperty;
+      graphData = await convertWithExtension(args.ext, extContext);
+    } else {
+      graphData = args.graph === '-'
+        ? await readJsonFile('stdin')
+        : await readJsonFile('file', args.graph);
+    }
 
     // Collect user-provided edge keys for round-trip preservation
     const userEdgeKeys = new Set(
@@ -377,6 +456,12 @@ async function main(): Promise<void> {
         : [],
     );
 
+    // Pre-process query for dotted function names (extension functions)
+    let query = args.expr;
+    if (args.extFn.length > 0) {
+      query = preprocessQueryForExtensions(query);
+    }
+
     // Build graph, indexes, and execute query using the library
     const config = {
       labelProperty: args.labelProperty ?? 'label',
@@ -384,8 +469,21 @@ async function main(): Promise<void> {
     };
     const graph = createGraph(graphData, { onWarning: (msg) => console.warn(msg) });
     const indexes = buildGraphIndexes(graphData, graph, { config, onWarning: (msg) => console.warn(msg) });
-    const engine = new GraphEngine(graph, indexes);
-    const ast = parseCypher(args.expr);
+
+    // Build extension function entries for the engine
+    const extFunctions = getExtensionFunctions();
+    const extAggregations = getExtensionAggregations();
+    const extFnEntries = new Map<string, { fn: (args: unknown[]) => unknown; extName: string }>();
+    for (const [name, fn] of extFunctions) {
+      extFnEntries.set(name, { fn, extName: 'extension' });
+    }
+    const extAggEntries = new Map<string, { fn: (args: unknown[]) => unknown; extName: string }>();
+    for (const [name, fn] of extAggregations) {
+      extAggEntries.set(name, { fn, extName: 'extension' });
+    }
+
+    const engine = new GraphEngine(graph, indexes, undefined, extFnEntries, extAggEntries);
+    const ast = parseCypher(query);
     const results = ast.type === 'UnionQuery'
       ? await engine.executeUnion(ast)
       : await engine.execute(ast);
