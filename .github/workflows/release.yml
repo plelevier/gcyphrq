@@ -3,6 +3,9 @@ name: Release & Publish
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'package.json'
+      - 'package-lock.json'
 
 concurrency:
   group: version-bump
