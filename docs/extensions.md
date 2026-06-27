@@ -179,12 +179,12 @@ export default {
   },
 
   /** Register functions with the engine. */
-  register(register) {
+  register(registry) {
     for (const [name, fn] of Object.entries(this.functions)) {
-      register.addFunction(name, fn);
+      registry.addFunction(name, fn);
     }
     for (const [name, fn] of Object.entries(this.aggregations ?? {})) {
-      register.addAggregation(name, fn);
+      registry.addAggregation(name, fn);
     }
   },
 };
@@ -243,7 +243,7 @@ const result = validate(args, (v) => {
 
   // Individual argument validation
   v.arg(0, 'name', helpers.isString);  // arg[0] must be string
-  v.arg(1, 'value', (val) => val !== null);  // custom predicate
+  v.arg(1, 'value', helpers.isNumber);  // arg[1] must be number
 
   // Bulk validation from index N onwards
   v.argsFrom(1, 'values', helpers.isNumber);

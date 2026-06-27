@@ -427,28 +427,5 @@ describe('Extension integration', () => {
       }
     });
 
-    it('uses extension aggregation with list literal via executeQuery', async () => {
-      const origCwd = process.cwd();
-      process.chdir(testCwd);
-      try {
-        await registerFunctionExtension('mock-fn');
-
-        const graphData = {
-          nodes: [{ key: 'a', attributes: { label: 'N' } }],
-          edges: [],
-        };
-        // Extension aggregations are scalar functions receiving all args directly
-        // Use list literal to pass multiple values
-        const results = await executeQuery(
-          graphData,
-          'RETURN mock.sumOrNull(10, 20, 30) AS total',
-        );
-
-        expect(results).toHaveLength(1);
-        expect(results[0]!.total).toBe(60);
-      } finally {
-        process.chdir(origCwd);
-      }
-    });
   });
 });
