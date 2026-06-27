@@ -74,35 +74,34 @@ A graph-input extension exports a `convert` function that transforms raw file co
 ### Entry Point (`gexf/index.js`)
 
 ```js
-import { validate, helpers } from 'gcyphrq';
-
 /**
- * @param {import('gcyphrq').GraphInputExtensionContext} context
- * @returns {Promise<import('gcyphrq').GraphInput>}
+ * @type {import('gcyphrq').GraphInputExtension}
  */
-export async function convert(context) {
-  const { content, filePath } = context;
+export default {
+  async convert(ctx) {
+    const { content, filePath } = ctx;
 
-  // Validate input
-  if (!content || !helpers.isString(content)) {
-    throw new Error('GEXF: content must be a non-empty string');
-  }
+    // Validate input
+    if (!content || typeof content !== 'string') {
+      throw new Error('GEXF: content must be a non-empty string');
+    }
 
-  // Parse GEXF XML and convert to GraphInput
-  const graph = parseGexf(content);  // your parser implementation
+    // Parse GEXF XML and convert to GraphInput
+    const graph = parseGexf(content);  // your parser implementation
 
-  return {
-    nodes: graph.nodes.map(n => ({
-      key: n.id,
-      attributes: { label: n.label, ...n.properties }
-    })),
-    edges: graph.edges.map(e => ({
-      source: e.source,
-      target: e.target,
-      attributes: { type: e.type, ...e.properties }
-    }))
-  };
-}
+    return {
+      nodes: graph.nodes.map(n => ({
+        key: n.id,
+        attributes: { label: n.label, ...n.properties }
+      })),
+      edges: graph.edges.map(e => ({
+        source: e.source,
+        target: e.target,
+        attributes: { type: e.type, ...e.properties }
+      }))
+    };
+  },
+};
 ```
 
 ### `GraphInputExtensionContext`
@@ -260,6 +259,9 @@ Extension functions are called using `<namespace>.<name>()` syntax:
 
 ```cypher
 RETURN apoc.text.join(", ", ["a", "b", "c"])
+```
+
+> **Note:** Function names are case-insensitive — the Cypher grammar lowercases all function names. Register `"join"` and call it as `apoc.join()`, `apoc.Join()`, or `apoc.JOIN()`; all resolve to the same function.
 RETURN apoc.text.capitalize("hello")
 ```
 

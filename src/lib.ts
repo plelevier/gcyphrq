@@ -7,6 +7,7 @@ import { buildGraphIndexesFromData, buildGraphIndexesFromGraph } from './indexes
 import { Graph, wrapExternalGraph, type GraphInstance, type GraphType } from './graph';
 import { DEFAULT_CONFIG } from './types/cypher';
 import type { CypherAST, UnionQueryAST, ResultRow, GraphIndexes, GraphConfig } from './types/cypher';
+import { getExtensionFunctions, getExtensionAggregations, preprocessQueryForExtensions } from './ext/registry';
 
 // ── Graph file format types ──────────────────────────────────────────────────
 
@@ -70,15 +71,9 @@ export interface NormalizedGraphFile {
   edges: NormalizedEdge[];
 }
 
-/**
- * Thrown when graph data validation fails or a query cannot be executed.
- */
-export class GraphError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'GraphError';
-  }
-}
+// Import GraphError from error.ts (shared with ext/registry to avoid circular deps)
+import { GraphError } from './error';
+export { GraphError };
 
 // ── Config resolution ────────────────────────────────────────────────────────
 
@@ -557,7 +552,6 @@ export async function executeQuery(graphOrData: GraphInstance | GraphInput, quer
   const indexes = buildGraphIndexesFromGraph(graph, config);
 
   // Include registered extension functions/aggregations (from registerFunctionExtension)
-  const { getExtensionFunctions, getExtensionAggregations, preprocessQueryForExtensions } = await import('./ext/registry');
   const extFunctions = getExtensionFunctions();
   const extAggregations = getExtensionAggregations();
   const extFnEntries = new Map<string, { fn: (args: unknown[]) => unknown; extName: string }>();

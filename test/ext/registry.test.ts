@@ -347,7 +347,7 @@ describe('Extension registry', () => {
       try {
         await registerFunctionExtension('mock-fn');
         const aggs = getExtensionAggregations();
-        expect(aggs.has('mock.sumOrNull')).toBe(true);
+        expect(aggs.has('mock.sumornull')).toBe(true);
       } finally {
         process.chdir(origCwd);
       }

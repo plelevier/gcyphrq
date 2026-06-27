@@ -11,7 +11,7 @@ import type {
 } from './types';
 import { FunctionError } from './types';
 import { resolveAllExtensions, discoverExtensionPackages } from './loader';
-import { GraphError } from '../lib';
+import { GraphError } from '../error';
 
 // ── Caches ──────────────────────────────────────────────────────────────
 
@@ -194,7 +194,8 @@ export async function registerFunctionExtension(extensionName: string): Promise<
   // Build a registry that prefixes function names with the namespace
   const registry: FunctionRegistry = {
     addFunction(name: string, fn: ScalarFunction): void {
-      const fullName = `${namespace}.${name}`;
+      // ANTLR4 grammar lowercases function names, so store in lowercase
+      const fullName = `${namespace}.${name}`.toLowerCase();
       if (extensionFunctions.has(fullName)) {
         const existing = extensionFunctions.get(fullName)!;
         throw new GraphError(
@@ -204,7 +205,8 @@ export async function registerFunctionExtension(extensionName: string): Promise<
       extensionFunctions.set(fullName, { fn, extName: extensionName });
     },
     addAggregation(name: string, fn: AggregationFunction): void {
-      const fullName = `${namespace}.${name}`;
+      // ANTLR4 grammar lowercases function names, so store in lowercase
+      const fullName = `${namespace}.${name}`.toLowerCase();
       if (extensionAggregations.has(fullName)) {
         const existing = extensionAggregations.get(fullName)!;
         throw new GraphError(

@@ -255,12 +255,15 @@ const engine = new GraphEngine(graph, indexes);
 
 The Cypher query engine class. Accepts a `GraphInstance` and executes parsed ASTs.
 
-**Constructor:** `new GraphEngine(graph: GraphInstance, indexes?: GraphIndexes)`
+**Constructor:** `new GraphEngine(graph: GraphInstance, indexes?: GraphIndexes, onWarning?: (msg: string) => void)`
 
 | Parameter | Type | Description |
 |---|---|---|
 | `graph` | `GraphInstance` | A Graphology graph instance |
 | `indexes` | `GraphIndexes` (optional) | Pre-computed indexes for O(1) lookups. Without indexes, the engine falls back to full-graph scans |
+| `onWarning` | `(msg: string) => void` (optional) | Callback for non-fatal warnings during query execution |
+
+> **Extensions:** For extension functions, use `registerFunctionExtension()` + `executeQuery()` instead of constructing `GraphEngine` directly. Extension functions are automatically wired through `executeQuery`.
 
 **Methods:**
 

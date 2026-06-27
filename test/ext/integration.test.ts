@@ -349,5 +349,24 @@ describe('Extension integration', () => {
         process.chdir(origCwd);
       }
     });
+
+    it('uses extension aggregation via executeQuery', async () => {
+      const origCwd = process.cwd();
+      process.chdir(testCwd);
+      try {
+        await registerFunctionExtension('mock-fn');
+
+        // mock.sumOrNull receives all args as an array and sums numeric values
+        const results = await executeQuery(
+          { nodes: [{ key: 'a', attributes: { label: 'N' } }], edges: [] },
+          'RETURN mock.sumOrNull(10, 20, 30) AS total',
+        );
+
+        expect(results).toHaveLength(1);
+        expect(results[0].total).toBe(60);
+      } finally {
+        process.chdir(origCwd);
+      }
+    });
   });
 });
