@@ -19,19 +19,34 @@ function countEdges(graph: GraphInstance): number {
 }
 
 /**
- * Iterate over neighbors of a node, treating all edges as bidirectional.
- * Used by betweenness centrality which operates on the underlying undirected structure.
+ * Iterate over unique neighbors of a node, treating all edges as bidirectional.
+ * Used by betweenness centrality and diameter which operate on the underlying
+ * undirected structure.
+ *
+ * For undirected graphs, forEachOutboundEdge and forEachInboundEdge return the
+ * same edges with the same (s,t) ordering. We deduplicate by edge ID.
+ * For directed graphs, the two methods return different edges. We also need
+ * both to treat edges as bidirectional.
+ *
+ * The neighbor is always the edge endpoint that is NOT the current node.
  */
 function forEachNeighbor(
   graph: GraphInstance,
   nodeId: string,
   cb: (neighborId: string) => void,
 ): void {
-  graph.forEachOutboundEdge(nodeId, (_e, _a, _s, t) => {
-    cb(t!);
+  const seenEdges = new Set<string>();
+
+  graph.forEachOutboundEdge(nodeId, (e, _a, s, t) => {
+    seenEdges.add(e);
+    cb(s === nodeId ? t! : s!);
   });
-  graph.forEachInboundEdge(nodeId, (_e, _a, s, _t) => {
-    cb(s!);
+
+  graph.forEachInboundEdge(nodeId, (e, _a, s, t) => {
+    if (!seenEdges.has(e)) {
+      seenEdges.add(e);
+      cb(s === nodeId ? t! : s!);
+    }
   });
 }
 
@@ -150,18 +165,11 @@ export function diameter(graph: GraphInstance): number {
       const currentDist = dist.get(current)!;
 
       // Treat all edges as bidirectional for diameter
-      graph.forEachOutboundEdge(current, (_e, _a, _s, t) => {
-        const tid = t!;
-        if (!dist.has(tid)) {
-          dist.set(tid, currentDist + 1);
-          queue.push(tid);
-        }
-      });
-      graph.forEachInboundEdge(current, (_e, _a, s, _t) => {
-        const sid = s!;
-        if (!dist.has(sid)) {
-          dist.set(sid, currentDist + 1);
-          queue.push(sid);
+      // Use forEachNeighbor to get all unique neighbors (deduplicates for undirected graphs)
+      forEachNeighbor(graph, current, (neighborId) => {
+        if (!dist.has(neighborId)) {
+          dist.set(neighborId, currentDist + 1);
+          queue.push(neighborId);
         }
       });
     }
@@ -319,14 +327,14 @@ export function degreeCentrality(graph: GraphInstance, nodeArg?: CypherValue): C
     const t = target as string;
     const isUndirected = graph.type === 'undirected' || (graph.type === 'mixed' && attrs.undirected === true);
 
-    // Source has target as neighbor (outbound)
-    neighbors.get(s)!.add(t);
+    // Source has target as neighbor (outbound), skip self-loops
+    if (s !== t) neighbors.get(s)!.add(t);
 
     if (isUndirected && s !== t) {
       // Undirected: target also has source as neighbor
       neighbors.get(t)!.add(s);
-    } else if (!isUndirected) {
-      // Directed: target has source as neighbor (inbound)
+    } else if (!isUndirected && s !== t) {
+      // Directed: target has source as neighbor (inbound), skip self-loops
       neighbors.get(t)!.add(s);
     }
   });
@@ -435,7 +443,8 @@ export function betweennessCentrality(graph: GraphInstance, nodeArg?: CypherValu
     }
   }
 
-  // Normalize: for undirected treatment, each pair counted twice
+  // Normalize: divide by 2 because Brandes counts each pair (s,t) and (t,s)
+  // separately, but for undirected treatment each unordered pair should count once
   for (const id of nodeIds) {
     centrality.set(id, (centrality.get(id) ?? 0) / 2);
   }

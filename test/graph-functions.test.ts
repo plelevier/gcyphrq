@@ -713,6 +713,54 @@ describe('graph functions edge cases', () => {
     }
   });
 
+  it('betweenness centrality correct for undirected line graph', async () => {
+    const g = new Graph({ type: 'undirected' });
+    g.addNode('a', { label: 'Node', name: 'A' });
+    g.addNode('b', { label: 'Node', name: 'B' });
+    g.addNode('c', { label: 'Node', name: 'C' });
+    g.addNode('d', { label: 'Node', name: 'D' });
+    g.addEdge('a', 'b', { type: 'LINK' });
+    g.addEdge('b', 'c', { type: 'LINK' });
+    g.addEdge('c', 'd', { type: 'LINK' });
+    const e = createEngine(g);
+    const ast = parseCypher('MATCH (n) RETURN betweennessCentrality(n) AS bc, n.name AS name ORDER BY name');
+    const results = await e.execute(ast);
+    const scores: Record<string, number> = {};
+    for (const r of results) {
+      scores[r.name as string] = r.bc as number;
+    }
+    // A and D are endpoints (0), B and C are on shortest paths between all pairs
+    // B is on paths A-C, A-D, D-C, D-A (4 paths / 2 = 2)
+    // C is on paths A-D, B-D, D-A, D-B (4 paths / 2 = 2)
+    expect(scores['A']).toBe(0);
+    expect(scores['D']).toBe(0);
+    expect(scores['B']).toBe(2);
+    expect(scores['C']).toBe(2);
+  });
+
+  it('degree centrality excludes self-loops', async () => {
+    const g = new Graph({ allowSelfLoops: true });
+    g.addNode('a', { label: 'Node', name: 'A' });
+    g.addNode('b', { label: 'Node', name: 'B' });
+    g.addNode('c', { label: 'Node', name: 'C' });
+    g.addEdge('a', 'a', { type: 'SELF' });
+    g.addEdge('a', 'b', { type: 'LINK' });
+    g.addEdge('b', 'c', { type: 'LINK' });
+    const e = createEngine(g);
+    const ast = parseCypher('MATCH (n) RETURN degreeCentrality(n) AS dc, n.name AS name ORDER BY name');
+    const results = await e.execute(ast);
+    const scores: Record<string, number> = {};
+    for (const r of results) {
+      scores[r.name as string] = r.dc as number;
+    }
+    // A has 1 unique neighbor (B, self-loop excluded) => 1/2 = 0.5
+    // B has 2 unique neighbors (A, C) => 2/2 = 1.0
+    // C has 1 unique neighbor (B) => 1/2 = 0.5
+    expect(scores['A']).toBeCloseTo(0.5, 4);
+    expect(scores['B']).toBeCloseTo(1, 4);
+    expect(scores['C']).toBeCloseTo(0.5, 4);
+  });
+
   it('pagerank on two-node graph', async () => {
     const g = new Graph();
     g.addNode('a', { label: 'Node', name: 'A' });

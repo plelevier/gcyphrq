@@ -1864,7 +1864,7 @@ ORDER BY pr DESC
 
 **Degree centrality:** Counts unique neighbors (combining inbound and outbound for directed graphs). Normalized by dividing by (V-1), so scores range from 0 to 1.
 
-**Betweenness centrality:** Measures how often a node appears on shortest paths between other nodes. All edges are treated as bidirectional. Normalized by dividing by 2 (each pair counted twice in undirected treatment). Returns 0 for graphs with 2 or fewer nodes.
+**Betweenness centrality:** Measures how often a node appears on shortest paths between other nodes. All edges are treated as bidirectional. Brandes' algorithm counts each pair (s,t) and (t,s) separately, so results are normalized by dividing by 2. Returns 0 for graphs with 2 or fewer nodes.
 
 ### Edge Cases
 
