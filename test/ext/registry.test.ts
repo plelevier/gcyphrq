@@ -161,13 +161,13 @@ describe('Extension loader', () => {
     expect(packages1.map(p => p.name)).toEqual(packages2.map(p => p.name));
   });
 
-  it('discoverExtensionPackages deduplicates packages by name', () => {
+  it('discoverExtensionPackages returns local packages and deduplicates by name', () => {
     const origCwd = process.cwd();
     const testDir = join(tmpdir(), `gcyphrq-dedup-${Date.now()}`);
     const localNm = join(testDir, 'node_modules');
     mkdirSync(localNm, { recursive: true });
 
-    // Create same package in local node_modules
+    // Create a package in local node_modules
     const pkgDir = join(localNm, 'gcyphrq-ext-dedup-test');
     mkdirSync(pkgDir, { recursive: true });
     writeFileSync(join(pkgDir, 'package.json'), JSON.stringify({
@@ -190,7 +190,7 @@ describe('Extension loader', () => {
     try {
       const packages = discoverExtensionPackages();
       const dedupPkgs = packages.filter(p => p.name === 'gcyphrq-ext-dedup-test');
-      // Should appear exactly once, even if also installed globally
+      // Should appear exactly once (local takes precedence, deduped against any global copy)
       expect(dedupPkgs).toHaveLength(1);
       expect(dedupPkgs[0]!.version).toBe('1.0.0');
     } finally {

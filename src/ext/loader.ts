@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ExtensionManifest, ResolvedExtension } from './types';
 
@@ -57,7 +57,7 @@ function findGlobalNodeModules(): string | null {
   }
   try {
     const output = execSync('npm root -g', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim();
-    if (output && readdirSync(output).length > 0) {
+    if (output && existsSync(output)) {
       globalNodeModulesCache = output;
       return output;
     }

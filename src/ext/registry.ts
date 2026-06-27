@@ -12,6 +12,9 @@ import { FunctionError } from './types';
 import { resolveAllExtensions, resetGlobalNodeModulesCache } from './loader';
 import { GraphError } from '../error';
 
+/** Extension entry returned by listExtensions(). */
+type ExtensionEntry = { name: string; type: string; description: string; version: string; namespace?: string; packageName: string; packageVersion: string };
+
 // ── Caches ──────────────────────────────────────────────────────────────
 
 /** Cache of resolved extensions (discovered from node_modules). */
@@ -268,7 +271,7 @@ export function resetExtensionFunctions(): void {
 /**
  * Format extensions list for --list-extensions output.
  */
-export function formatExtensionsList(extensions?: Array<{ name: string; type: string; description: string; version: string; namespace?: string; packageName: string; packageVersion: string }>): string {
+export function formatExtensionsList(extensions?: ExtensionEntry[]): string {
   const exts = extensions ?? listExtensions();
 
   if (exts.length === 0) {
