@@ -861,6 +861,11 @@ export function extractLiteral(literalCtx: TreeNode): Expression | undefined {
       const text = getTerminalText(floatLit);
       if (text) return { type: 'Literal' as const, value: parseFloat(text) as CypherLiteral };
     }
+    const doubleLit = findChild(numLit, Ctx.DoubleLiteral);
+    if (doubleLit) {
+      const text = getTerminalText(doubleLit);
+      if (text) return { type: 'Literal' as const, value: parseFloat(text) as CypherLiteral };
+    }
   }
 
   const boolLit = findChild(literalCtx, Ctx.BooleanLiteral);

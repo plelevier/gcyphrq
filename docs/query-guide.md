@@ -608,6 +608,7 @@ Scalar functions operate on individual values and work in `RETURN`, `WHERE`, `WI
 | `toFloat(x)` | Convert value to float |
 | `toBoolean(x)` | Convert value to boolean |
 | `keys(x)` | Property names of a map as list |
+| `random()` | Random float between 0 and 1 |
 
 ```cypher
 MATCH (u:User) RETURN toLower(u.name) AS lowerName
@@ -624,9 +625,12 @@ RETURN toBoolean(0) AS zeroIsFalse
 RETURN toBoolean('') AS emptyStringIsFalse
 RETURN toBoolean('yes') AS nonEmptyStringIsTrue
 RETURN keys({name: 'Alice', age: 30}) AS propertyNames
+MATCH (u:User) RETURN u.name ORDER BY random()       -- shuffle results randomly
+MATCH (u:User) RETURN u.name LIMIT 3 ORDER BY random() -- random sample
+RETURN random() AS r                                  -- returns value between 0 and 1
 ```
 
-> **Note:** `repl` is used instead of `replace`, and `reltype` instead of `type` because these are reserved keywords in the ANTLR4 Cypher grammar. `toInt` is an alias for `toInteger`. `toBoolean` converts numbers (0 → false, non-zero → true), strings (empty → false, non-empty → true), and other truthy values. `keys` returns property names of map literals as a list. `labels` is standard Cypher and works as the sole item in RETURN (e.g., `RETURN labels(n)`); use `labelsOf` in WHERE/WITH/ORDER BY or when combined with other RETURN items (ANTLR4 keyword limitation). `startnode()` and `endnode()` return string IDs, not node objects. `nodes(path)` and `relationships(path)` extract from path variables bound with `MATCH path = ...`. `labels()`, `nodes()`, and `relationships()` do not support `AS` aliases (ANTLR4 grammar limitation — use the auto-generated column name like `labels(n)` or `nodes(path)`).
+> **Note:** `repl` is used instead of `replace`, and `reltype` instead of `type` because these are reserved keywords in the ANTLR4 Cypher grammar. `toInt` is an alias for `toInteger`. `toBoolean` converts numbers (0 → false, non-zero → true), strings (empty → false, non-empty → true), and other truthy values. `keys` returns property names of map literals as a list. `random()` returns a random floating-point number between 0 and 1 and is useful for shuffling results (`ORDER BY random()`) or sampling (`LIMIT N ORDER BY random()`). `labels` is standard Cypher and works as the sole item in RETURN (e.g., `RETURN labels(n)`); use `labelsOf` in WHERE/WITH/ORDER BY or when combined with other RETURN items (ANTLR4 keyword limitation). `startnode()` and `endnode()` return string IDs, not node objects. `nodes(path)` and `relationships(path)` extract from path variables bound with `MATCH path = ...`. `labels()`, `nodes()`, and `relationships()` do not support `AS` aliases (ANTLR4 grammar limitation — use the auto-generated column name like `labels(n)` or `nodes(path)`).
 
 ---
 
