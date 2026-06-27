@@ -6,7 +6,8 @@ import { explainQuery as _explainQuery } from './engine/explain';
 import { buildGraphIndexesFromData, buildGraphIndexesFromGraph } from './indexes';
 import { Graph, wrapExternalGraph, type GraphInstance, type GraphType } from './graph';
 import { DEFAULT_CONFIG } from './types/cypher';
-import type { CypherAST, UnionQueryAST, ResultRow, GraphIndexes, GraphConfig } from './types/cypher';
+import type { CypherAST, ResultRow, GraphIndexes, GraphConfig } from './types/cypher';
+import { getExtensionFunctions, getExtensionAggregations, preprocessQueryForExtensions } from './ext/registry';
 
 // ── Graph file format types ──────────────────────────────────────────────────
 
@@ -70,15 +71,9 @@ export interface NormalizedGraphFile {
   edges: NormalizedEdge[];
 }
 
-/**
- * Thrown when graph data validation fails or a query cannot be executed.
- */
-export class GraphError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'GraphError';
-  }
-}
+// Import GraphError from error.ts (shared with ext/registry to avoid circular deps)
+import { GraphError } from './error';
+export { GraphError };
 
 // ── Config resolution ────────────────────────────────────────────────────────
 
@@ -555,8 +550,18 @@ export async function executeQuery(graphOrData: GraphInstance | GraphInput, quer
       })();
   const config = resolveConfig(opts);
   const indexes = buildGraphIndexesFromGraph(graph, config);
-  const engine = new AdvancedCypherGraphologyEngine(graph, indexes, opts?.onWarning);
-  const ast = _parseCypher(query);
+
+  // Include registered extension functions/aggregations (from registerFunctionExtension)
+  const extFunctions = getExtensionFunctions();
+  const extAggregations = getExtensionAggregations();
+
+  // Pre-process query for dotted function names (e.g., apoc.text.join)
+  const processedQuery = extFunctions.size > 0 || extAggregations.size > 0
+    ? preprocessQueryForExtensions(query)
+    : query;
+
+  const engine = new AdvancedCypherGraphologyEngine(graph, indexes, opts?.onWarning, extFunctions, extAggregations);
+  const ast = _parseCypher(processedQuery);
   if (ast.type === 'UnionQuery') {
     return await engine.executeUnion(ast);
   }
@@ -610,6 +615,53 @@ export { AdvancedCypherGraphologyEngine as GraphEngine };
  * ```
  */
 export { Graph };
+
+// ── Extension API ────────────────────────────────────────────────────────────
+
+/**
+ * Load a graph-input extension and convert file content to GraphInput.
+ * Scans node_modules for gcyphrq-ext-* packages and loads the named extension.
+ *
+ * @example
+ * ```ts
+ * import { convertWithExtension, executeQuery } from 'gcyphrq';
+ * import { readFileSync } from 'fs';
+ *
+ * const content = readFileSync('data.gexf', 'utf-8');
+ * const graphData = await convertWithExtension('gexf', {
+ *   content,
+ *   filePath: 'data.gexf',
+ * });
+ * const results = await executeQuery(graphData, 'MATCH (n) RETURN n');
+ * ```
+ */
+export { convertWithExtension } from './ext/registry';
+
+/**
+ * Load a function extension and register its functions with the Cypher engine.
+ * Can be called multiple times to register multiple function extensions.
+ *
+ * Multiple extensions can share the same namespace (e.g., `apoc-commons` and
+ * `apoc-crypto` both use `"apoc"`). If two extensions register a function with
+ * the same fully-qualified `<namespace>.<name>`, the second call throws at
+ * load time.
+ *
+ * @example
+ * ```ts
+ * import { registerFunctionExtension, executeQuery } from 'gcyphrq';
+ *
+ * await registerFunctionExtension('apoc-commons');
+ * await registerFunctionExtension('apoc-crypto');
+ *
+ * const results = await executeQuery(graphData, 'RETURN apoc.text.join(", ", ["a","b"])');
+ * ```
+ */
+export { registerFunctionExtension } from './ext/registry';
+
+/**
+ * List all available extensions from installed gcyphrq-ext-* packages.
+ */
+export { listExtensions } from './ext/registry';
 
 // ── Type re-exports ──────────────────────────────────────────────────────────
 
@@ -687,3 +739,21 @@ export type {
 
 // Re-export explain types
 export type { ExplainPlan, ExplainStage } from './engine/explain';
+
+// Re-export extension types
+export type {
+  GraphInputExtension,
+  GraphInputExtensionContext,
+  FunctionExtension,
+  FunctionRegistry,
+  ScalarFunction,
+  AggregationFunction,
+  ExtensionManifest,
+  ResolvedExtension,
+  LoadedExtension,
+  ArgHelpers,
+  ArgValidator,
+} from './ext/types';
+
+// Re-export extension helpers
+export { helpers, validate, FunctionError } from './ext/types';

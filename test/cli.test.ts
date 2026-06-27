@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFile } from 'child_process';
-import { writeFileSync, mkdirSync, rmSync } from 'fs';
+import { writeFileSync, mkdirSync, rmSync, readFileSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
@@ -443,5 +443,127 @@ describe('CLI - graph format output', () => {
     // Root metadata should still be present after chaining
     expect(secondParsed.options).toEqual({ type: 'directed' });
     expect(secondParsed.attributes).toEqual({ name: 'My Graph', version: '1.0' });
+  });
+});
+
+describe('CLI - extensions', () => {
+  // Unique mock extension name to avoid conflicts with stale copies from crashed runs.
+  const mockExtPkg = `gcyphrq-ext-mock-cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  let mockExtDest: string;
+
+  beforeAll(() => {
+    cliTmpRoot = join(tmpdir(), 'gcyphrq-cli-tests');
+    mkdirSync(cliTmpRoot, { recursive: true });
+
+    // Install mock extension once for all extension tests.
+    mockExtDest = join(PROJECT_ROOT, 'node_modules', mockExtPkg);
+    mkdirSync(mockExtDest, { recursive: true });
+    const mockSrc = join(PROJECT_ROOT, 'test', 'ext', 'mock-extension');
+    for (const file of ['package.json', 'mock-graph.js', 'mock-fn.js']) {
+      writeFileSync(join(mockExtDest, file), readFileSync(join(mockSrc, file), 'utf-8'));
+    }
+  });
+
+  afterAll(() => {
+    if (cliTmpRoot) rmSync(cliTmpRoot, { recursive: true, force: true });
+    if (mockExtDest) rmSync(mockExtDest, { recursive: true, force: true });
+  });
+
+  it('lists installed extensions via --list-extensions', async () => {
+    const { stdout, code } = await runCli(['--list-extensions']);
+    expect(code).toBe(0);
+    expect(stdout).toContain('mock-fn');
+  });
+
+  it('errors when --ext is used without -g', async () => {
+    const { stderr, code } = await runCli(['--ext', 'gexf', '-e', 'MATCH (n) RETURN n']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('--ext option requires -g');
+  });
+
+  it('errors when --ext is used with stdin', async () => {
+    const { stderr, code } = await runCli(['--ext', 'gexf', '-g', '-', '-e', 'MATCH (n) RETURN n']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('stdin');
+  });
+
+  it('errors when --ext is used with --explain', async () => {
+    const { stderr, code } = await runCli(['--ext', 'gexf', '-g', 'test.json', '--explain', '-e', 'MATCH (n) RETURN n']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('--explain');
+  });
+
+  it('errors when --ext-fn is used with --explain', async () => {
+    const { stderr, code } = await runCli(['--ext-fn', 'apoc', '--explain', '-e', 'RETURN 1']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('--explain');
+  });
+
+  it('errors when extension not found', async () => {
+    const d = mkSubdir('ext-not-found');
+    const path = writeFile(d, 'graph.json', simpleGraph);
+    const { stderr, code } = await runCli(['-g', path, '--ext', 'nonexistent', '-e', 'MATCH (n) RETURN n']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('not found');
+  });
+
+  it('errors when function extension not found', async () => {
+    const d = mkSubdir('ext-fn-not-found');
+    const path = writeFile(d, 'graph.json', simpleGraph);
+    const { stderr, code } = await runCli(['-g', path, '--ext-fn', 'nonexistent', '-e', 'RETURN 1']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('not found');
+  });
+
+  it('errors on unknown option --ext with missing value', async () => {
+    const { stderr, code } = await runCli(['--ext']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('requires a value');
+  });
+
+  it('errors on unknown option --ext-fn with missing value', async () => {
+    const { stderr, code } = await runCli(['--ext-fn']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('requires a value');
+  });
+
+  it('allows --ext and --ext-fn to be combined (fails on extension not found, not flag conflict)', async () => {
+    const d = mkSubdir('ext-combined');
+    const path = writeFile(d, 'graph.json', simpleGraph);
+    const { stderr, code } = await runCli(['-g', path, '--ext', 'nonexistent', '--ext-fn', 'also-nonexistent', '-e', 'MATCH (n) RETURN n']);
+    expect(code).toBe(1);
+    // Should fail on extension not found, not on a flag conflict
+    expect(stderr).toContain('not found');
+  });
+
+  it('runs extension function via --ext-fn end-to-end', async () => {
+    const d = mkSubdir('ext-fn-e2e');
+    const path = writeFile(d, 'graph.json', simpleGraph);
+    const { stdout, code } = await runCli([
+      '-g', path,
+      '--ext-fn', 'mock-fn',
+      '-e', 'RETURN mock.hello("CLI") AS greeting',
+      '--format', 'rows',
+    ]);
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].greeting).toBe('Hello, CLI!');
+  });
+
+  it('runs extension function with node property via --ext-fn', async () => {
+    const d = mkSubdir('ext-fn-prop');
+    const path = writeFile(d, 'graph.json', simpleGraph);
+    const { stdout, code } = await runCli([
+      '-g', path,
+      '--ext-fn', 'mock-fn',
+      '-e', 'MATCH (u:User) RETURN mock.hello(u.name) AS greeting ORDER BY greeting',
+      '--format', 'rows',
+    ]);
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0].greeting).toBe('Hello, Alice!');
+    expect(parsed[1].greeting).toBe('Hello, Bob!');
   });
 });

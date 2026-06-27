@@ -28,6 +28,9 @@ gcyphrq [options]
 | `-et, --edge-type-property-name <prop>` | Edge attribute key to use as Cypher relationship type (default: `"type"`) |
 | `--format <graph\|rows>` | Output format: `graph` (default) or `rows`. Note: when returning only scalar values (property access, aggregations), the CLI auto-falls back to `rows` regardless of this setting |
 | `--explain` | Show the query execution plan instead of executing. Does not require a graph file (`-g` is optional) |
+| `--ext <name>` | Use a graph-input extension to parse the input file (e.g., `--ext gexf`) |
+| `--ext-fn <name>` | Load a function extension (repeatable, e.g., `--ext-fn apoc-commons`) |
+| `--list-extensions` | List all available extensions with descriptions |
 | `--install-skill <mode>` | Install the gcyphrq skill for AI coding agents. Mode: `global` (symlinks) or `local` (copies into current directory) |
 | `-v, --version` | Show version number |
 | `-h, --help` | Show help message |
@@ -220,6 +223,58 @@ Load data from a CSV file and create nodes:
 ```bash
 gcyphrq -g graph.json -e "LOAD CSV WITH HEADERS FROM 'data.csv' AS row CREATE (n:Person {name: row.name}) RETURN n.name"
 ```
+
+## Extensions
+
+gcyphrq supports pluggable extensions for non-JSON input formats and custom functions. Extensions are independent npm packages published under the `gcyphrq-ext-*` naming convention.
+
+### Listing Extensions
+
+```bash
+gcyphrq --list-extensions
+```
+
+### Graph-Input Extensions
+
+Use `--ext <name>` to parse non-JSON input files:
+
+```bash
+# Parse a GEXF file
+gcyphrq -g my-graph.gexf --ext gexf -e 'MATCH (n) RETURN n'
+```
+
+### Function Extensions
+
+Use `--ext-fn <name>` to load custom Cypher functions (repeatable):
+
+```bash
+# Use APOC-like functions
+gcyphrq -g graph.json --ext-fn apoc-commons -e 'RETURN apoc.text.capitalize("hello")'
+
+# Multiple function extensions
+gcyphrq -g graph.json --ext-fn apoc-commons --ext-fn apoc-crypto -e 'RETURN apoc.text.join(", ", ["a","b"])'
+```
+
+### Combined Usage
+
+Graph-input and function extensions can be combined:
+
+```bash
+gcyphrq -g my-graph.gexf --ext gexf --ext-fn apoc-commons -e 'MATCH (n) RETURN apoc.text.capitalize(n.name)'
+```
+
+### Validation Rules
+
+| Condition | Error |
+|---|---|
+| `--ext` without `-g` | "The --ext option requires -g/--graph" |
+| `--ext` with `-g -` (stdin) | "The --ext option cannot be used with stdin" |
+| `--ext` with `--explain` | "The --ext option cannot be used with --explain" |
+| `--ext-fn` with `--explain` | "The --ext-fn option cannot be used with --explain" |
+| Extension not found | "Extension 'X' not found. Available: ..." |
+| Extension type mismatch | "Extension 'X' is a function extension, not a graph-input extension" |
+
+See [Extensions Guide]({{ '/extensions/' | relative_url }}) for creating your own extensions.
 
 ## Exit Codes
 

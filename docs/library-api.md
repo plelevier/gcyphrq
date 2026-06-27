@@ -255,12 +255,17 @@ const engine = new GraphEngine(graph, indexes);
 
 The Cypher query engine class. Accepts a `GraphInstance` and executes parsed ASTs.
 
-**Constructor:** `new GraphEngine(graph: GraphInstance, indexes?: GraphIndexes)`
+**Constructor:** `new GraphEngine(graph: GraphInstance, indexes?: GraphIndexes, onWarning?: (msg: string) => void, extensionFunctions?: Map, extensionAggregations?: Map)`
 
 | Parameter | Type | Description |
 |---|---|---|
 | `graph` | `GraphInstance` | A Graphology graph instance |
 | `indexes` | `GraphIndexes` (optional) | Pre-computed indexes for O(1) lookups. Without indexes, the engine falls back to full-graph scans |
+| `onWarning` | `(msg: string) => void` (optional) | Callback for non-fatal warnings during query execution |
+| `extensionFunctions` | `Map<string, { fn, extName }>` (optional) | Extension scalar functions. See [Extension API](#extension-api) |
+| `extensionAggregations` | `Map<string, { fn, extName }>` (optional) | Extension aggregation functions. See [Extension API](#extension-api) |
+
+> **Extensions:** For extension functions, use `registerFunctionExtension()` + `executeQuery()` instead of constructing `GraphEngine` directly. Extension functions are automatically wired through `executeQuery`.
 
 **Methods:**
 
@@ -346,6 +351,104 @@ try {
   }
 }
 ```
+
+---
+
+### Extension API
+
+gcyphrq supports pluggable extensions for non-JSON input formats and custom functions.
+
+#### `convertWithExtension(extensionName, context)`
+
+Load a graph-input extension and convert file content to `GraphInput`.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `extensionName` | `string` | Extension name (key in `gcyphrqExtensions`) |
+| `context` | [`GraphInputExtensionContext`](#graphinputextensioncontext) | File content and optional config |
+
+**Returns:** `Promise<GraphInput>`
+
+```ts
+import { convertWithExtension, executeQuery } from 'gcyphrq';
+import { readFileSync } from 'fs';
+
+const content = readFileSync('data.gexf', 'utf-8');
+const graphData = await convertWithExtension('gexf', {
+  content,
+  filePath: 'data.gexf',
+});
+const results = await executeQuery(graphData, 'MATCH (n) RETURN n');
+```
+
+#### `registerFunctionExtension(extensionName)`
+
+Load a function extension and register its functions. Multiple extensions can share the same namespace.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `extensionName` | `string` | Extension name (key in `gcyphrqExtensions`) |
+
+**Returns:** `Promise<void>`
+
+> **Note on aggregations:** Extension "aggregations" registered via `addAggregation` are callable as regular functions receiving all arguments directly. For aggregation over multiple rows, combine with `collect()`:
+> ```cypher
+> MATCH (n) RETURN myext.myAgg(collect(n.score))
+> ```
+
+```ts
+import { registerFunctionExtension, executeQuery } from 'gcyphrq';
+
+await registerFunctionExtension('apoc-commons');
+await registerFunctionExtension('apoc-crypto');
+
+const results = await executeQuery(graphData, 'RETURN apoc.text.join(", ", ["a","b"])');
+```
+
+#### `listExtensions()`
+
+List all available extensions from installed `gcyphrq-ext-*` packages.
+
+**Returns:** Array of extension metadata
+
+```ts
+import { listExtensions } from 'gcyphrq';
+
+const extensions = listExtensions();
+for (const ext of extensions) {
+  console.log(`${ext.name} (${ext.type}) — ${ext.description}`);
+}
+```
+
+#### `helpers`, `validate`, and `FunctionError`
+
+Helper utilities for extension authors to validate function arguments and throw user-friendly errors:
+
+```ts
+import { helpers, validate, FunctionError } from 'gcyphrq';
+
+// Type predicates
+helpers.isString(value);
+helpers.isNumber(value);
+helpers.isArray(value);
+
+// Argument validator
+const { sep, values } = validate(args, (v) => {
+  v.minCount(2);
+  v.arg(0, 'sep', helpers.isString);
+  v.argsFrom(1, 'values');
+});
+
+// User-facing validation error
+throw new FunctionError('Cannot convert null to integer');
+// Engine reports: "Error in apoc.toInt: Cannot convert null to integer"
+```
+
+See [Extensions Guide]({{ '/extensions/' | relative_url }}) for creating your own extensions.
 
 ---
 
@@ -532,6 +635,19 @@ import type {
   CypherValue,
   CypherLiteral,
   SubgraphResult,
+
+  // Extension types
+  GraphInputExtension,
+  GraphInputExtensionContext,
+  FunctionExtension,
+  FunctionRegistry,
+  ScalarFunction,
+  AggregationFunction,
+  ExtensionManifest,
+  ResolvedExtension,
+  LoadedExtension,
+  ArgHelpers,
+  ArgValidator,
 } from 'gcyphrq';
 ```
 

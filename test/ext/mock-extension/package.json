@@ -1,0 +1,21 @@
+{
+  "name": "gcyphrq-ext-mock",
+  "version": "1.0.0",
+  "type": "module",
+  "gcyphrqExtensions": {
+    "mock-graph": {
+      "type": "graph-input",
+      "version": "1.0.0",
+      "description": "Mock graph-input extension for testing",
+      "entryPoint": "./mock-graph.js",
+      "fileExtensions": [".mock"]
+    },
+    "mock-fn": {
+      "type": "function",
+      "version": "1.0.0",
+      "namespace": "mock",
+      "description": "Mock function extension for testing",
+      "entryPoint": "./mock-fn.js"
+    }
+  }
+}

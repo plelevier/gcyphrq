@@ -62,12 +62,22 @@ export class AdvancedCypherGraphologyEngine {
   private warnedNoLabels = false;
   private warnedNoEdgeTypes = false;
   private onWarning?: ((message: string) => void) | undefined;
+  private extensionFunctions: Map<string, (args: unknown[]) => unknown>;
+  private extensionAggregations: Map<string, (args: unknown[]) => unknown>;
 
-  constructor(graph: GraphInstance, indexes?: GraphIndexes, onWarning?: (message: string) => void) {
+  constructor(
+    graph: GraphInstance,
+    indexes?: GraphIndexes,
+    onWarning?: (message: string) => void,
+    extensionFunctions?: Map<string, (args: unknown[]) => unknown>,
+    extensionAggregations?: Map<string, (args: unknown[]) => unknown>,
+  ) {
     this.graph = graph;
     this.indexes = indexes;
     this.config = indexes?.config ?? DEFAULT_CONFIG;
     this.onWarning = onWarning;
+    this.extensionFunctions = extensionFunctions ?? new Map();
+    this.extensionAggregations = extensionAggregations ?? new Map();
   }
 
   /** MAIN ENTRY POINT - Sequentially executes query stages and formats the return projection. */
@@ -559,6 +569,11 @@ export class AdvancedCypherGraphologyEngine {
       // Evaluate pattern comprehension with aggregation-aware evaluation
       return this.evaluatePatternComprehensionWithAggregations(expr, context, aggResults);
     }
+    if (expr.type === 'FunctionCall') {
+      // Evaluate function call with aggregation-aware argument evaluation
+      const args = expr.arguments.map((arg) => this.evaluateExpressionWithAggregations(arg, context, aggResults));
+      return this.evaluateStringFunction(expr.functionName, args);
+    }
     return this.evaluateExpression(expr, context) ?? null;
   }
 
@@ -586,6 +601,34 @@ export class AdvancedCypherGraphologyEngine {
 
   /** Evaluate a scalar function. */
   private evaluateStringFunction(name: string, args: CypherValue[]): CypherValue {
+    // ── Extension functions (checked first) ────────────────────────────
+    // Strip backticks if present (from query pre-processing)
+    const cleanName = name.startsWith('`') && name.endsWith('`') ? name.slice(1, -1) : name;
+    const extFn = this.extensionFunctions.get(cleanName);
+    if (extFn) {
+      try {
+        return extFn(args) as CypherValue;
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'FunctionError') {
+          throw new Error(`Error in ${cleanName}: ${err.message}`);
+        }
+        throw err;
+      }
+    }
+
+    // ── Extension aggregations (also callable as regular functions) ────
+    const extAgg = this.extensionAggregations.get(cleanName);
+    if (extAgg) {
+      try {
+        return extAgg(args) as CypherValue;
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'FunctionError') {
+          throw new Error(`Error in ${cleanName}: ${err.message}`);
+        }
+        throw err;
+      }
+    }
+
     // ── Graph statistics functions ─────────────────────────────────────
     switch (name) {
       case 'numnodes':
