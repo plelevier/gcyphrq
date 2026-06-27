@@ -5,7 +5,7 @@ import {
   resetCaches,
   resetExtensionFunctions,
 } from '../../src/ext/registry';
-import { createGraph, parseCypher, GraphEngine, buildGraphIndexes } from '../../src/lib';
+import { createGraph, parseCypher, GraphEngine, buildGraphIndexes, executeQuery } from '../../src/lib';
 import { getExtensionFunctions, getExtensionAggregations } from '../../src/ext/registry';
 import { preprocessQueryForExtensions } from '../../src/ext/registry';
 import { mkdirSync, writeFileSync, rmSync, readFileSync } from 'fs';
@@ -299,6 +299,52 @@ describe('Extension integration', () => {
         expect(greetings).toContain('Hello, A!');
         expect(greetings).toContain('Hello, B!');
         expect(greetings).toContain('Hello, C!');
+      } finally {
+        process.chdir(origCwd);
+      }
+    });
+  });
+
+  describe('Library API (executeQuery) with extensions', () => {
+    it('uses extension function via executeQuery without manual wiring', async () => {
+      const origCwd = process.cwd();
+      process.chdir(testCwd);
+      try {
+        // Register function extension
+        await registerFunctionExtension('mock-fn');
+
+        // Use executeQuery directly - extension functions should work automatically
+        const graphData = {
+          nodes: [{ key: 'a', attributes: { label: 'User', name: 'Alice' } }],
+          edges: [],
+        };
+        const results = await executeQuery(graphData, 'RETURN mock.hello("World") AS greeting');
+
+        expect(results).toHaveLength(1);
+        expect(results[0].greeting).toBe('Hello, World!');
+      } finally {
+        process.chdir(origCwd);
+      }
+    });
+
+    it('uses extension function with node property via executeQuery', async () => {
+      const origCwd = process.cwd();
+      process.chdir(testCwd);
+      try {
+        await registerFunctionExtension('mock-fn');
+
+        const graphData = {
+          nodes: [
+            { key: 'a', attributes: { label: 'User', name: 'Alice' } },
+            { key: 'b', attributes: { label: 'User', name: 'Bob' } },
+          ],
+          edges: [],
+        };
+        const results = await executeQuery(graphData, 'MATCH (n) RETURN mock.hello(n.name) AS greeting ORDER BY greeting');
+
+        expect(results).toHaveLength(2);
+        expect(results[0].greeting).toBe('Hello, Alice!');
+        expect(results[1].greeting).toBe('Hello, Bob!');
       } finally {
         process.chdir(origCwd);
       }

@@ -109,9 +109,10 @@ export async function convert(context) {
 
 | Field | Type | Description |
 |---|---|---|
-| `content` | `string` | Raw file content |
-| `filePath` | `string \| undefined` | File path (if available) |
-| `config` | `Partial<GraphConfig>` | Optional config (label/edge-type property names) |
+| `content` | `string \| Buffer` | Raw file content (text or binary) |
+| `filePath` | `string` | Path to the input file (for error messages) |
+| `labelProperty` | `string \| undefined` | Override label property name (from `-nl` flag) |
+| `edgeTypeProperty` | `string \| undefined` | Override edge type property name (from `-et` flag) |
 
 ## Creating a Function Extension
 
@@ -217,13 +218,16 @@ Import `helpers` and `validate` from `gcyphrq`:
 
 ```ts
 helpers.isString(value);      // value is string
-helpers.isNumber(value);      // value is number
+helpers.isNumber(value);      // value is number (not NaN)
 helpers.isBoolean(value);     // value is boolean
-helpers.isArray(value);       // value is array (including strings)
-helpers.isObject(value);      // value is plain object
-helpers.isNode(value);        // value is a graph node
-helpers.isEdge(value);        // value is a graph edge
-helpers.isPath(value);        // value is a path (adjacency list)
+helpers.isNil(value);         // value is null or undefined
+helpers.isArray(value);       // value is array
+helpers.isObject(value);      // value is plain object (not array, not null)
+helpers.isMap(value);         // value is Map
+helpers.isSet(value);         // value is Set
+helpers.isDate(value);        // value is Date
+helpers.isBigInt(value);      // value is bigint
+helpers.isRegExp(value);      // value is RegExp
 ```
 
 ### `validate(args, specFn)` (Argument Validator)
@@ -231,9 +235,9 @@ helpers.isPath(value);        // value is a path (adjacency list)
 ```ts
 const result = validate(args, (v) => {
   // Count constraints
-  v.minCount(2);       // at least 2 arguments
-  v.maxCount(3);       // at most 3 arguments
-  v.exactCount(1);     // exactly 1 argument
+  v.count(1);            // exactly 1 argument
+  v.minCount(2);         // at least 2 arguments
+  v.countRange(1, 3);    // between 1 and 3 arguments (inclusive)
 
   // Individual argument validation
   v.arg(0, 'name', helpers.isString);  // arg[0] must be string
@@ -243,7 +247,7 @@ const result = validate(args, (v) => {
   v.argsFrom(1, 'values', helpers.isNumber);
 
   // Optional argument (no error if missing)
-  v.optional(2, 'defaultValue', helpers.isString);
+  v.argOptional(2, 'defaultValue', helpers.isString);
 });
 
 // Result has validated arguments named by the spec

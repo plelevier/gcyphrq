@@ -555,8 +555,27 @@ export async function executeQuery(graphOrData: GraphInstance | GraphInput, quer
       })();
   const config = resolveConfig(opts);
   const indexes = buildGraphIndexesFromGraph(graph, config);
-  const engine = new AdvancedCypherGraphologyEngine(graph, indexes, opts?.onWarning);
-  const ast = _parseCypher(query);
+
+  // Include registered extension functions/aggregations (from registerFunctionExtension)
+  const { getExtensionFunctions, getExtensionAggregations, preprocessQueryForExtensions } = await import('./ext/registry');
+  const extFunctions = getExtensionFunctions();
+  const extAggregations = getExtensionAggregations();
+  const extFnEntries = new Map<string, { fn: (args: unknown[]) => unknown; extName: string }>();
+  for (const [name, fn] of extFunctions) {
+    extFnEntries.set(name, { fn, extName: 'extension' });
+  }
+  const extAggEntries = new Map<string, { fn: (args: unknown[]) => unknown; extName: string }>();
+  for (const [name, fn] of extAggregations) {
+    extAggEntries.set(name, { fn, extName: 'extension' });
+  }
+
+  // Pre-process query for dotted function names (e.g., apoc.text.join)
+  const processedQuery = extFnEntries.size > 0 || extAggEntries.size > 0
+    ? preprocessQueryForExtensions(query)
+    : query;
+
+  const engine = new AdvancedCypherGraphologyEngine(graph, indexes, opts?.onWarning, extFnEntries, extAggEntries);
+  const ast = _parseCypher(processedQuery);
   if (ast.type === 'UnionQuery') {
     return await engine.executeUnion(ast);
   }
