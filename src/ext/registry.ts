@@ -49,19 +49,10 @@ export function discoverExtensions(): ResolvedExtension[] {
 /**
  * List all available extensions (for --list-extensions).
  */
-export function listExtensions(): Array<{
-  name: string;
-  type: string;
-  description: string;
-  version: string;
-  namespace?: string | undefined;
-  packageName: string;
-  packageVersion: string;
-  source: 'local' | 'global';
-}> {
+export function listExtensions(): ExtensionEntry[] {
   const extensions = discoverExtensions();
   return extensions.map((ext) => {
-    const entry: { name: string; type: string; description: string; version: string; namespace?: string | undefined; packageName: string; packageVersion: string; source: 'local' | 'global' } = {
+    const entry: ExtensionEntry = {
       name: ext.name,
       type: ext.manifest.type,
       description: ext.manifest.description,
