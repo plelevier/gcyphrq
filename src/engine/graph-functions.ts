@@ -575,7 +575,7 @@ export function egoGraph(graph: GraphInstance, nodeArg: CypherValue, kArg?: Cyph
     let head = 0;
 
     while (head < queue.length) {
-      const current = queue[head++];
+      const current = queue[head++]!;
       const currentDist = dist.get(current)!;
       if (currentDist >= k) continue;
 
@@ -615,7 +615,7 @@ export function connectedComponent(graph: GraphInstance, nodeArg: CypherValue): 
   let head = 0;
 
   while (head < queue.length) {
-    const current = queue[head++];
+    const current = queue[head++]!;
     forEachNeighbor(graph, current, (neighborId) => {
       if (!componentNodeIds.has(neighborId)) {
         componentNodeIds.add(neighborId);

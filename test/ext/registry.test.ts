@@ -303,9 +303,9 @@ describe('Extension registry', () => {
         });
         expect(result.nodes).toHaveLength(3);
         expect(result.edges).toHaveLength(2);
-        expect(result.nodes[0].key).toBe('A');
-        expect(result.edges[0].source).toBe('A');
-        expect(result.edges[0].target).toBe('B');
+        expect(result.nodes[0]!.key).toBe('A');
+        expect(result.edges[0]!.source).toBe('A');
+        expect(result.edges[0]!.target).toBe('B');
       } finally {
         process.chdir(origCwd);
       }

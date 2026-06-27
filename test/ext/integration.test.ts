@@ -6,6 +6,7 @@ import {
   resetExtensionFunctions,
 } from '../../src/ext/registry';
 import { createGraph, parseCypher, GraphEngine, buildGraphIndexes, executeQuery } from '../../src/lib';
+import type { AdvancedCypherAST } from '../../src/types/cypher';
 import { getExtensionFunctions, getExtensionAggregations } from '../../src/ext/registry';
 import { preprocessQueryForExtensions } from '../../src/ext/registry';
 import { mkdirSync, writeFileSync, rmSync, readFileSync } from 'fs';
@@ -100,11 +101,11 @@ describe('Extension integration', () => {
         // Pre-process the query to handle dotted function name
         let query = 'RETURN mock.hello("World") AS greeting';
         query = preprocessQueryForExtensions(query);
-        const ast = parseCypher(query);
+        const ast = parseCypher(query) as AdvancedCypherAST;
         const results = await engine.execute(ast);
 
         expect(results).toHaveLength(1);
-        expect(results[0].greeting).toBe('Hello, World!');
+        expect(results[0]!.greeting).toBe('Hello, World!');
       } finally {
         process.chdir(origCwd);
       }
@@ -133,11 +134,11 @@ describe('Extension integration', () => {
 
         let query = 'RETURN mock.double(21) AS doubled';
         query = preprocessQueryForExtensions(query);
-        const ast = parseCypher(query);
+        const ast = parseCypher(query) as AdvancedCypherAST;
         const results = await engine.execute(ast);
 
         expect(results).toHaveLength(1);
-        expect(results[0].doubled).toBe(42);
+        expect(results[0]!.doubled).toBe(42);
       } finally {
         process.chdir(origCwd);
       }
@@ -167,11 +168,11 @@ describe('Extension integration', () => {
         // mock.double expects a number, null should return null
         let query = 'RETURN mock.double(null) AS result';
         query = preprocessQueryForExtensions(query);
-        const ast = parseCypher(query);
+        const ast = parseCypher(query) as AdvancedCypherAST;
         const results = await engine.execute(ast);
 
         expect(results).toHaveLength(1);
-        expect(results[0].result).toBeNull();
+        expect(results[0]!.result).toBeNull();
       } finally {
         process.chdir(origCwd);
       }
@@ -201,11 +202,11 @@ describe('Extension integration', () => {
         // mock.hello with no argument should use default "World"
         let query = 'RETURN mock.hello() AS greeting';
         query = preprocessQueryForExtensions(query);
-        const ast = parseCypher(query);
+        const ast = parseCypher(query) as AdvancedCypherAST;
         const results = await engine.execute(ast);
 
         expect(results).toHaveLength(1);
-        expect(results[0].greeting).toBe('Hello, World!');
+        expect(results[0]!.greeting).toBe('Hello, World!');
       } finally {
         process.chdir(origCwd);
       }
@@ -229,11 +230,11 @@ describe('Extension integration', () => {
         const indexes = buildGraphIndexes(graphData, graph);
         const engine = new GraphEngine(graph, indexes);
 
-        const ast = parseCypher('MATCH (n) RETURN count(n) AS count');
+        const ast = parseCypher('MATCH (n) RETURN count(n) AS count') as AdvancedCypherAST;
         const results = await engine.execute(ast);
 
         expect(results).toHaveLength(1);
-        expect(results[0].count).toBe(3);
+        expect(results[0]!.count).toBe(3);
       } finally {
         process.chdir(origCwd);
       }
@@ -252,11 +253,11 @@ describe('Extension integration', () => {
         const indexes = buildGraphIndexes(graphData, graph);
         const engine = new GraphEngine(graph, indexes);
 
-        const ast = parseCypher('MATCH ()-[r]->() RETURN count(r) AS count');
+        const ast = parseCypher('MATCH ()-[r]->() RETURN count(r) AS count') as AdvancedCypherAST;
         const results = await engine.execute(ast);
 
         expect(results).toHaveLength(1);
-        expect(results[0].count).toBe(2);
+        expect(results[0]!.count).toBe(2);
       } finally {
         process.chdir(origCwd);
       }
@@ -291,7 +292,7 @@ describe('Extension integration', () => {
         // Use extension function in query against converted graph
         let query = 'MATCH (n) RETURN mock.hello(n.name) AS greeting';
         query = preprocessQueryForExtensions(query);
-        const ast = parseCypher(query);
+        const ast = parseCypher(query) as AdvancedCypherAST;
         const results = await engine.execute(ast);
 
         expect(results).toHaveLength(3);
@@ -321,7 +322,7 @@ describe('Extension integration', () => {
         const results = await executeQuery(graphData, 'RETURN mock.hello("World") AS greeting');
 
         expect(results).toHaveLength(1);
-        expect(results[0].greeting).toBe('Hello, World!');
+        expect(results[0]!.greeting).toBe('Hello, World!');
       } finally {
         process.chdir(origCwd);
       }
@@ -343,8 +344,8 @@ describe('Extension integration', () => {
         const results = await executeQuery(graphData, 'MATCH (n) RETURN mock.hello(n.name) AS greeting ORDER BY greeting');
 
         expect(results).toHaveLength(2);
-        expect(results[0].greeting).toBe('Hello, Alice!');
-        expect(results[1].greeting).toBe('Hello, Bob!');
+        expect(results[0]!.greeting).toBe('Hello, Alice!');
+        expect(results[1]!.greeting).toBe('Hello, Bob!');
       } finally {
         process.chdir(origCwd);
       }
@@ -363,7 +364,7 @@ describe('Extension integration', () => {
         );
 
         expect(results).toHaveLength(1);
-        expect(results[0].total).toBe(60);
+        expect(results[0]!.total).toBe(60);
       } finally {
         process.chdir(origCwd);
       }
@@ -390,8 +391,8 @@ describe('Extension integration', () => {
         );
 
         expect(results).toHaveLength(2);
-        expect(results[0].val).toBe(5);
-        expect(results[1].val).toBe(10);
+        expect(results[0]!.val).toBe(5);
+        expect(results[1]!.val).toBe(10);
       } finally {
         process.chdir(origCwd);
       }
@@ -418,9 +419,9 @@ describe('Extension integration', () => {
         );
 
         expect(results).toHaveLength(3);
-        expect(results[0].val).toBe(3);
-        expect(results[1].val).toBe(2);
-        expect(results[2].val).toBe(1);
+        expect(results[0]!.val).toBe(3);
+        expect(results[1]!.val).toBe(2);
+        expect(results[2]!.val).toBe(1);
       } finally {
         process.chdir(origCwd);
       }
@@ -444,7 +445,7 @@ describe('Extension integration', () => {
         );
 
         expect(results).toHaveLength(1);
-        expect(results[0].total).toBe(60);
+        expect(results[0]!.total).toBe(60);
       } finally {
         process.chdir(origCwd);
       }
