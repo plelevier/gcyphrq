@@ -142,7 +142,7 @@ export default {
     /** Capitalize the first letter of a string. */
     capitalize(args) {
       const { input } = validate(args, (v) => {
-        v.exactCount(1);
+        v.count(1);
         v.arg(0, 'input', helpers.isString);
       });
       return input.charAt(0).toUpperCase() + input.slice(1);
@@ -151,7 +151,7 @@ export default {
     /** Throw a meaningful error for invalid input. */
     toInt(args) {
       const { input } = validate(args, (v) => {
-        v.exactCount(1);
+        v.count(1);
       });
       if (input === null || input === undefined) return null;
       const n = Number(input);
@@ -167,7 +167,7 @@ export default {
     /** Average of non-null values (returns null if all null). */
     avgOrNull(args) {
       const { values } = validate(args, (v) => {
-        v.exactCount(1);
+        v.count(1);
         v.arg(0, 'values', helpers.isArray);
       });
       const nonNull = values.filter(v => v !== null && v !== undefined);
