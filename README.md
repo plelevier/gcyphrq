@@ -21,15 +21,28 @@ Available as a **CLI tool** and as a **library** for Node.js / TypeScript projec
 
 ## Installation
 
+### Global CLI Install
+
+Install the tool globally so `gcyphrq` is available from any terminal:
+
 ```bash
-# Install dependencies
-npm install
+npm install -g gcyphrq
+```
 
-# Build the project
-npm run build
+### Project Dependency Install
 
-# Link globally so `gcyphrq` is available everywhere
-npm link
+Use `gcyphrq` as a library in your own Node.js or TypeScript project:
+
+```bash
+npm install gcyphrq
+```
+
+Then import and use the API in your code:
+
+```typescript
+import { executeQuery } from 'gcyphrq';
+
+const result = executeQuery(graphData, 'MATCH (n) RETURN n');
 ```
 
 ## Quick Start
