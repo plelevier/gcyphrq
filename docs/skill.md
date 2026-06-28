@@ -208,7 +208,7 @@ The skill file (`SKILL.md`) includes:
 
 | Issue | Solution |
 |---|---|
-| `gcyphrq: command not found` | Run `npm install -g gcyphrq` or `npm link` |
+| `gcyphrq: command not found` | Run `npm install -g gcyphrq` |
 | Skill not detected by agent | Verify the `SKILL.md` is in the correct skill directory for your platform |
 | Query returns empty results | Check that node labels and property names match your graph file exactly |
 
