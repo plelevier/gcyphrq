@@ -184,7 +184,6 @@ describe('Extension loader', () => {
       gcyphrqExtensions: {
         'dedup-ext': {
           type: 'function',
-          version: '2.0.0',
           namespace: 'dedup',
           description: 'Global dedup test extension',
           entryPoint: './index.js',
@@ -203,7 +202,6 @@ describe('Extension loader', () => {
       gcyphrqExtensions: {
         'dedup-ext': {
           type: 'function',
-          version: '1.0.0',
           namespace: 'dedup',
           description: 'Local dedup test extension',
           entryPoint: './index.js',
@@ -252,14 +250,12 @@ describe('Extension registry', () => {
       gcyphrqExtensions: {
         'mock-graph': {
           type: 'graph-input',
-          version: '1.0.0',
           description: 'Mock graph-input extension for testing',
           entryPoint: './mock-graph.js',
           fileExtensions: ['.mock'],
         },
         'mock-fn': {
           type: 'function',
-          version: '1.0.0',
           namespace: 'mock',
           description: 'Mock function extension for testing',
           entryPoint: './mock-fn.js',
@@ -484,7 +480,6 @@ describe('Extension registry', () => {
         name: 'test-ext',
         type: 'function',
         description: 'Test extension',
-        version: '1.0.0',
         namespace: 'test',
         packageName: 'gcyphrq-ext-test',
         packageVersion: '1.0.0',

@@ -61,7 +61,6 @@ export type AggregationFunction = (values: unknown[]) => unknown;
  */
 export interface ExtensionManifest {
   type: 'graph-input' | 'function';
-  version: string;
   description: string;
   entryPoint: string;
   fileExtensions?: string[];

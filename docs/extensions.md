@@ -27,7 +27,7 @@ All extension packages follow the same convention:
 
 1. **Package name** must start with `gcyphrq-ext-` (e.g., `gcyphrq-ext-graph-formats`)
 2. **`package.json`** must include a `gcyphrqExtensions` field declaring all extensions
-3. **Each extension** declares its type, version, entry point, and (for function extensions) namespace
+3. **Each extension** declares its type, entry point, and (for function extensions) namespace
 
 ### `package.json` Example
 
@@ -42,14 +42,12 @@ All extension packages follow the same convention:
   "gcyphrqExtensions": {
     "gexf": {
       "type": "graph-input",
-      "version": "1.0.0",
       "description": "Convert GEXF files to gcyphrq graph format",
       "entryPoint": "./dist/gexf/index.js",
       "fileExtensions": [".gexf", ".xml"]
     },
     "apoc-commons": {
       "type": "function",
-      "version": "1.0.0",
       "description": "Common APOC-like utility functions",
       "entryPoint": "./dist/apoc/index.js",
       "namespace": "apoc"
@@ -63,7 +61,6 @@ All extension packages follow the same convention:
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `type` | `"graph-input" \| "function"` | Yes | Extension type |
-| `version` | `string` | Yes | Semver version |
 | `description` | `string` | Yes | Human-readable description |
 | `entryPoint` | `string` | Yes | Relative path to the entry module |
 | `fileExtensions` | `string[]` | Graph-input only | File extensions this extension can handle |

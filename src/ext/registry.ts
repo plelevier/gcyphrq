@@ -13,7 +13,7 @@ import { resolveAllExtensions, resetGlobalNodeModulesCache } from './loader';
 import { GraphError } from '../error';
 
 /** Extension entry returned by listExtensions(). */
-type ExtensionEntry = { name: string; type: string; description: string; version: string; namespace?: string; packageName: string; packageVersion: string; source: 'local' | 'global' };
+type ExtensionEntry = { name: string; type: string; description: string; namespace?: string; packageName: string; packageVersion: string; source: 'local' | 'global' };
 
 // ── Caches ──────────────────────────────────────────────────────────────
 
@@ -56,7 +56,6 @@ export function listExtensions(): ExtensionEntry[] {
       name: ext.name,
       type: ext.manifest.type,
       description: ext.manifest.description,
-      version: ext.manifest.version,
       packageName: ext.packageName,
       packageVersion: ext.packageVersion,
       source: ext.source,
@@ -284,7 +283,7 @@ See https://www.npmjs.com/search?q=gcyphrq-ext for available extensions.`;
     const typeTag = ext.type === 'function' ? `[function]  ns:${ext.namespace}` : '[graph-input]';
     const sourceTag = ext.source === 'global' ? ' (global)' : '';
     const padded = ext.name.padEnd(nameWidth);
-    lines.push(`  ${padded} (v${ext.version}) ${typeTag}${sourceTag}  ${ext.packageName}@${ext.packageVersion}`);
+    lines.push(`  ${padded} ${typeTag}${sourceTag}  ${ext.packageName}@${ext.packageVersion}`);
     lines.push(`  ${' '.repeat(nameWidth)} ${ext.description}`);
   }
 
