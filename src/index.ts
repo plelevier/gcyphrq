@@ -28,6 +28,7 @@ Options:
   --explain              Show the query execution plan instead of executing. Does not require a graph file (-g is optional)
   --ext <name>           Use a graph-input extension to parse the input file (e.g., --ext gexf)
   --ext-fn <name>        Load a function extension (repeatable, e.g., --ext-fn apoc-commons)
+  --pass-through         Output the input graph as-is without executing a Cypher query. Requires -g, ignores -e. Useful with --ext to convert file formats to Graphology JSON
   --list-extensions      List all available extensions with descriptions
   --install-skill <mode> Install the gcyphrq skill for AI coding agents. Mode: "global" (symlinks) or "local" (copies into current directory)
   -v, --version          Show version number
@@ -85,10 +86,11 @@ type ParsedArgs = {
   ext: string | undefined;
   extFn: string[];
   listExtensions: boolean;
+  passThrough: boolean;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
-  const args: ParsedArgs = { expr: undefined, graph: undefined, labelProperty: undefined, edgeTypeProperty: undefined, format: undefined, explain: false, help: false, version: false, install: undefined, ext: undefined, extFn: [], listExtensions: false };
+  const args: ParsedArgs = { expr: undefined, graph: undefined, labelProperty: undefined, edgeTypeProperty: undefined, format: undefined, explain: false, help: false, version: false, install: undefined, ext: undefined, extFn: [], listExtensions: false, passThrough: false };
   let exprFlag: string | null = null;
   let graphFlag: string | null = null;
   let labelFlag: string | null = null;
@@ -213,6 +215,11 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     if (arg === '--list-extensions') {
       args.listExtensions = true;
+      continue;
+    }
+
+    if (arg === '--pass-through') {
+      args.passThrough = true;
       continue;
     }
 
@@ -383,11 +390,55 @@ async function main(): Promise<void> {
     // ── Install command ────────────────────────────────────────────────
 
     if (args.install) {
-      if (args.expr || args.graph) {
-        throw new GraphError('--install-skill cannot be combined with -e/--expr or -g/--graph.');
+      if (args.expr || args.graph || args.passThrough) {
+        throw new GraphError('--install-skill cannot be combined with -e/--expr, -g/--graph, or --pass-through.');
       }
 
       await runInstall(args.install, process.cwd());
+      process.exit(0);
+    }
+
+    // ── Pass-through mode (output graph as-is, no query) ──────────────
+
+    if (args.passThrough) {
+      if (args.expr) {
+        throw new GraphError('--pass-through cannot be combined with -e/--expr.');
+      }
+      if (!args.graph) {
+        throw new GraphError('The --pass-through option requires -g/--graph <file>.');
+      }
+      if (args.ext && args.graph === '-') {
+        throw new GraphError('The --ext option cannot be used with stdin (-g -).');
+      }
+      if (args.explain) {
+        throw new GraphError('--pass-through cannot be combined with --explain.');
+      }
+      if (args.extFn.length > 0) {
+        throw new GraphError('--pass-through cannot be combined with --ext-fn.');
+      }
+
+      // Load graph data
+      let passThroughData: GraphInput;
+      if (args.ext) {
+        const content = readFileSync(resolve(args.graph!), 'utf-8');
+        const extContext: import('./ext/types').GraphInputExtensionContext = {
+          content,
+          filePath: args.graph!,
+        };
+        if (args.labelProperty !== undefined) extContext.labelProperty = args.labelProperty;
+        if (args.edgeTypeProperty !== undefined) extContext.edgeTypeProperty = args.edgeTypeProperty;
+        passThroughData = await convertWithExtension(args.ext, extContext);
+      } else {
+        passThroughData = args.graph === '-'
+          ? await readJsonFile('stdin')
+          : await readJsonFile('file', args.graph);
+      }
+
+      // Validate the graph data (ensures structural correctness)
+      createGraph(passThroughData, { onWarning: (msg) => console.warn(msg) });
+
+      // Output the graph data as-is
+      console.log(JSON.stringify(passThroughData, null, 2));
       process.exit(0);
     }
 

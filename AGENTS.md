@@ -14,7 +14,7 @@ npm test           # Run tests (vitest)
 npx tsx src/index.ts -g examples/cloud-infra.json -e 'MATCH (s:Service) RETURN s'
 ```
 
-Both `-e` (query) and `-g` (graph file or `-` for stdin) are required. Use `--explain` with `-e` only (no graph needed) to show the query execution plan.
+Both `-e` (query) and `-g` (graph file or `-` for stdin) are required. Use `--explain` with `-e` only (no graph needed) to show the query execution plan. Use `--pass-through` with `-g` (no query needed) to output the graph as-is, useful with `--ext` to convert file formats to Graphology JSON.
 
 **Extensions:** Use `--ext <name>` for non-JSON input formats, `--ext-fn <name>` for custom functions (repeatable), `--list-extensions` to discover available extensions. Extensions are npm packages named `gcyphrq-ext-*`.
 

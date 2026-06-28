@@ -32,10 +32,11 @@ gcyphrq [options]
 | `--ext-fn <name>` | Load a function extension (repeatable, e.g., `--ext-fn apoc-commons`) |
 | `--list-extensions` | List all available extensions with descriptions |
 | `--install-skill <mode>` | Install the gcyphrq skill for AI coding agents. Mode: `global` (symlinks) or `local` (copies into current directory) |
+| `--pass-through` | Output the input graph as-is without executing a Cypher query. Requires `-g`, ignores `-e`. Useful with `--ext` to convert file formats to Graphology JSON |
 | `-v, --version` | Show version number |
 | `-h, --help` | Show help message |
 
-Either `-e` + `-g` (query mode) or `--install-skill <mode>` (install mode) is required. These modes are mutually exclusive. The tool exits with code 1 and prints to stderr if no valid mode is provided.
+Either `-e` + `-g` (query mode), `-g` + `--pass-through` (pass-through mode), or `--install-skill <mode>` (install mode) is required. These modes are mutually exclusive. The tool exits with code 1 and prints to stderr if no valid mode is provided.
 
 ## Loading a Graph
 
@@ -143,6 +144,47 @@ gcyphrq -g graph.json -e 'MATCH (n) RETURN n' \
 - Row cardinality and pairing (deduplication collapses duplicates)
 - Path structure (variable-length path edges are flattened into a set)
 - Aggregation results (`count()`, `avg()`, etc. — always returned as rows)
+
+## Pass-Through Mode
+
+Use `--pass-through` to output the input graph exactly as-is, without executing any Cypher query. This is useful for:
+
+- **Converting file formats to Graphology JSON** — combine with `--ext` to parse non-JSON formats and output the normalized Graphology JSON
+- **Validating graph structure** — ensures the graph is well-formed (valid nodes, edges, referential integrity)
+- **Inspecting raw graph data** — view the exact Graphology JSON representation
+
+```bash
+# Convert a GEXF file to Graphology JSON
+gcyphrq -g my-graph.gexf --ext gexf --pass-through > my-graph.json
+
+# Validate and output a JSON graph as-is
+gcyphrq -g my-graph.json --pass-through
+
+# Convert from stdin (JSON only, no extension support with stdin)
+cat my-graph.json | gcyphrq -g - --pass-through
+```
+
+### Pass-through with extensions
+
+The `--pass-through` flag works with `--ext` to convert any supported file format to Graphology JSON:
+
+```bash
+# Convert GEXF → Graphology JSON
+gcyphrq -g data.gexf --ext gexf --pass-through > data.json
+
+# Then query the converted JSON
+gcyphrq -g data.json -e 'MATCH (n) RETURN n'
+```
+
+### Pass-through validation rules
+
+| Condition | Error |
+|---|---|
+| `--pass-through` without `-g` | "The --pass-through option requires -g/--graph" |
+| `--pass-through` with `-e` | "--pass-through cannot be combined with -e/--expr" |
+| `--pass-through` with `--explain` | "--pass-through cannot be combined with --explain" |
+| `--pass-through` with `--ext-fn` | "--pass-through cannot be combined with --ext-fn" |
+| `--pass-through --ext` with `-g -` (stdin) | "The --ext option cannot be used with stdin" |
 
 ## Explain Mode
 
