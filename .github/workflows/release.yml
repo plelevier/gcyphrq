@@ -6,6 +6,8 @@ on:
     paths-ignore:
       - 'package.json'
       - 'package-lock.json'
+    tags-ignore:
+      - 'v*'
 
 concurrency:
   group: version-bump
@@ -14,11 +16,9 @@ concurrency:
 jobs:
   bump:
     runs-on: ubuntu-latest
-    env:
-      GITHUB_ACTIONS_NODE_VERSION: 24
-    permissions:
-      contents: write
-      id-token: write          # OIDC token for npm provenance
+    outputs:
+      bumped: ${{ steps.version.outputs.bumped }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Generate Token
         id: app-token
@@ -36,7 +36,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          registry-url: 'https://registry.npmjs.org'
 
       - name: Git config
         run: |
@@ -127,18 +126,35 @@ jobs:
           git tag "v$VERSION"
           git push origin main --tags
 
+  publish:
+    needs: bump
+    if: needs.bump.outputs.bumped == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refs/tags/v${{ needs.bump.outputs.version }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Create GitHub Release
-        if: steps.version.outputs.bumped == 'true'
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: v${{ steps.version.outputs.version }}
+          tag_name: v${{ needs.bump.outputs.version }}
+          name: v${{ needs.bump.outputs.version }}
           generate_release_notes: true
 
-      - run: npm ci
-        if: steps.version.outputs.bumped == 'true'
-      # prepublishOnly (build + test) runs automatically as part of npm publish
-      - run: npm publish --provenance --access public
-        if: steps.version.outputs.bumped == 'true'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm
+        run: npm publish --provenance --access public
