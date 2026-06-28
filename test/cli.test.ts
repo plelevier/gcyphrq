@@ -567,3 +567,162 @@ describe('CLI - extensions', () => {
     expect(parsed[1].greeting).toBe('Hello, Bob!');
   });
 });
+
+describe('CLI - pass-through', () => {
+  beforeAll(() => {
+    cliTmpRoot = join(tmpdir(), 'gcyphrq-cli-tests');
+    mkdirSync(cliTmpRoot, { recursive: true });
+  });
+
+  afterAll(() => {
+    if (cliTmpRoot) rmSync(cliTmpRoot, { recursive: true, force: true });
+  });
+
+  it('outputs the graph as-is with --pass-through', async () => {
+    const d = mkSubdir('passthrough-basic');
+    const input = {
+      nodes: [
+        { key: 'a', attributes: { label: 'User', name: 'Alice' } },
+        { key: 'b', attributes: { label: 'User', name: 'Bob' } },
+      ],
+      edges: [{ source: 'a', target: 'b', attributes: { type: 'FRIEND' } }],
+    };
+    const path = writeFile(d, 'graph.json', input);
+    const { stdout, code } = await runCli(['-g', path, '--pass-through']);
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toEqual(input);
+  });
+
+  it('preserves root options and attributes in pass-through', async () => {
+    const d = mkSubdir('passthrough-meta');
+    const input = {
+      options: { type: 'directed', allowSelfLoops: true, multi: false },
+      attributes: { name: 'My Graph', version: '1.0' },
+      nodes: [
+        { key: 'a', attributes: { label: 'User', name: 'Alice' } },
+      ],
+      edges: [],
+    };
+    const path = writeFile(d, 'graph.json', input);
+    const { stdout, code } = await runCli(['-g', path, '--pass-through']);
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.options).toEqual({ type: 'directed', allowSelfLoops: true, multi: false });
+    expect(parsed.attributes).toEqual({ name: 'My Graph', version: '1.0' });
+    expect(parsed.nodes).toHaveLength(1);
+  });
+
+  it('preserves edge keys in pass-through', async () => {
+    const d = mkSubdir('passthrough-edges');
+    const input = {
+      nodes: [
+        { key: 'a', attributes: { label: 'N' } },
+        { key: 'b', attributes: { label: 'N' } },
+      ],
+      edges: [
+        { key: 'my-edge', source: 'a', target: 'b', attributes: { type: 'LINK' } },
+      ],
+    };
+    const path = writeFile(d, 'graph.json', input);
+    const { stdout, code } = await runCli(['-g', path, '--pass-through']);
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.edges[0].key).toBe('my-edge');
+  });
+
+  it('errors when --pass-through is used without -g', async () => {
+    const { stderr, code } = await runCli(['--pass-through']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('Error:');
+    expect(stderr).toContain('-g');
+  });
+
+  it('errors when --pass-through is combined with -e', async () => {
+    const d = mkSubdir('passthrough-conflict');
+    const path = writeFile(d, 'graph.json', simpleGraph);
+    const { stderr, code } = await runCli(['-g', path, '--pass-through', '-e', 'MATCH (n) RETURN n']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('Error:');
+    expect(stderr).toContain('--pass-through cannot be combined with -e');
+  });
+
+  it('errors when --pass-through is combined with --explain', async () => {
+    const d = mkSubdir('passthrough-explain');
+    const path = writeFile(d, 'graph.json', simpleGraph);
+    const { stderr, code } = await runCli(['-g', path, '--pass-through', '--explain']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('Error:');
+    expect(stderr).toContain('--pass-through cannot be combined with --explain');
+  });
+
+  it('validates graph structure in pass-through mode', async () => {
+    const d = mkSubdir('passthrough-invalid');
+    const path = writeFile(d, 'bad.json', { nodes: [], edges: [] });
+    // Valid structure — should succeed
+    const { code } = await runCli(['-g', path, '--pass-through']);
+    expect(code).toBe(0);
+  });
+
+  it('errors on invalid graph structure in pass-through mode', async () => {
+    const d = mkSubdir('passthrough-bad-schema');
+    const path = writeFile(d, 'bad.json', { edges: [] });
+    const { stderr, code } = await runCli(['-g', path, '--pass-through']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('Error:');
+    expect(stderr).toContain('nodes');
+  });
+
+  it('errors when --ext with --pass-through references nonexistent extension', async () => {
+    const d = mkSubdir('passthrough-ext');
+    const mockPath = join(d, 'mock.mock');
+    writeFileSync(mockPath, 'mock content');
+    const { stderr, code } = await runCli(['-g', mockPath, '--pass-through', '--ext', 'nonexistent']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('not found');
+  });
+
+  it('errors when --pass-through --ext is used with stdin', async () => {
+    const { stderr, code } = await runCli(['-g', '-', '--pass-through', '--ext', 'gexf']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('Error:');
+    expect(stderr).toContain('stdin');
+  });
+
+  it('errors when --pass-through is combined with --ext-fn', async () => {
+    const d = mkSubdir('passthrough-extfn');
+    const path = writeFile(d, 'graph.json', simpleGraph);
+    const { stderr, code } = await runCli(['-g', path, '--pass-through', '--ext-fn', 'mock-fn']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('Error:');
+    expect(stderr).toContain('--pass-through cannot be combined with --ext-fn');
+  });
+
+  it('errors when --install-skill is combined with --pass-through', async () => {
+    const { stderr, code } = await runCli(['--pass-through', '--install-skill', 'local']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('Error:');
+    expect(stderr).toContain('--install-skill cannot be combined');
+  });
+
+  it('preserves exact content for simple graph', async () => {
+    const d = mkSubdir('passthrough-exact');
+    const input = {
+      nodes: [{ key: 'x', attributes: { label: 'Test', value: 42 } }],
+      edges: [],
+    };
+    const path = writeFile(d, 'graph.json', input);
+    const { stdout, code } = await runCli(['-g', path, '--pass-through']);
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.nodes[0].key).toBe('x');
+    expect(parsed.nodes[0].attributes.value).toBe(42);
+  });
+
+  it('appears in --help output', async () => {
+    const { stdout, code } = await runCli(['--help']);
+    expect(code).toBe(0);
+    expect(stdout).toContain('--pass-through');
+  });
+});
+
