@@ -37,7 +37,7 @@ All extension packages follow the same convention:
   "version": "1.0.0",
   "type": "module",
   "peerDependencies": {
-    "gcyphrq": ">=0.60.0"
+    "gcyphrq": ">={{ site.version }}"
   },
   "gcyphrqExtensions": {
     "gexf": {
