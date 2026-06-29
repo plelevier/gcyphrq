@@ -215,6 +215,8 @@ export function executeMerge(
       // Chain MERGE: process hops sequentially
       let warnedLocal = warnedNoLabelsOut;
       let lastTargetId: string | undefined;
+      // Track all node IDs already used in this chain to avoid collisions on unbound intermediates
+      const usedNodeIds = new Set<string>();
 
       for (let hopIdx = 0; hopIdx < hops.length; hopIdx++) {
         const hop = hops[hopIdx]!;
@@ -226,8 +228,9 @@ export function executeMerge(
 
         // For multi-hop: use previous hop's target as source
         const prevTargetVar = hopIdx > 0 ? hops[hopIdx - 1]!.targetPattern.variable : '';
+        // Only check overrides for named variables; anonymous () nodes should not carry over
         const boundSource = resolveChainValue(context, hop.sourcePattern.variable)
-          || overrides[hop.sourcePattern.variable]
+          || (hop.sourcePattern.variable ? overrides[hop.sourcePattern.variable] : undefined)
           || (prevTargetVar ? overrides[prevTargetVar] : undefined)
           || (lastTargetId ? { id: lastTargetId } as CypherNode : undefined);
         if (boundSource && typeof boundSource === 'object' && !Array.isArray(boundSource) && 'id' in boundSource) {
@@ -248,6 +251,7 @@ export function executeMerge(
         created = created || sourceCreated;
         const sourceAttr = graph.getNodeAttributes(sourceId);
         overrides[hop.sourcePattern.variable] = { id: sourceId, ...sourceAttr } as CypherNode;
+        usedNodeIds.add(sourceId);
 
         if (!isChain) {
           lastTargetId = sourceId;
@@ -257,7 +261,9 @@ export function executeMerge(
         // Resolve target node
         let targetId: string;
         let targetCreated = false;
-        const boundTarget = resolveChainValue(context, hop.targetPattern.variable) || overrides[hop.targetPattern.variable];
+        // Only check overrides for named variables; anonymous () nodes should not carry over from previous hops
+        const boundTarget = resolveChainValue(context, hop.targetPattern.variable)
+          || (hop.targetPattern.variable ? overrides[hop.targetPattern.variable] : undefined);
         if (boundTarget && typeof boundTarget === 'object' && !Array.isArray(boundTarget) && 'id' in boundTarget) {
           targetId = (boundTarget as CypherNode).id;
           const freshAttrs = graph.getNodeAttributes(targetId);
@@ -273,13 +279,20 @@ export function executeMerge(
           targetCreated = result.created;
           warnedLocal = result.warned;
         }
-        // Prevent self-loops: if target resolved to the same node as source and no explicit match, create new
-        if (targetId === sourceId && !boundTarget) {
+        // Prevent self-loops and collisions: if target resolved to a node already used in this chain and no explicit match, create new
+        if (usedNodeIds.has(targetId) && !boundTarget) {
           const newResult = findOrCreateSingleNode(graph, indexes, config, hop.targetPattern, context, evalExpr, warnedLocal, onWarning);
-          // If it still returns the same node (all nodes match), we need a truly new one
-          if (newResult.id === sourceId) {
+          warnedLocal = newResult.warned;
+          // If it still returns a node already in the chain (all nodes match the pattern), we need a truly new one
+          if (usedNodeIds.has(newResult.id)) {
             const newId = randomUUID();
             const attrs: Record<string, unknown> = { ...hop.targetPattern.properties };
+            // Evaluate dynamic properties from propertiesExpr
+            if (hop.targetPattern.propertiesExpr && evalExpr) {
+              for (const [key, expr] of Object.entries(hop.targetPattern.propertiesExpr)) {
+                attrs[key] = evalExpr(expr, flatCtx);
+              }
+            }
             const andLabels = hop.targetPattern.labels?.labels;
             if (andLabels && andLabels.length > 0) attrs[config.labelProperty] = andLabels.length === 1 ? andLabels[0]! : andLabels;
             graph.addNode(newId, attrs);
@@ -288,13 +301,15 @@ export function executeMerge(
           } else {
             targetId = newResult.id;
             targetCreated = newResult.created;
-            warnedLocal = newResult.warned;
           }
         }
         created = created || targetCreated;
         const targetAttr = graph.getNodeAttributes(targetId);
-        overrides[hop.targetPattern.variable] = { id: targetId, ...targetAttr } as CypherNode;
+        if (hop.targetPattern.variable) {
+          overrides[hop.targetPattern.variable] = { id: targetId, ...targetAttr } as CypherNode;
+        }
         lastTargetId = targetId;
+        usedNodeIds.add(targetId);
 
         // Find or create edge
         let edgeId: string | undefined;

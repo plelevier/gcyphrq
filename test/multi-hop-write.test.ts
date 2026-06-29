@@ -171,6 +171,35 @@ describe('Multi-hop MERGE', () => {
       const results = await executeQuery(emptyGraph, 'MERGE (a:Person {name: "A"})-[r1]->(b:Person {name: "B"})-[r2]->(c:Person {name: "C"})-[r3]->(d:Person {name: "D"}) RETURN a.name, b.name, c.name, d.name');
       expect(results).toEqual([{ 'a.name': 'A', 'b.name': 'B', 'c.name': 'C', 'd.name': 'D' }]);
     });
+
+    it('MERGE 2-hop with unbound intermediate node', async () => {
+      const results = await executeQuery(emptyGraph, 'MERGE (a:Person {name: "Alice"})-[:KNOWS]->()-[:LIKES]->(c:Person {name: "Charlie"}) RETURN a.name, c.name');
+      expect(results).toEqual([{ 'a.name': 'Alice', 'c.name': 'Charlie' }]);
+    });
+
+    it('MERGE 2-hop with unbound intermediate node chains correctly on second call', async () => {
+      const graph = {
+        nodes: [
+          { key: 'alice', attributes: { label: 'Person', name: 'Alice' } },
+          { key: 'bob', attributes: { label: 'Person', name: 'Bob' } },
+          { key: 'charlie', attributes: { label: 'Person', name: 'Charlie' } },
+        ],
+        edges: [
+          { source: 'alice', target: 'bob', attributes: { type: 'KNOWS' } },
+          { source: 'bob', target: 'charlie', attributes: { type: 'LIKES' } },
+        ],
+      };
+      const results = await executeQuery(graph, 'MERGE (a:Person {name: "Alice"})-[:KNOWS]->()-[:LIKES]->(c:Person {name: "Charlie"}) RETURN a.name, c.name');
+      expect(results).toEqual([{ 'a.name': 'Alice', 'c.name': 'Charlie' }]);
+    });
+
+    it('MERGE 3-hop with two unbound intermediates creates distinct nodes', async () => {
+      const results = await executeQuery(emptyGraph, 'MERGE (a:Person {name: "A"})-[:R1]->()-[:R2]->()-[:R3]->(d:Person {name: "D"}) RETURN a.name, d.name, count(*) AS cnt');
+      // Unbound intermediates without labels/properties create distinct nodes per hop (self-loop prevention)
+      expect(results.length).toBe(1);
+      expect(results[0]!['a.name']).toBe('A');
+      expect(results[0]!['d.name']).toBe('D');
+    });
   });
 });
 
