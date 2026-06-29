@@ -14,7 +14,8 @@ describe('Variable-length optimization', () => {
         g.addEdge(nodes[i]!, nodes[i + 1]!, { type: 'NEXT' });
       }
       const indexes = buildIndexesFromGraph(g);
-      const engine = new AdvancedCypherGraphologyEngine(g, indexes);
+      const warnings: string[] = [];
+      const engine = new AdvancedCypherGraphologyEngine(g, indexes, (w) => warnings.push(w));
 
       // With default maxDepth=10, from A we can reach up to K (10 hops)
       // L is 11 hops away, so should NOT be reached
@@ -50,7 +51,8 @@ describe('Variable-length optimization', () => {
       g.addNode('b', { label: 'Node', name: 'B' });
       g.addEdge('a', 'b', { type: 'NEXT' });
       const indexes = buildIndexesFromGraph(g);
-      const engine = new AdvancedCypherGraphologyEngine(g, indexes);
+      const warnings: string[] = [];
+      const engine = new AdvancedCypherGraphologyEngine(g, indexes, (w) => warnings.push(w));
 
       // [*0..] from A should include A itself (0 hops) plus B (1 hop)
       const ast = parseCypher('MATCH (a:Node {name: "A"})-[r:NEXT*0..]->(b:Node) RETURN a.name, b.name ORDER BY b.name ASC');
@@ -100,7 +102,8 @@ describe('Variable-length optimization', () => {
       }
       const indexes = buildIndexesFromGraph(g);
       const config = { labelProperty: 'label', edgeTypeProperty: 'type', maxVariableLengthDepth: 5 };
-      const engine = new AdvancedCypherGraphologyEngine(g, { ...indexes, config }, undefined, new Map(), new Map());
+      const warnings: string[] = [];
+      const engine = new AdvancedCypherGraphologyEngine(g, { ...indexes, config }, (w) => warnings.push(w), new Map(), new Map());
 
       // With maxVariableLengthDepth=5, from A we can reach up to F (5 hops)
       const ast = parseCypher('MATCH (a:Node {name: "A"})-[r:NEXT*1..]->(b:Node) RETURN a.name, b.name ORDER BY b.name ASC');
