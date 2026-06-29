@@ -1066,7 +1066,7 @@ function normalizeTypeFunction(query: string): string {
     // Check for `type(` pattern (case-insensitive, respecting word boundaries)
     if (query.slice(i, i + 5).toLowerCase() === 'type(') {
       // Ensure it's a whole word: not preceded by a word character
-      const prevChar = i > 0 ? query[i - 1] : '';
+      const prevChar = i > 0 ? query.charAt(i - 1) : '';
       if (!/[A-Za-z0-9_]/.test(prevChar)) {
         result += 'reltype';
         i += 3; // skip 'type' — the '(' is handled by the next iteration
