@@ -17,25 +17,6 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 
 `gcyphrq -g <file|-> -e '<cypher>'`. `-e` query (required), `-g` file/stdin (required), `-nl` label prop (default `"label"`), `-et` edge type (default `"type"`), `--format graph|rows`. Chain via `-g -`.
 
-## Library API (programmatic)
-
-When using `executeQuery` or `GraphEngine` from code, pass `config` for traversal control:
-
-```ts
-import { executeQuery } from 'gcyphrq';
-
-const results = await executeQuery(graphData, query, {
-  config: {
-    labelProperty: 'label',
-    edgeTypeProperty: 'type',
-    maxVariableLengthDepth: 50,    // override default 10 for [*1..]
-    maxVariableLengthPaths: 10_000, // override default 100K
-  },
-});
-```
-
-Use `maxVariableLengthDepth` when the graph is sparse and needs deeper traversal. Use `maxVariableLengthPaths` to cap memory on dense graphs.
-
 ## Extensions
 
 gcyphrq supports pluggable extensions for non-JSON input formats and custom functions. Extensions are npm packages named `gcyphrq-ext-*`. Both local (`node_modules/` near cwd) and global (`npm root -g`) packages are discovered; local takes precedence.
