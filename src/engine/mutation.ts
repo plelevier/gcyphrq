@@ -250,10 +250,10 @@ function findOrCreateChain(
   let sourceCreated = false;
   let warnedNoLabelsOut = warnedNoLabels;
   const flatCtx = isContextChain(context) ? materialiseChain(context) : context;
-  if (!sourceId) { const result = findOrCreateSingleNode(graph, indexes, config, sourcePattern, context, evalExpr, warnedNoLabelsOut, onWarning); sourceId = result.id; sourceCreated = result.created; warnedNoLabelsOut = warnedNoLabelsOut; }
+  if (!sourceId) { const result = findOrCreateSingleNode(graph, indexes, config, sourcePattern, context, evalExpr, warnedNoLabelsOut, onWarning); sourceId = result.id; sourceCreated = result.created; warnedNoLabelsOut = result.warned; }
   else {
     const freshAttrs = graph.getNodeAttributes(sourceId);
-    if (!matchNodeCriteria(freshAttrs, config, sourcePattern) || (sourcePattern.propertiesExpr && !matchDynamicProperties(sourcePattern.propertiesExpr, freshAttrs, flatCtx, evalExpr))) { const result = findOrCreateSingleNode(graph, indexes, config, sourcePattern, context, evalExpr, warnedNoLabelsOut, onWarning); sourceId = result.id; sourceCreated = result.created; warnedNoLabelsOut = warnedNoLabelsOut; }
+    if (!matchNodeCriteria(freshAttrs, config, sourcePattern) || (sourcePattern.propertiesExpr && !matchDynamicProperties(sourcePattern.propertiesExpr, freshAttrs, flatCtx, evalExpr))) { const result = findOrCreateSingleNode(graph, indexes, config, sourcePattern, context, evalExpr, warnedNoLabelsOut, onWarning); sourceId = result.id; sourceCreated = result.created; warnedNoLabelsOut = result.warned; }
   }
 
   let targetId: string | undefined;
@@ -261,10 +261,10 @@ function findOrCreateChain(
   if (boundTarget && typeof boundTarget === 'object' && !Array.isArray(boundTarget) && 'id' in boundTarget) targetId = (boundTarget as CypherNode).id;
 
   let targetCreated = false;
-  if (!targetId) { const result = findOrCreateSingleNode(graph, indexes, config, targetPattern, context, evalExpr, warnedNoLabelsOut, onWarning); targetId = result.id; targetCreated = result.created; warnedNoLabelsOut = warnedNoLabelsOut; }
+  if (!targetId) { const result = findOrCreateSingleNode(graph, indexes, config, targetPattern, context, evalExpr, warnedNoLabelsOut, onWarning); targetId = result.id; targetCreated = result.created; warnedNoLabelsOut = result.warned; }
   else {
     const freshAttrs = graph.getNodeAttributes(targetId);
-    if (!matchNodeCriteria(freshAttrs, config, targetPattern) || (targetPattern.propertiesExpr && !matchDynamicProperties(targetPattern.propertiesExpr, freshAttrs, flatCtx, evalExpr))) { const result = findOrCreateSingleNode(graph, indexes, config, targetPattern, context, evalExpr, warnedNoLabelsOut, onWarning); targetId = result.id; targetCreated = result.created; warnedNoLabelsOut = warnedNoLabelsOut; }
+    if (!matchNodeCriteria(freshAttrs, config, targetPattern) || (targetPattern.propertiesExpr && !matchDynamicProperties(targetPattern.propertiesExpr, freshAttrs, flatCtx, evalExpr))) { const result = findOrCreateSingleNode(graph, indexes, config, targetPattern, context, evalExpr, warnedNoLabelsOut, onWarning); targetId = result.id; targetCreated = result.created; warnedNoLabelsOut = result.warned; }
   }
 
   let edgeId: string | undefined;
