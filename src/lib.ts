@@ -80,12 +80,16 @@ export { GraphError };
 /**
  * Resolve a partial IndexBuildOptions.config into a fully-resolved GraphConfig.
  * Missing fields default to `'label'` and `'type'` respectively.
+ * Traversal limits (maxVariableLengthDepth, maxVariableLengthPaths) are passed
+ * through as-is (undefined means use engine defaults).
  */
 function resolveConfig(opts?: IndexBuildOptions): GraphConfig {
   const c = opts?.config;
   return {
     labelProperty: c?.labelProperty ?? DEFAULT_CONFIG.labelProperty,
     edgeTypeProperty: c?.edgeTypeProperty ?? DEFAULT_CONFIG.edgeTypeProperty,
+    maxVariableLengthDepth: c?.maxVariableLengthDepth,
+    maxVariableLengthPaths: c?.maxVariableLengthPaths,
   };
 }
 

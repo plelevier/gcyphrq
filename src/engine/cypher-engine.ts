@@ -1,5 +1,5 @@
 import { evaluateArithmeticCore } from '../arithmetic';
-import { DEFAULT_CONFIG } from '../types/cypher';
+import { DEFAULT_CONFIG, DEFAULT_MAX_VAR_LENGTH_DEPTH, DEFAULT_MAX_VAR_LENGTH_PATHS } from '../types/cypher';
 import type {
   AdvancedCypherAST,
   UnionQueryAST,
@@ -407,45 +407,53 @@ export class AdvancedCypherGraphologyEngine {
     const getNeighbors = buildNeighborGetter(this.graph, this.indexes, this.config, relPatt, this.warnedNoEdgeTypes, this.onWarning);
 
     const minDepth = relPatt.minDepth ?? 1;
-    const maxDepth = relPatt.maxDepth ?? (relPatt.variableLength ? 100 : minDepth);
+    const effectiveMaxDepth = this.config.maxVariableLengthDepth ?? DEFAULT_MAX_VAR_LENGTH_DEPTH;
+    const maxDepth = relPatt.maxDepth ?? (relPatt.variableLength ? effectiveMaxDepth : minDepth);
+
+    // Warn on unbounded variable-length patterns (no explicit maxDepth in query)
+    if (relPatt.variableLength && relPatt.maxDepth === undefined) {
+      this.onWarning?.(`gcyphrq: Unbounded variable-length pattern [*${minDepth}..] in pattern comprehension. Using max depth of ${effectiveMaxDepth}. Add an explicit upper bound (e.g. [*${minDepth}..20]) or increase the limit via config to avoid missing results.`);
+    }
+
+    // Safety cap
+    const maxPaths = this.config.maxVariableLengthPaths ?? DEFAULT_MAX_VAR_LENGTH_PATHS;
 
     const onStack = new Set<string>();
     type EdgeStep = { edgeId: string; source: string; target: string };
     const edgeHistory: EdgeStep[] = [];
+    let limitReached = false;
+
+    const emitComprehensionResult = (targetNode: CypherNode, edges: CypherEdge[]) => {
+      const loopContext: QueryContext = { ...context };
+      loopContext[targetPattern.variable] = targetNode;
+      if (relPatt.variable) loopContext[relPatt.variable] = edges;
+      if (!predicate || evalWhere(predicate, loopContext)) {
+        const genValue = evalExpr(generator, loopContext);
+        result.push(genValue as CypherValue);
+        if (result.length >= maxPaths) {
+          this.onWarning?.(`gcyphrq: Pattern comprehension exceeded ${maxPaths} paths limit. Results may be incomplete.`);
+          limitReached = true;
+        }
+      }
+    };
 
     const explore = (currentId: string) => {
-      if (onStack.has(currentId)) return;
+      if (limitReached || onStack.has(currentId)) return;
       onStack.add(currentId);
 
       if (edgeHistory.length >= minDepth && eligibleTargetIds.has(currentId)) {
         const targetAttr = this.graph.getNodeAttributes(currentId);
         const targetNode = { id: currentId, ...targetAttr } as CypherNode;
-
-        // Build edge array for relationship variable
         const edges = edgeHistory.map(({ edgeId, source, target }) =>
           ({ id: edgeId, source, target, ...this.graph.getEdgeAttributes(edgeId) } as CypherEdge)
         );
-
-        // Build loop context with bound variables
-        const loopContext: QueryContext = { ...context };
-        loopContext[targetPattern.variable] = targetNode;
-        if (relPatt.variable) {
-          loopContext[relPatt.variable] = edges;
-        }
-
-        // Apply WHERE predicate if present
-        if (predicate) {
-          if (!evalWhere(predicate, loopContext)) return;
-        }
-
-        // Evaluate generator expression
-        const genValue = evalExpr(generator, loopContext);
-        result.push(genValue as CypherValue);
+        emitComprehensionResult(targetNode, edges);
       }
 
-      if (edgeHistory.length >= maxDepth) { onStack.delete(currentId); return; }
+      if (limitReached || edgeHistory.length >= maxDepth) { onStack.delete(currentId); return; }
 
       getNeighbors(currentId, (neighborId, edgeId) => {
+        if (limitReached) return;
         if (neighborId === currentId) {
           if (edgeHistory.length + 1 >= minDepth && eligibleTargetIds.has(currentId)) {
             const targetAttr = this.graph.getNodeAttributes(currentId);
@@ -454,13 +462,7 @@ export class AdvancedCypherGraphologyEngine {
             const edges = allSteps.map(({ edgeId: eid, source, target }) =>
               ({ id: eid, source, target, ...this.graph.getEdgeAttributes(eid) } as CypherEdge)
             );
-            const loopContext: QueryContext = { ...context };
-            loopContext[targetPattern.variable] = targetNode;
-            if (relPatt.variable) loopContext[relPatt.variable] = edges;
-            if (!predicate || evalWhere(predicate, loopContext)) {
-              const genValue = evalExpr(generator, loopContext);
-              result.push(genValue as CypherValue);
-            }
+            emitComprehensionResult(targetNode, edges);
           }
           return;
         }

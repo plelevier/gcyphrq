@@ -96,6 +96,35 @@ const results = await executeQuery(graphData, 'MATCH (s:Service) RETURN s.name',
 });
 ```
 
+#### Variable-Length Traversal Limits
+
+Unbounded variable-length patterns like `[*1..]` are subject to safety limits to prevent OOM on large or dense graphs:
+
+- **`maxVariableLengthDepth`** (default: `10`) — Maximum depth for patterns without an explicit upper bound. Explicit bounds like `[*1..50]` always take precedence.
+- **`maxVariableLengthPaths`** (default: `100_000`) — Maximum number of paths emitted per (startNode, hop). When exceeded, a warning is emitted and traversal stops.
+
+```ts
+import { executeQuery } from 'gcyphrq';
+
+// Increase depth limit for sparse graphs where you need deeper traversal
+const results = await executeQuery(graphData,
+  'MATCH (a:Service)-[*1..]->(b:Database) RETURN a, b',
+  {
+    config: { maxVariableLengthDepth: 50 },
+  },
+);
+
+// Tighten path limit for interactive use
+const results2 = await executeQuery(graphData,
+  'MATCH (a)-[*1..]->(b) RETURN a, b',
+  {
+    config: { maxVariableLengthPaths: 10_000 },
+  },
+);
+```
+
+> **Tip:** Always prefer explicit bounds (e.g., `[*1..10]`) over relying on the default. The engine emits a warning for unbounded patterns to remind you.
+
 #### `executeQuery(graph, query, opts?)` — with a Graphology Graph
 
 Execute a Cypher query against an existing Graphology `Graph` instance. Indexes are built automatically from the graph.
@@ -674,7 +703,7 @@ interface IndexBuildOptions extends GraphOptions {
 
 #### `GraphConfig`
 
-The resolved config used internally. Both fields are required.
+The resolved config used internally. The first two fields are required; the traversal limits are optional.
 
 ```ts
 interface GraphConfig {
@@ -682,6 +711,10 @@ interface GraphConfig {
   labelProperty: string;
   /** Edge attribute key used as the Cypher relationship type (default: `"type"`). */
   edgeTypeProperty: string;
+  /** Max depth for unbounded variable-length patterns like [*1..] (default: 10). */
+  maxVariableLengthDepth?: number;
+  /** Max paths per (startNode, hop) in variable-length traversal (default: 100_000). */
+  maxVariableLengthPaths?: number;
 }
 ```
 
@@ -842,7 +875,7 @@ main();
 - **`executeQuery(graphData, query)`** builds a new graph for each call. For multiple queries, use `createGraph` + `GraphEngine` instead.
 - **`executeQuery(graph, query)`** with an existing graph instance reuses the graph but still builds indexes on each call. For multiple queries, use `buildGraphIndexes` + `GraphEngine` instead.
 - The engine processes queries in-memory with no caching. Large graphs (>10,000 nodes) may have noticeable query times.
-- Variable-length paths use DFS traversal. Setting `maxDepth` is recommended to avoid excessive exploration.
+- Variable-length paths use DFS traversal. Unbounded patterns (`[*1..]`) default to a max depth of 10 and a path limit of 100,000 per start node. Use explicit bounds (e.g., `[*1..10]`) or adjust via `config.maxVariableLengthDepth` / `config.maxVariableLengthPaths`.
 
 ## Next Steps
 

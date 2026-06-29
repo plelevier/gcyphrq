@@ -38,11 +38,12 @@ function createMultiPathGraph() {
 
 describe('Path expressions', () => {
   let graph: GraphInstance;
+  let indexes: ReturnType<typeof buildIndexesFromGraph>;
   let engine: AdvancedCypherGraphologyEngine;
 
   beforeEach(() => {
     graph = createMultiPathGraph();
-    const indexes = buildIndexesFromGraph(graph);
+    indexes = buildIndexesFromGraph(graph);
     engine = new AdvancedCypherGraphologyEngine(graph, indexes);
   });
 
@@ -585,8 +586,10 @@ describe('Path expressions', () => {
   describe('MATCH with open-ended ranges', () => {
     // Graph: a->b FRIEND, b->c KNOWS, b->d FRIEND, a->c KNOWS, c->d FRIEND, d->e FRIEND
     it('bare * matches all reachable pairs', async () => {
+      const warnings: string[] = [];
+      const engineWithWarnings = new AdvancedCypherGraphologyEngine(graph, indexes, (w) => warnings.push(w));
       const ast = parseCypher('MATCH (a:User)-[*]->(b:User) RETURN a.name, b.name');
-      const results = await engine.execute(ast);
+      const results = await engineWithWarnings.execute(ast);
       // a->b, a->c, a->d, a->e, b->c, b->d, c->d, d->e = 8 pairs
       expect(results.length).toBeGreaterThan(5);
     });
@@ -599,8 +602,10 @@ describe('Path expressions', () => {
     });
 
     it('*2.. matches paths of length >= 2', async () => {
+      const warnings: string[] = [];
+      const engineWithWarnings = new AdvancedCypherGraphologyEngine(graph, indexes, (w) => warnings.push(w));
       const ast = parseCypher('MATCH (a:User)-[*2..]->(b:User) RETURN a.name, b.name');
-      const results = await engine.execute(ast);
+      const results = await engineWithWarnings.execute(ast);
       // Only pairs reachable in 2+ hops
       expect(results.length).toBeGreaterThan(0);
       // Alice->Dave (via Bob or Charlie) is 2 hops, Alice->Eve is 3 hops

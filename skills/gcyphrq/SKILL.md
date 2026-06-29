@@ -43,7 +43,7 @@ When a non-JSON graph file is provided, check `--list-extensions` for a matching
 
 ## Supported Cypher
 
-- **Matching:** `MATCH`, `OPTIONAL MATCH`, chained (cartesian), labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges (`->`, `<-`, `-`)
+- **Matching:** `MATCH`, `OPTIONAL MATCH`, chained (cartesian), labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges (`->`, `<-`, `-`). Unbounded patterns (`[*1..]`) default to max depth 10 and path limit 100K per start node; explicit bounds (`[*1..N]`) always take precedence and avoid the warning
 - **Filtering:** `WHERE` with `=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `IS NULL`, `AND`/`OR`/`NOT`, map comparison
 - **Pipelining:** `WITH` + aggregations (`count`, `count(*)`, `sum`, `avg`, `min`, `max`, `collect`, all with `DISTINCT`)
 - **CASE:** general (`CASE WHEN cond THEN result`) and simple (`CASE expr WHEN val THEN result`). Nested. In RETURN/WHERE/WITH/ORDER BY/SET
@@ -85,6 +85,7 @@ When a non-JSON graph file is provided, check `--list-extensions` for a matching
 | Outgoing | `MATCH (db:Database)-[]->(t) RETURN db, t` |
 | Path | `MATCH (a {name: "X"})-[r*1..3]->(b {name: "Y"}) RETURN a, r, b` |
 | Blast radius | `MATCH (root {name: "X"})-[r*1..2]-(affected) RETURN root, r, affected` |
+| Unbounded path | `MATCH (a {name: "X"})-[r*1..]->(b) RETURN a, r, b` (max depth 10, 100K paths; use `[*1..N]` for more) |
 | Degree | `MATCH (n)-[]->(t) WITH n, count(t) AS deg RETURN n, deg` |
 | Group by | `MATCH (n:Service) WITH n.type AS t, count(n) AS c RETURN t, c` |
 | CREATE | `CREATE (n:Service {name: "X", type: "RPC"}) RETURN n` |

@@ -29,10 +29,33 @@ export interface GraphConfig {
   labelProperty: string;
   /** Edge attribute key used as the Cypher relationship type (default: `"type"`). */
   edgeTypeProperty: string;
+  /**
+   * Maximum depth for unbounded variable-length patterns like `[*1..]`.
+   * When a pattern has no explicit upper bound, this value is used as the
+   * default max depth. Set to a higher value if you need deeper traversal,
+   * or always use explicit bounds (e.g. `[*1..50]`) to override.
+   * @default {DEFAULT_MAX_VAR_LENGTH_DEPTH}
+   */
+  maxVariableLengthDepth?: number;
+  /**
+   * Maximum number of paths emitted per (startNode, hop) in a variable-length
+   * traversal. Prevents OOM on dense graphs. When exceeded, a warning is
+   * emitted and traversal stops.
+   * @default {DEFAULT_MAX_VAR_LENGTH_PATHS}
+   */
+  maxVariableLengthPaths?: number;
 }
 
 /** Default config: `label` for node labels, `type` for edge types. */
 export const DEFAULT_CONFIG: GraphConfig = { labelProperty: 'label', edgeTypeProperty: 'type' };
+
+// ── Variable-length traversal limits (safety against exponential blow-up) ──
+
+/** Default max depth for unbounded variable-length patterns like [*1..]. */
+export const DEFAULT_MAX_VAR_LENGTH_DEPTH = 10;
+
+/** Default max number of paths emitted per (startNode, hop) in a variable-length traversal. */
+export const DEFAULT_MAX_VAR_LENGTH_PATHS = 100_000;
 
 // ── Index types ──────────────────────────────────────────────────────────────
 
