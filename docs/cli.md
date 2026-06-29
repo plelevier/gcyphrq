@@ -258,6 +258,8 @@ gcyphrq -g graph.json -e 'MATCH (s:Service)-[]->(t) WITH s, count(t) AS outDegre
 gcyphrq -g graph.json -e 'MATCH (a:Service {name: "API Gateway"})-[r*1..3]->(b) RETURN a, r, b'
 ```
 
+Unbounded patterns (`[*1..]`) default to a max depth of 10 and a path limit of 100,000. Use explicit bounds (e.g., `[*1..10]`) in your query to avoid truncation. To adjust the defaults, use the [library API](library-api) with `config.maxVariableLengthDepth` / `config.maxVariableLengthPaths`.
+
 ### Import from CSV
 
 Load data from a CSV file and create nodes:

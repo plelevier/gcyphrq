@@ -211,6 +211,24 @@ MATCH (start:Service {name: 'API Gateway'})-[r*1..3]-(reachable) RETURN start, r
 MATCH (start:Service {name: 'API Gateway'})-[r*2..2]->(reachable) RETURN start, r, reachable
 ```
 
+#### Safety limits for unbounded patterns
+
+Patterns without an explicit upper bound (e.g., `[*1..]`) are subject to safety limits to prevent OOM on large or dense graphs:
+
+- **Default max depth: 10** — `[*1..]` is equivalent to `[*1..10]` unless you raise the limit via `config.maxVariableLengthDepth`
+- **Default path limit: 100,000** — When exceeded, a warning is emitted and traversal stops. Adjust via `config.maxVariableLengthPaths`
+- The engine emits a warning for unbounded patterns to remind you to add an explicit bound
+
+```cypher
+-- Unbounded: uses default max depth of 10 (and emits a warning)
+MATCH (a:Service)-[*1..]->(b) RETURN a, b
+
+-- Explicit bound: no warning, no truncation
+MATCH (a:Service)-[*1..20]->(b) RETURN a, b
+```
+
+> **Tip:** Always prefer explicit bounds (e.g., `[*1..10]`) over relying on the default, especially on large or dense graphs.
+
 ### Path variables
 
 Capture an entire path (nodes and relationships) in a single variable using `MATCH path = ...`:
