@@ -17,6 +17,25 @@ Execute Cypher queries against JSON graph files. Outputs raw JSON to stdout.
 
 `gcyphrq -g <file|-> -e '<cypher>'`. `-e` query (required), `-g` file/stdin (required), `-nl` label prop (default `"label"`), `-et` edge type (default `"type"`), `--format graph|rows`. Chain via `-g -`.
 
+## Library API (programmatic)
+
+When using `executeQuery` or `GraphEngine` from code, pass `config` for traversal control:
+
+```ts
+import { executeQuery } from 'gcyphrq';
+
+const results = await executeQuery(graphData, query, {
+  config: {
+    labelProperty: 'label',
+    edgeTypeProperty: 'type',
+    maxVariableLengthDepth: 50,    // override default 10 for [*1..]
+    maxVariableLengthPaths: 10_000, // override default 100K
+  },
+});
+```
+
+Use `maxVariableLengthDepth` when the graph is sparse and needs deeper traversal. Use `maxVariableLengthPaths` to cap memory on dense graphs.
+
 ## Extensions
 
 gcyphrq supports pluggable extensions for non-JSON input formats and custom functions. Extensions are npm packages named `gcyphrq-ext-*`. Both local (`node_modules/` near cwd) and global (`npm root -g`) packages are discovered; local takes precedence.
@@ -43,7 +62,7 @@ When a non-JSON graph file is provided, check `--list-extensions` for a matching
 
 ## Supported Cypher
 
-- **Matching:** `MATCH`, `OPTIONAL MATCH`, chained (cartesian), labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges (`->`, `<-`, `-`)
+- **Matching:** `MATCH`, `OPTIONAL MATCH`, chained (cartesian), labels `:A:B` (AND), `:A|B` (OR), `:!A` (NOT), variable-length `*min..max`, directional edges (`->`, `<-`, `-`). Unbounded patterns (`[*1..]`) default to max depth 10 and path limit 100K per start node; explicit bounds (`[*1..N]`) always take precedence and avoid the warning
 - **Filtering:** `WHERE` with `=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`, `IN`, `IS NULL`, `AND`/`OR`/`NOT`, map comparison
 - **Pipelining:** `WITH` + aggregations (`count`, `count(*)`, `sum`, `avg`, `min`, `max`, `collect`, all with `DISTINCT`)
 - **CASE:** general (`CASE WHEN cond THEN result`) and simple (`CASE expr WHEN val THEN result`). Nested. In RETURN/WHERE/WITH/ORDER BY/SET
@@ -85,6 +104,7 @@ When a non-JSON graph file is provided, check `--list-extensions` for a matching
 | Outgoing | `MATCH (db:Database)-[]->(t) RETURN db, t` |
 | Path | `MATCH (a {name: "X"})-[r*1..3]->(b {name: "Y"}) RETURN a, r, b` |
 | Blast radius | `MATCH (root {name: "X"})-[r*1..2]-(affected) RETURN root, r, affected` |
+| Unbounded path | `MATCH (a {name: "X"})-[r*1..]->(b) RETURN a, r, b` (max depth 10, 100K paths; use `[*1..N]` for more) |
 | Degree | `MATCH (n)-[]->(t) WITH n, count(t) AS deg RETURN n, deg` |
 | Group by | `MATCH (n:Service) WITH n.type AS t, count(n) AS c RETURN t, c` |
 | CREATE | `CREATE (n:Service {name: "X", type: "RPC"}) RETURN n` |
