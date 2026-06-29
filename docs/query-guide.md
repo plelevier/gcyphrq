@@ -239,6 +239,58 @@ OPTIONAL MATCH path=(n)-[:FRIEND]->(m)
 RETURN n.name, path
 ```
 
+### Multi-hop patterns
+
+Match chains of relationships within a single `MATCH` clause. Each hop is evaluated sequentially, using the target of the previous hop as the source of the next:
+
+```cypher
+-- 2-hop: Alice → friend → friend-of-friend
+MATCH (a:Person {name: 'Alice'})-[:FRIEND]->(b)-[:FRIEND]->(c)
+RETURN a.name, b.name, c.name
+
+-- 3-hop with typed relationships and labels
+MATCH (a:Service {name: 'API'})-[:DEPENDS_ON]->(b:Service)-[:DEPENDS_ON]->(c:Service)-[:DEPENDS_ON]->(d:Database)
+RETURN a.name, b.name, c.name, d.name
+
+-- Bind relationship variables across hops
+MATCH (a)-[r1:KNOWS]->(b)-[r2:KNOWS]->(c)
+RETURN a.name, r1.since, b.name, r2.since, c.name
+
+-- Mixed directions
+MATCH (a)-[:FRIEND]->(b)<-[:FRIEND]-(c)
+RETURN a.name, b.name, c.name
+
+-- Undirected hops
+MATCH (a)--(b)--(c)
+RETURN a, b, c
+
+-- Unbound intermediate nodes (anonymous)
+MATCH (a:Person {name: 'Alice'})-[]->()-[]->(c)
+RETURN a.name, c.name
+
+-- With WHERE filter on intermediate node
+MATCH (a)-[:FRIEND]->(b:Person {age: 30})-[:FRIEND]->(c)
+RETURN a.name, b.name, c.name
+
+-- With aggregation
+MATCH (a:Person)-[:FRIEND]->(b)-[:FRIEND]->(c)
+WITH a, collect(c) AS foafs
+RETURN a.name, size(foafs) AS foafCount
+
+-- Works with OPTIONAL MATCH
+MATCH (a:Person {name: 'Alice'})
+OPTIONAL MATCH (a)-[:FRIEND]->(b)-[:FRIEND]->(c)
+RETURN a.name, b.name, c.name
+
+-- Combine with variable-length paths
+MATCH (a:Person {name: 'Alice'})-[:FRIEND*1..2]->(b)-[:FRIEND]->(c)
+RETURN a.name, b.name, c.name
+```
+
+Multi-hop patterns work with all MATCH features: labels, type filters, WHERE, OPTIONAL MATCH, and path variables.
+
+> **Note:** Multi-hop patterns in a single `MATCH` clause are different from [chained MATCHes](#chained-matches). Multi-hop patterns chain relationships within one clause (each hop narrows results). Chained MATCHes use separate `MATCH` clauses and produce a cartesian product.
+
 ---
 
 ## Chained MATCHes
@@ -1196,6 +1248,33 @@ CREATE (a:Person {name: 'Alice'})-[r:KNOWS {since: 2020}]->(b:Person {name: 'Bob
 
 When a variable is already bound (via a preceding MATCH), the existing node is reused. Unbound variables create new nodes.
 
+#### Multi-hop CREATE
+
+Create chains of nodes and relationships in a single CREATE clause:
+
+```cypher
+-- Create a 2-hop chain from scratch
+CREATE (a:Person {name: 'Alice'})-[:FRIEND]->(b:Person {name: 'Bob'})-[:FRIEND]->(c:Person {name: 'Charlie'})
+RETURN a, b, c
+
+-- Create with properties on intermediate nodes
+CREATE (a:Service {name: 'API'})-[:DEPENDS_ON]->(b:Service {name: 'Worker'})-[:DEPENDS_ON]->(c:Database {name: 'Redis'})
+RETURN a, b, c
+
+-- Create with relationship properties across hops
+CREATE (a)-[r1:KNOWS {since: 2020}]->(b)-[r2:KNOWS {since: 2021}]->(c)
+RETURN a, r1, r2, b, c
+
+-- Mixed directions
+CREATE (a:Person)-[:FRIEND]->(b:Person)<-[:FRIEND]-(c:Person)
+RETURN a, b, c
+
+-- Create edge chain between existing nodes
+MATCH (a:Person {name: 'Alice'}) MATCH (b:Person {name: 'Bob'}) MATCH (c:Person {name: 'Charlie'})
+CREATE (a)-[:KNOWS]->(b)-[:KNOWS]->(c)
+RETURN a, b, c
+```
+
 ### SET
 
 Set properties and/or labels on nodes. Supports multiple operations in a single SET clause using commas.
@@ -1406,6 +1485,34 @@ RETURN a, b
 ```cypher
 MERGE (a:User)<-[:FRIEND]-(b:User)  -- inbound
 MERGE (a:User)-[:FRIEND]-(b:User)   -- undirected
+```
+
+### Multi-hop MERGE
+
+MERGE chains of nodes and relationships in a single clause. Missing nodes and edges are created as needed:
+
+```cypher
+-- 2-hop MERGE: ensures the full chain exists
+MERGE (a:Person {name: 'Alice'})-[:FRIEND]->(b:Person {name: 'Bob'})-[:FRIEND]->(c:Person {name: 'Charlie'})
+RETURN a, b, c
+
+-- 3-hop MERGE with typed relationships
+MERGE (a:Service {name: 'API'})-[:DEPENDS_ON]->(b:Service)-[:DEPENDS_ON]->(c:Service)-[:DEPENDS_ON]->(d:Database)
+RETURN a, b, c, d
+
+-- Mixed directions
+MERGE (a:Person)-[:FRIEND]->(b:Person)<-[:FRIEND]-(c:Person)
+RETURN a, b, c
+
+-- With ON CREATE / ON MATCH
+MERGE (a:Person {name: 'Alice'})-[:FRIEND]->(b:Person {name: 'Bob'})-[:FRIEND]->(c:Person {name: 'Charlie'})
+ON CREATE SET a.createdAt = 0, b.createdAt = 0, c.createdAt = 0
+ON MATCH SET a.lastSeen = 0
+RETURN a, b, c
+
+-- Unbound intermediate nodes
+MERGE (a:Person {name: 'Alice'})-[]->()-[]->(c:Person {name: 'Charlie'})
+RETURN a, c
 ```
 
 ### MERGE with parallel edges

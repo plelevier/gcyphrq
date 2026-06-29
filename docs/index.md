@@ -95,6 +95,7 @@ const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 | Feature | Status |
 |---|---|
 | `MATCH` with node labels and properties | <span class="badge badge-success">✅</span> |
+| Multi-hop patterns `MATCH (a)-[]->(b)-[]->(c)` | <span class="badge badge-success">✅</span> |
 | Variable-length paths `*min..max` | <span class="badge badge-success">✅</span> |
 | Directional edges `->`, `<-`, `-` | <span class="badge badge-success">✅</span> |
 | `OPTIONAL MATCH` | <span class="badge badge-success">✅</span> |
@@ -109,7 +110,7 @@ const results = await executeQuery(graphData, 'MATCH (u:User) RETURN u.name');
 | `WHERE` operators: `=`, `<>`, `>`, `>=`, `<`, `<=`, `CONTAINS` | <span class="badge badge-success">✅</span> |
 | `WHERE` logical operators: `AND`, `OR`, `NOT` | <span class="badge badge-success">✅</span> |
 | `WHERE` IS NULL / IS NOT NULL | <span class="badge badge-success">✅</span> |
-| `CREATE`, `SET`, `DELETE`, `DETACH DELETE`, `REMOVE` mutations | <span class="badge badge-success">✅</span> |
+| `CREATE`, `SET`, `DELETE`, `DETACH DELETE`, `REMOVE` mutations (including multi-hop chains) | <span class="badge badge-success">✅</span> |
 | `FOREACH` (SET, CREATE, DELETE, DETACH DELETE, REMOVE on nodes and edges) | <span class="badge badge-success">✅</span> |
 | `CASE ... WHEN ... END` (general and simple forms, nested) | <span class="badge badge-success">✅</span> |
 | `ORDER BY` (single/multi-column) | <span class="badge badge-success">✅</span> |
