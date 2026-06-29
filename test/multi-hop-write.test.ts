@@ -54,7 +54,7 @@ describe('Multi-hop CREATE', () => {
     });
 
     it('CREATE 2-hop binds all relationship variables', async () => {
-      const results = await executeQuery(emptyGraph, 'CREATE (a)-[r1:TYPE1]->(b)-[r2:TYPE2]->(c) RETURN r1.type AS t1, r2.type AS t2');
+      const results = await executeQuery(emptyGraph, 'CREATE (a:Node)-[r1:TYPE1]->(b:Node)-[r2:TYPE2]->(c:Node) RETURN r1.type AS t1, r2.type AS t2');
       expect(results).toEqual([{ t1: 'TYPE1', t2: 'TYPE2' }]);
     });
 
@@ -163,7 +163,7 @@ describe('Multi-hop MERGE', () => {
     });
 
     it('MERGE 2-hop binds all relationship variables', async () => {
-      const results = await executeQuery(emptyGraph, 'MERGE (a)-[r1:TYPE1]->(b)-[r2:TYPE2]->(c) RETURN r1.type AS t1, r2.type AS t2');
+      const results = await executeQuery(emptyGraph, 'MERGE (a:Node)-[r1:TYPE1]->(b:Node)-[r2:TYPE2]->(c:Node) RETURN r1.type AS t1, r2.type AS t2');
       expect(results).toEqual([{ t1: 'TYPE1', t2: 'TYPE2' }]);
     });
 
