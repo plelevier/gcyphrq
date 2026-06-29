@@ -780,17 +780,34 @@ export function evaluateStringFunction(name: string, args: CypherValue[], config
       const node = val as CypherNode; const raw = node[config.labelProperty];
       if (typeof raw === 'string') return [raw]; if (Array.isArray(raw)) return raw; return [];
     }
-    case 'reltype': {
+    case 'reltype':
+    case 'type': {
       const val = args[0]; if (!val || typeof val !== 'object') return null;
-      if (Array.isArray(val)) {
-        const edges = val as CypherEdge[];
-        if (edges.length === 1) return edges[0]![config.edgeTypeProperty] ?? null;
-        return edges.map((e) => e[config.edgeTypeProperty] ?? null);
+      // Single edge (single-hop MATCH, CREATE, MERGE) — scalar result
+      if (!Array.isArray(val)) {
+        return (val as CypherEdge)[config.edgeTypeProperty] ?? null;
       }
-      const edge = val as CypherEdge; return edge[config.edgeTypeProperty] ?? null;
+      // Array of edges (variable-length pattern) — always array result
+      return (val as CypherEdge[]).map((e) => e[config.edgeTypeProperty] ?? null);
     }
-    case 'startnode': { const val = args[0]; if (!val || typeof val !== 'object') return null; return (val as CypherEdge).source ?? null; }
-    case 'endnode': { const val = args[0]; if (!val || typeof val !== 'object') return null; return (val as CypherEdge).target ?? null; }
+    case 'startnode': {
+      const val = args[0]; if (!val || typeof val !== 'object') return null;
+      // Single edge (single-hop MATCH, CREATE, MERGE) — scalar result
+      if (!Array.isArray(val)) {
+        return (val as CypherEdge).source ?? null;
+      }
+      // Array of edges (variable-length pattern) — always array result
+      return (val as CypherEdge[]).map((e) => e.source ?? null);
+    }
+    case 'endnode': {
+      const val = args[0]; if (!val || typeof val !== 'object') return null;
+      // Single edge (single-hop MATCH, CREATE, MERGE) — scalar result
+      if (!Array.isArray(val)) {
+        return (val as CypherEdge).target ?? null;
+      }
+      // Array of edges (variable-length pattern) — always array result
+      return (val as CypherEdge[]).map((e) => e.target ?? null);
+    }
     case 'reverse': {
       const val = args[0];
       const list = asList(val);

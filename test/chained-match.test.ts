@@ -388,9 +388,9 @@ describe('Chained MATCHes', () => {
       const results = await engine.execute(ast);
 
       expect(results.length).toBe(1);
-      const r = results[0]?.r as CypherEdge[];
-      expect(r).toHaveLength(1);
-      expect(r[0]?.type).toBe('KNOWS');
+      const r = results[0]?.r as CypherEdge;
+      expect(r).toBeDefined();
+      expect(r.type).toBe('KNOWS');
     });
   });
 });

@@ -412,8 +412,8 @@ describe('edge key preservation', () => {
       graph,
       'MATCH ()-[r]->() RETURN r',
     );
-    const edges = results[0]!.r as CypherEdge[];
-    expect(edges[0]!.id).toBe('my-custom-edge');
+    const edge = results[0]!.r as CypherEdge;
+    expect(edge.id).toBe('my-custom-edge');
   });
 
   it('auto-generates edge ids when no key is provided', async () => {
@@ -431,9 +431,9 @@ describe('edge key preservation', () => {
       graph,
       'MATCH ()-[r]->() RETURN r',
     );
-    const edges = results[0]!.r as CypherEdge[];
+    const edge = results[0]!.r as CypherEdge;
     // Auto-generated ids start with "geid_"
-    expect(edges[0]!.id).toMatch(/^geid_/);
+    expect(edge.id).toMatch(/^geid_/);
   });
 
   it('handles mixed edges (some with keys, some without)', async () => {
@@ -455,7 +455,7 @@ describe('edge key preservation', () => {
     );
     expect(results.length).toBe(2);
 
-    const ids = results.flatMap((r) => (r.r as CypherEdge[]).map((e) => e.id));
+    const ids = results.flatMap((r) => (Array.isArray(r.r) ? (r.r as CypherEdge[]).map((e) => e.id) : [(r.r as CypherEdge).id]));
     expect(ids).toContain('edge-1');
     // The other edge should have an auto-generated id
     expect(ids.some((id) => id.startsWith('geid_'))).toBe(true);
@@ -512,7 +512,7 @@ describe('edge key preservation', () => {
     );
     expect(results.length).toBe(2);
 
-    const ids = results.flatMap((r) => (r.r as CypherEdge[]).map((e) => e.id));
+    const ids = results.flatMap((r) => (Array.isArray(r.r) ? (r.r as CypherEdge[]).map((e) => e.id) : [(r.r as CypherEdge).id]));
     expect(ids).toContain('dup');
     // Second edge falls back to auto-generated id
     expect(ids.some((id) => id.startsWith('geid_'))).toBe(true);

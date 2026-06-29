@@ -118,7 +118,7 @@ describe('Engine - MATCH', () => {
       );
       const results = await engine.execute(ast);
       expect(results.length).toBe(1);
-      expect(results[0]!.r).toEqual([]);
+      expect(results[0]!.r).toBeNull();
     });
 
     it('handles OPTIONAL MATCH with multiple possible matches', async () => {
@@ -199,9 +199,9 @@ describe('Engine - MATCH', () => {
       );
       const results = await engine.execute(ast);
       expect(results.length).toBe(1);
-      const edges = results[0]!.r as Array<{ type: string }>;
-      expect(Array.isArray(edges)).toBe(true);
-      expect(edges[0]!.type).toBe('FRIEND');
+      const edge = results[0]!.r as { type: string };
+      expect(Array.isArray(edge)).toBe(false);
+      expect(edge.type).toBe('FRIEND');
     });
 
     it('returns edge id in relationship data', async () => {
@@ -209,9 +209,9 @@ describe('Engine - MATCH', () => {
         'MATCH (a:User {name: "Alice"})-[r:FRIEND]->(b:User) RETURN r',
       );
       const results = await engine.execute(ast);
-      const edges = results[0]!.r as Array<{ id: string }>;
-      expect(edges[0]!.id).toBeDefined();
-      expect(typeof edges[0]!.id).toBe('string');
+      const edge = results[0]!.r as { id: string };
+      expect(edge.id).toBeDefined();
+      expect(typeof edge.id).toBe('string');
     });
   });
 

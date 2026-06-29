@@ -196,9 +196,9 @@ describe('Engine - MERGE', () => {
       const ast = parseCypher('MERGE (a:User {name: "Alice"})-[r:KNOWS]->(b:User {name: "Bob"}) ON CREATE SET r.since = 2024 RETURN a, r, b');
       const results = await e.execute(ast);
       expect(results.length).toBe(1);
-      const edges = results[0]!.r as CypherEdge[];
-      expect(edges).toHaveLength(1);
-      expect(edges[0]?.since).toBe(2024);
+      const edge = results[0]!.r as CypherEdge;
+      expect(edge).toBeDefined();
+      expect(edge.since).toBe(2024);
     });
 
     it('MERGE with ON MATCH SET on existing relationship', async () => {
@@ -211,9 +211,9 @@ describe('Engine - MERGE', () => {
       const ast = parseCypher('MERGE (a:User {name: "Alice"})-[r:FRIEND]->(b:User {name: "Bob"}) ON MATCH SET r.updated = true RETURN a, r, b');
       const results = await e.execute(ast);
       expect(results.length).toBe(1);
-      const edges = results[0]!.r as CypherEdge[];
-      expect(edges).toHaveLength(1);
-      expect(edges[0]?.updated).toBe(true);
+      const edge = results[0]!.r as CypherEdge;
+      expect(edge).toBeDefined();
+      expect(edge.updated).toBe(true);
     });
 
     // ── MERGE with WHERE ─────────────────────────────────────────────

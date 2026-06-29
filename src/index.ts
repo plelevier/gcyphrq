@@ -264,11 +264,37 @@ function resultsToGraph(
   const nodeMap = new Map<string, Record<string, unknown>>();
   const edgeMap = new Map<string, { key?: string; source: string; target: string; attributes: Record<string, unknown> }>();
 
+  /** Check if an object looks like an edge (has string id+source+target). Edges are checked before nodes. */
+  const isEdgeObject = (obj: Record<string, unknown>): boolean => {
+    return typeof obj.id === 'string' && typeof obj.source === 'string' && typeof obj.target === 'string';
+  };
+
+  /** Register a single edge into the edge map. */
+  const registerEdge = (e: Record<string, unknown>) => {
+    const eid = e.id as string;
+    if (eid && !edgeMap.has(eid)) {
+      const { id: _eid, source, target, ...attrs } = e;
+      const entry: { key?: string; source: string; target: string; attributes: Record<string, unknown> } = {
+        source: source as string,
+        target: target as string,
+        attributes: attrs,
+      };
+      if (userEdgeKeys.has(eid)) entry.key = eid;
+      edgeMap.set(eid, entry);
+    }
+  };
+
   for (const row of rows) {
     for (const value of Object.values(row)) {
       if (value === null || value === undefined) continue;
 
-      // Nodes: objects with "id" that are not arrays
+      // Edges: single edge objects (single-hop patterns) — distinguished by having id+source+target
+      if (typeof value === 'object' && !Array.isArray(value) && isEdgeObject(value as Record<string, unknown>)) {
+        registerEdge(value as Record<string, unknown>);
+        continue;
+      }
+
+      // Nodes: objects with "id" that are not arrays and not edges
       if (typeof value === 'object' && !Array.isArray(value) && 'id' in value) {
         const node = value as Record<string, unknown>;
         const id = node.id as string;
@@ -282,24 +308,8 @@ function resultsToGraph(
       // Edges: arrays of edge objects (variable-length paths)
       if (Array.isArray(value)) {
         for (const edge of value) {
-          if (edge && typeof edge === 'object' && 'id' in edge && 'source' in edge && 'target' in edge) {
-            const e = edge as Record<string, unknown>;
-            const eid = e.id as string;
-            const source = e.source as string;
-            const target = e.target as string;
-            if (typeof eid === 'string' && !edgeMap.has(eid)) {
-              const { id: _eid, source: _src, target: _tgt, ...attrs } = e;
-              const entry: { key?: string; source: string; target: string; attributes: Record<string, unknown> } = {
-                source,
-                target,
-                attributes: attrs,
-              };
-              // Include key only for edges that had a user-provided key
-              if (userEdgeKeys.has(eid)) {
-                entry.key = eid;
-              }
-              edgeMap.set(eid, entry);
-            }
+          if (edge && typeof edge === 'object' && isEdgeObject(edge as Record<string, unknown>)) {
+            registerEdge(edge as Record<string, unknown>);
           }
         }
       }

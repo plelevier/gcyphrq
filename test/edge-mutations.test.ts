@@ -85,11 +85,11 @@ describe('CREATE chain engine', () => {
     const results = await engine.execute(ast);
     expect(results.length).toBe(1);
     const a = results[0]!.a as any;
-    const r = results[0]!.r as CypherEdge[];
+    const r = results[0]!.r as CypherEdge;
     const b = results[0]!.b as any;
     expect(a).toBeDefined();
-    expect(r).toHaveLength(1);
-    expect(r[0]?.id).toBeDefined();
+    expect(r).toBeDefined();
+    expect(r.id).toBeDefined();
     expect(b).toBeDefined();
     expect(a.id).not.toBe(b.id);
     expect(graph.order).toBe(2);
@@ -103,9 +103,9 @@ describe('CREATE chain engine', () => {
     const ast = parseCypher('MATCH (a:Person {name: "Alice"}) MATCH (b:Person {name: "Bob"}) CREATE (a)-[r:KNOWS]->(b) RETURN r');
     const results = await engine.execute(ast);
     expect(results.length).toBe(1);
-    const r = results[0]!.r as CypherEdge[];
-    expect(r).toHaveLength(1);
-    expect(r[0]?.id).toBeDefined();
+    const r = results[0]!.r as CypherEdge;
+    expect(r).toBeDefined();
+    expect(r.id).toBeDefined();
     expect(graph.order).toBe(2);
     expect(countEdges(graph)).toBe(1);
   });
@@ -141,10 +141,10 @@ describe('CREATE chain engine', () => {
     const ast = parseCypher('MATCH (a:Person {name: "Alice"}) MATCH (b:Person {name: "Bob"}) CREATE (a)<-[r:KNOWS]-(b) RETURN r');
     const results = await engine.execute(ast);
     expect(results.length).toBe(1);
-    const r = results[0]!.r as CypherEdge[];
-    expect(r).toHaveLength(1);
+    const r = results[0]!.r as CypherEdge;
+    expect(r).toBeDefined();
     // For IN direction: edge goes from b -> a (bob -> alice)
-    const endpoints = getEdgeEndpoints(graph, r[0]!.id);
+    const endpoints = getEdgeEndpoints(graph, r.id);
     expect(endpoints.source).toBe('bob');
     expect(endpoints.target).toBe('alice');
   });
@@ -165,11 +165,10 @@ describe('CREATE chain engine', () => {
     const ast = parseCypher('CREATE (a:Person)-[r:KNOWS]->(b:Person) RETURN r');
     const results = await engine.execute(ast);
     expect(results.length).toBe(1);
-    const r = results[0]!.r as CypherEdge[];
-    expect(r).toHaveLength(1);
-    const edgeId = r[0]?.id;
-    expect(edgeId).toBeDefined();
-    const edgeAttrs = graph.getEdgeAttributes(edgeId!);
+    const r = results[0]!.r as CypherEdge;
+    expect(r).toBeDefined();
+    expect(r.id).toBeDefined();
+    const edgeAttrs = graph.getEdgeAttributes(r.id);
     expect(edgeAttrs.type).toBe('KNOWS');
   });
 
@@ -178,9 +177,9 @@ describe('CREATE chain engine', () => {
     const ast = parseCypher('CREATE (a:Person)-[r]->(b:Person) RETURN r');
     const results = await engine.execute(ast);
     expect(results.length).toBe(1);
-    const r = results[0]!.r as CypherEdge[];
-    expect(r).toHaveLength(1);
-    const edgeId = r[0]?.id;
+    const r = results[0]!.r as CypherEdge;
+    expect(r).toBeDefined();
+    const edgeId = r.id;
     const edgeAttrs = graph.getEdgeAttributes(edgeId!);
     expect(edgeAttrs.type).toBeUndefined();
   });
@@ -190,9 +189,9 @@ describe('CREATE chain engine', () => {
     const ast = parseCypher('CREATE (a:Person)-[r:KNOWS {since: 2020, strength: "strong"}]->(b:Person) RETURN r');
     const results = await engine.execute(ast);
     expect(results.length).toBe(1);
-    const r = results[0]!.r as CypherEdge[];
-    expect(r).toHaveLength(1);
-    const edgeId = r[0]?.id;
+    const r = results[0]!.r as CypherEdge;
+    expect(r).toBeDefined();
+    const edgeId = r.id;
     const edgeAttrs = graph.getEdgeAttributes(edgeId!);
     expect(edgeAttrs.type).toBe('KNOWS');
     expect(edgeAttrs.since).toBe(2020);
@@ -206,10 +205,10 @@ describe('CREATE chain engine', () => {
     const ast = parseCypher('MATCH (a:Person {name: "Alice"}) MATCH (b:Person {name: "Bob"}) CREATE (a)-[r:KNOWS]-(b) RETURN r');
     const results = await engine.execute(ast);
     expect(results.length).toBe(1);
-    const r = results[0]!.r as CypherEdge[];
-    expect(r).toHaveLength(1);
+    const r = results[0]!.r as CypherEdge;
+    expect(r).toBeDefined();
     // UNDIRECTED: stored as source (alice) → target (bob)
-    const endpoints = getEdgeEndpoints(graph, r[0]!.id);
+    const endpoints = getEdgeEndpoints(graph, r.id);
     expect(endpoints.source).toBe('alice');
     expect(endpoints.target).toBe('bob');
   });
