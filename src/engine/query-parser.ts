@@ -1033,13 +1033,65 @@ function findPipeInForeach(body: string): number {
   return -1;
 }
 
+/**
+ * Normalize `type(` → `reltype(` in the query text so that the reserved keyword
+ * `type` can be used as a function call (alias for `reltype`).
+ *
+ * This is a targeted replacement that avoids rewriting `type` inside identifiers
+ * (e.g., `types`, `starttype`) or inside string literals.
+ */
+function normalizeTypeFunction(query: string): string {
+  let result = '';
+  let inString = false;
+  let stringChar = '';
+
+  for (let i = 0; i < query.length; i++) {
+    const ch = query[i];
+
+    // Handle string literals
+    if (inString) {
+      result += ch;
+      if (ch === stringChar && (i === 0 || query[i - 1] !== '\\')) {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      stringChar = ch;
+      result += ch;
+      continue;
+    }
+
+    // Check for `type(` pattern (case-insensitive, respecting word boundaries)
+    if (query.slice(i, i + 5).toLowerCase() === 'type(') {
+      // Ensure it's a whole word: not preceded by a word character
+      const prevChar = i > 0 ? query[i - 1] : '';
+      if (!/[A-Za-z0-9_]/.test(prevChar)) {
+        result += 'reltype';
+        i += 3; // skip 'type' — the '(' is handled by the next iteration
+      } else {
+        result += ch;
+        continue;
+      }
+    } else {
+      result += ch;
+    }
+  }
+
+  return result;
+}
+
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 export function parseCypher(query: string): CypherAST {
   ensureContextNamesValid();
 
+  // Pre-process: alias `type(` → `reltype(` so the reserved keyword can be used as a function call
+  const preprocessedQuery = normalizeTypeFunction(query);
+
   // Pre-process: extract LOAD CSV clauses before ANTLR4 parsing
-  const { loadCsvClauses, cleanedQuery: loadCsvCleanedQuery } = extractLoadCsvClauses(query);
+  const { loadCsvClauses, cleanedQuery: loadCsvCleanedQuery } = extractLoadCsvClauses(preprocessedQuery);
 
   // Pre-process: extract FOREACH WHERE clauses and extra inner statements before ANTLR4 parsing
   // (ANTLR4 grammar does not support WHERE in FOREACH or multiple inner clauses)

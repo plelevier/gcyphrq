@@ -780,7 +780,8 @@ export function evaluateStringFunction(name: string, args: CypherValue[], config
       const node = val as CypherNode; const raw = node[config.labelProperty];
       if (typeof raw === 'string') return [raw]; if (Array.isArray(raw)) return raw; return [];
     }
-    case 'reltype': {
+    case 'reltype':
+    case 'type': {
       const val = args[0]; if (!val || typeof val !== 'object') return null;
       if (Array.isArray(val)) {
         const edges = val as CypherEdge[];

@@ -268,7 +268,29 @@ function resultsToGraph(
     for (const value of Object.values(row)) {
       if (value === null || value === undefined) continue;
 
-      // Nodes: objects with "id" that are not arrays
+      // Edges: single edge objects (single-hop patterns) — distinguished by having source+target
+      if (typeof value === 'object' && !Array.isArray(value) && 'id' in value && 'source' in value && 'target' in value) {
+        const e = value as Record<string, unknown>;
+        const eid = e.id as string;
+        const source = e.source as string;
+        const target = e.target as string;
+        if (typeof eid === 'string' && !edgeMap.has(eid)) {
+          const { id: _eid, source: _src, target: _tgt, ...attrs } = e;
+          const entry: { key?: string; source: string; target: string; attributes: Record<string, unknown> } = {
+            source,
+            target,
+            attributes: attrs,
+          };
+          // Include key only for edges that had a user-provided key
+          if (userEdgeKeys.has(eid)) {
+            entry.key = eid;
+          }
+          edgeMap.set(eid, entry);
+        }
+        continue;
+      }
+
+      // Nodes: objects with "id" that are not arrays and not edges
       if (typeof value === 'object' && !Array.isArray(value) && 'id' in value) {
         const node = value as Record<string, unknown>;
         const id = node.id as string;

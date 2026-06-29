@@ -327,7 +327,7 @@ describe('Engine - RETURN / WITH / multi-stage', () => {
       const results = await engine.execute(ast);
       expect(results.length).toBe(1);
       expect(results[0]!.r).toBeDefined();
-      expect(Array.isArray(results[0]!.r)).toBe(true);
+      expect(Array.isArray(results[0]!.r)).toBe(false);
     });
   });
 });

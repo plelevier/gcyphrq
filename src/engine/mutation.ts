@@ -59,7 +59,7 @@ export function executeWrite(
         Object.assign(edgeAttrs, edgeProps);
         graph.addEdgeWithKey(newEdgeId, edgeSource, edgeTarget, edgeAttrs);
         const edge: CypherEdge = { id: newEdgeId, source: edgeSource, target: edgeTarget, ...edgeAttrs } as CypherEdge;
-        if (clause.relationPattern.variable) context[clause.relationPattern.variable] = [edge];
+        if (clause.relationPattern.variable) context[clause.relationPattern.variable] = edge;
       }
     } else {
       for (const context of materialised) {
@@ -195,7 +195,7 @@ export function executeMerge(
       created = result.created;
       overrides[sourcePattern.variable] = result.sourceNode;
       overrides[targetPattern.variable] = result.targetNode;
-      if (relationPattern.variable) overrides[relationPattern.variable] = result.edges;
+      if (relationPattern.variable) overrides[relationPattern.variable] = result.edges[0] ?? null;
     }
 
     const chain: ContextChain = { [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: overrides };
@@ -312,8 +312,14 @@ export function applyMergeActions(
     const varName = setAction.variable;
     const value = evalExpr ? evalExpr(setAction.value, context) : undefined;
     if (relationVariable && varName === relationVariable) {
-      const edgeArray = chain[CHAIN_OVERRIDES][varName] as CypherEdge[] | undefined;
-      if (edgeArray && edgeArray.length > 0) { const edge = edgeArray[0]!; if (edge.id) { graph.setEdgeAttribute(edge.id, setAction.property, value); const freshAttrs = graph.getEdgeAttributes(edge.id); edgeArray[0] = { id: edge.id, source: edge.source, target: edge.target, ...freshAttrs } as CypherEdge; } }
+      const edgeVal = chain[CHAIN_OVERRIDES][varName] as CypherEdge | CypherEdge[] | undefined;
+      const edge = Array.isArray(edgeVal) ? (edgeVal[0] ?? null) : edgeVal;
+      if (edge && edge.id) {
+        graph.setEdgeAttribute(edge.id, setAction.property, value);
+        const freshAttrs = graph.getEdgeAttributes(edge.id);
+        const freshEdge = { id: edge.id, source: edge.source, target: edge.target, ...freshAttrs } as CypherEdge;
+        chain[CHAIN_OVERRIDES][varName] = freshEdge;
+      }
       continue;
     }
     const targetNode = chain[CHAIN_OVERRIDES][varName] as CypherNode | undefined;

@@ -14,6 +14,16 @@ import type {
 import { isContextChain, materialiseChain, resolveChainValue, type ContextChain, CHAIN_BASE, CHAIN_OVERRIDES } from './context-chain';
 
 /**
+ * Bind a relationship variable according to Neo4j semantics:
+ * - Single-hop (non-variable-length): store a single CypherEdge
+ * - Variable-length: store an array of CypherEdge[]
+ */
+function bindRelationshipVariable(edges: CypherEdge[], relation: RelationPattern): CypherValue {
+  if (relation.variableLength) return edges as unknown as CypherValue;
+  return edges[0] ?? null;
+}
+
+/**
  * Resolve node IDs matching a pattern using indexes when available.
  * Falls back to full-graph scan when indexes are absent.
  */
@@ -262,7 +272,7 @@ export function executeMatch(
           const targetNode = { id: currentId, ...targetAttr } as CypherNode;
           const edges = edgeHistory.map(({ edgeId, source, target }) => ({ id: edgeId, source, target, ...graph.getEdgeAttributes(edgeId) } as CypherEdge));
           const matchOverrides: QueryContext = { [sourcePattern.variable]: sourceNode, [targetPattern.variable]: targetNode };
-          if (relationPattern.variable) matchOverrides[relationPattern.variable] = edges;
+          if (relationPattern.variable) matchOverrides[relationPattern.variable] = bindRelationshipVariable(edges, relationPattern);
           if (pathVariable) matchOverrides[pathVariable] = buildPath(sourceNode, edges);
           outgoingContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: matchOverrides });
         }
@@ -280,7 +290,7 @@ export function executeMatch(
               const allSteps = [...edgeHistory, { edgeId, source: currentId, target: currentId }];
               const edges = allSteps.map(({ edgeId: eid, source, target }) => ({ id: eid, source, target, ...graph.getEdgeAttributes(eid) } as CypherEdge));
               const selfLoopOverrides: QueryContext = { [sourcePattern.variable]: sourceNode, [targetPattern.variable]: targetNode };
-              if (relationPattern.variable) selfLoopOverrides[relationPattern.variable] = edges;
+              if (relationPattern.variable) selfLoopOverrides[relationPattern.variable] = bindRelationshipVariable(edges, relationPattern);
               if (pathVariable) selfLoopOverrides[pathVariable] = buildPath(sourceNode, edges);
               outgoingContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: selfLoopOverrides });
             }
@@ -299,7 +309,7 @@ export function executeMatch(
 
     if (optional && !matchFoundForThisContext) {
       const nullChain: ContextChain = { [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: { [nullVar]: null } };
-      if (relationPattern.variable) nullChain[CHAIN_OVERRIDES][relationPattern.variable] = [];
+      if (relationPattern.variable) nullChain[CHAIN_OVERRIDES][relationPattern.variable] = relationPattern.variableLength ? [] : null;
       if (pathVariable) nullChain[CHAIN_OVERRIDES][pathVariable] = null;
       outgoingContexts.push(nullChain);
     }
@@ -317,7 +327,7 @@ export function executeMatch(
       for (const context of incomingContexts) {
         if (!matchedBases.has(context)) {
           const nullChain: ContextChain = { [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: { [nullVar]: null } };
-          if (relationPattern.variable) nullChain[CHAIN_OVERRIDES][relationPattern.variable] = [];
+          if (relationPattern.variable) nullChain[CHAIN_OVERRIDES][relationPattern.variable] = relationPattern.variableLength ? [] : null;
           if (pathVariable) nullChain[CHAIN_OVERRIDES][pathVariable] = null;
           filtered.push(nullChain);
         }
