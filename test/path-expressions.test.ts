@@ -38,11 +38,12 @@ function createMultiPathGraph() {
 
 describe('Path expressions', () => {
   let graph: GraphInstance;
+  let indexes: ReturnType<typeof buildIndexesFromGraph>;
   let engine: AdvancedCypherGraphologyEngine;
 
   beforeEach(() => {
     graph = createMultiPathGraph();
-    const indexes = buildIndexesFromGraph(graph);
+    indexes = buildIndexesFromGraph(graph);
     engine = new AdvancedCypherGraphologyEngine(graph, indexes);
   });
 
