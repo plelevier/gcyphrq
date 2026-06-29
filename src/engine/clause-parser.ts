@@ -83,28 +83,28 @@ export function extractMatchClause(clauseCtx: ParseTreeNode): MatchClause {
   const nodePatterns = findAllChildren(element, Ctx.NodePattern);
   const chains = findAllChildren(element, Ctx.PatternElementChain);
 
-  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
-
-  let relationPattern = extractRelationPattern(null);
-  let targetPattern: import('../types/cypher').NodePattern = { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
-
   const hasChains = chains.length > 0;
 
-  if (chains.length > 1) {
-    throw new Error('Multi-hop patterns (more than one relationship chain) are not supported. Use multiple MATCH stages or a WITH clause.');
-  }
+  const hops: import('../types/cypher').MatchHop[] = [];
 
   if (hasChains) {
-    const chain = chains[0];
-    const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
-    relationPattern = extractRelationPattern(relPatternCtx);
+    for (const chain of chains) {
+      const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
+      const relationPattern = extractRelationPattern(relPatternCtx);
 
-    const targetNodeCtx = findChild(chain, Ctx.NodePattern);
-    if (targetNodeCtx) {
-      targetPattern = extractNodePattern(targetNodeCtx);
+      const targetNodeCtx = findChild(chain, Ctx.NodePattern);
+      const targetPattern = targetNodeCtx ? extractNodePattern(targetNodeCtx) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
+
+      hops.push({ sourcePattern: { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined }, relationPattern, targetPattern });
     }
-  } else if (nodePatterns.length > 1) {
-    targetPattern = extractNodePattern(nodePatterns[1]);
+    // Set the source pattern of the first hop from the first node pattern
+    if (nodePatterns.length > 0 && hops.length > 0) {
+      hops[0]!.sourcePattern = extractNodePattern(nodePatterns[0]);
+    }
+  } else if (nodePatterns.length > 0) {
+    // Single node pattern (no chains)
+    const sourcePattern = extractNodePattern(nodePatterns[0]);
+    hops.push({ sourcePattern, relationPattern: extractRelationPattern(null), targetPattern: { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined } });
   }
 
   let pathVariable: string | undefined;
@@ -136,7 +136,7 @@ export function extractMatchClause(clauseCtx: ParseTreeNode): MatchClause {
   const whereExpr = findChild(whereCtx, Ctx.Expression);
   const where = whereExpr ? extractWhereExpression(whereExpr) : undefined;
 
-  return { optional: !!optional, hasChains, sourcePattern, relationPattern, targetPattern, where: where ?? undefined, pathVariable };
+  return { optional: !!optional, hasChains, hops, where: where ?? undefined, pathVariable };
 }
 
 // ── Projection helpers ───────────────────────────────────────────────────────

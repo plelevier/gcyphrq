@@ -247,35 +247,30 @@ function analyzeMatch(clause: MatchClause, index: number): ExplainStage {
   const vars: string[] = [];
   const details: Record<string, unknown> = {};
 
-  // Source node
-  const sourceVars = extractNodePatternVariables(clause.sourcePattern);
-  vars.push(...sourceVars);
-
-  // Target node
-  const targetVars = extractNodePatternVariables(clause.targetPattern);
-  vars.push(...targetVars);
-
-  // Relationship
-  const relVars = extractRelationPatternVariables(clause.relationPattern);
-  vars.push(...relVars);
+  // Collect variables from all hops
+  for (const hop of clause.hops) {
+    const sourceVars = extractNodePatternVariables(hop.sourcePattern);
+    vars.push(...sourceVars);
+    const targetVars = extractNodePatternVariables(hop.targetPattern);
+    vars.push(...targetVars);
+    const relVars = extractRelationPatternVariables(hop.relationPattern);
+    vars.push(...relVars);
+  }
 
   // Path variable
   if (clause.pathVariable) vars.push(clause.pathVariable);
 
-  // Description
-  const sourceVar = clause.sourcePattern.variable ? `(${clause.sourcePattern.variable}${formatLabels(clause.sourcePattern.labels)})` : '(?)';
-  const targetVar = clause.targetPattern.variable ? `(${clause.targetPattern.variable}${formatLabels(clause.targetPattern.labels)})` : '(?)';
-  const relType = formatRelationType(clause.relationPattern);
-  const relDir = clause.relationPattern.direction === 'UNDIRECTED' ? '-' : (clause.relationPattern.direction === 'OUT' ? '->' : '<-');
-
-  let pattern = '';
-  if (clause.hasChains) {
-    const relVar = clause.relationPattern.variable ? `[${clause.relationPattern.variable}${relType}]` : `[${relType}]`;
-    const arrow = clause.relationPattern.direction === 'UNDIRECTED' ? '-' : (clause.relationPattern.direction === 'OUT' ? '->' : '<-');
-    pattern = `${sourceVar}${arrow}${relVar}${arrow}${targetVar}`;
-  } else {
-    pattern = sourceVar;
+  // Build pattern description from hops
+  const hopDescriptions: string[] = [];
+  for (const hop of clause.hops) {
+    const sourceVar = hop.sourcePattern.variable ? `(${hop.sourcePattern.variable}${formatLabels(hop.sourcePattern.labels)})` : '(?)';
+    const targetVar = hop.targetPattern.variable ? `(${hop.targetPattern.variable}${formatLabels(hop.targetPattern.labels)})` : '(?)';
+    const relType = formatRelationType(hop.relationPattern);
+    const relVar = hop.relationPattern.variable ? `[${hop.relationPattern.variable}${relType}]` : `[${relType}]`;
+    const arrow = hop.relationPattern.direction === 'UNDIRECTED' ? '-' : (hop.relationPattern.direction === 'OUT' ? '->' : '<-');
+    hopDescriptions.push(`${sourceVar}${arrow}${relVar}${arrow}${targetVar}`);
   }
+  const pattern = hopDescriptions.join('');
 
   const optional = clause.optional ? 'OPTIONAL ' : '';
   const whereInfo = clause.where ? ' WHERE <filter>' : '';

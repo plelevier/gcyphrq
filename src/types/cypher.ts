@@ -106,12 +106,19 @@ export interface RelationPattern {
   direction: Direction;
 }
 
-export interface MatchClause {
-  optional: boolean;
-  hasChains: boolean;
+export interface MatchHop {
   sourcePattern: NodePattern;
   relationPattern: RelationPattern;
   targetPattern: NodePattern;
+  /** Internal flag: whether this hop has a relationship chain. Set during parsing. */
+  _hasChain?: boolean;
+}
+
+export interface MatchClause {
+  optional: boolean;
+  hasChains: boolean;
+  /** Each hop is one relationship chain: (source)-[rel]->(target). First hop source is the initial node. */
+  hops: MatchHop[];
   where: WhereExpression | undefined;
   /** Path variable from `MATCH path = (a)-[r]->(b)` syntax. */
   pathVariable: string | undefined;

@@ -8,6 +8,7 @@ import type {
   GraphConfig,
   QueryContext,
   MatchClause,
+  MatchHop,
   RelationPattern,
   NodePattern,
 } from '../types/cypher';
@@ -175,7 +176,112 @@ export function matchDynamicProperties(
 }
 
 /**
- * Execute a MATCH or OPTIONAL MATCH stage.
+ * Result of executing a single hop: list of context overrides + accumulated edges.
+ */
+interface HopResult {
+  overrides: QueryContext;
+  edges: CypherEdge[];
+  sourceNode: CypherNode;
+}
+
+/**
+ * Execute a single hop: traverse from given start node IDs through edges to target nodes.
+ * For multi-hop: startNodeIds are the targets from the previous hop.
+ */
+function executeSingleHop(
+  graph: GraphInstance,
+  indexes: GraphIndexes | undefined,
+  config: GraphConfig,
+  hop: MatchHop,
+  startNodeIds: string[],
+  context: QueryContext,
+  warnedNoLabels: boolean,
+  warnedNoEdgeTypes: boolean,
+  onWarning?: (message: string) => void,
+  evalExpr?: (e: Expression, ctx: QueryContext) => CypherValue | undefined,
+): { results: HopResult[]; warnedNoLabels: boolean; warnedNoEdgeTypes: boolean } {
+  const { sourcePattern, relationPattern, targetPattern } = hop;
+  let warnedNoLabelsOut = warnedNoLabels;
+  let warnedNoEdgeTypesOut = warnedNoEdgeTypes;
+
+  // No chain: just bind source node (single node pattern)
+  if (!hop._hasChain) {
+    const results: HopResult[] = [];
+    for (const startId of startNodeIds) {
+      const sourceAttr = graph.getNodeAttributes(startId);
+      const sourceNode = { id: startId, ...sourceAttr } as CypherNode;
+      results.push({ overrides: { [sourcePattern.variable]: sourceNode }, edges: [], sourceNode });
+    }
+    return { results, warnedNoLabels: warnedNoLabelsOut, warnedNoEdgeTypes: warnedNoEdgeTypesOut };
+  }
+
+  // Get eligible target node IDs (for filtering during BFS)
+  const targetResult = getMatchingNodeIds(graph, indexes, config, targetPattern, warnedNoLabelsOut, onWarning);
+  warnedNoLabelsOut = targetResult.warned;
+  const eligibleTargetIds = new Set(targetResult.ids);
+
+  const getNeighbors = buildNeighborGetter(graph, indexes, config, relationPattern, warnedNoEdgeTypesOut, onWarning);
+
+  const hasTargetDynamicProps = targetPattern.propertiesExpr && evalExpr;
+  const results: HopResult[] = [];
+
+  for (const startId of startNodeIds) {
+    const sourceAttr = graph.getNodeAttributes(startId);
+    const sourceNode = { id: startId, ...sourceAttr } as CypherNode;
+
+    const minDepth = relationPattern.minDepth ?? 1;
+    const maxDepth = relationPattern.maxDepth ?? (relationPattern.variableLength ? 100 : minDepth);
+
+    const onStack = new Set<string>();
+    type EdgeStep = { edgeId: string; source: string; target: string };
+    const edgeHistory: EdgeStep[] = [];
+
+    const explore = (currentId: string) => {
+      if (onStack.has(currentId)) return;
+      onStack.add(currentId);
+
+      if (edgeHistory.length >= minDepth && eligibleTargetIds.has(currentId)) {
+        const targetAttr = graph.getNodeAttributes(currentId);
+        if (hasTargetDynamicProps && !matchDynamicProperties(targetPattern.propertiesExpr!, targetAttr, context, evalExpr!)) return;
+        const targetNode = { id: currentId, ...targetAttr } as CypherNode;
+        const edges = edgeHistory.map(({ edgeId, source, target }) => ({ id: edgeId, source, target, ...graph.getEdgeAttributes(edgeId) } as CypherEdge));
+        const overrides: QueryContext = { [sourcePattern.variable]: sourceNode, [targetPattern.variable]: targetNode };
+        if (relationPattern.variable) overrides[relationPattern.variable] = bindRelationshipVariable(edges, relationPattern);
+        results.push({ overrides, edges, sourceNode });
+      }
+
+      if (edgeHistory.length >= maxDepth) { onStack.delete(currentId); return; }
+
+      getNeighbors(currentId, (neighborId, edgeId) => {
+        if (neighborId === currentId) {
+          if (edgeHistory.length + 1 >= minDepth && eligibleTargetIds.has(currentId)) {
+            const targetAttr = graph.getNodeAttributes(currentId);
+            if (hasTargetDynamicProps && !matchDynamicProperties(targetPattern.propertiesExpr!, targetAttr, context, evalExpr!)) return;
+            const targetNode = { id: currentId, ...targetAttr } as CypherNode;
+            const allSteps = [...edgeHistory, { edgeId, source: currentId, target: currentId }];
+            const edges = allSteps.map(({ edgeId: eid, source, target }) => ({ id: eid, source, target, ...graph.getEdgeAttributes(eid) } as CypherEdge));
+            const overrides: QueryContext = { [sourcePattern.variable]: sourceNode, [targetPattern.variable]: targetNode };
+            if (relationPattern.variable) overrides[relationPattern.variable] = bindRelationshipVariable(edges, relationPattern);
+            results.push({ overrides, edges, sourceNode });
+          }
+          return;
+        }
+        edgeHistory.push({ edgeId, source: currentId, target: neighborId });
+        explore(neighborId);
+        edgeHistory.pop();
+      });
+
+      onStack.delete(currentId);
+    };
+
+    explore(startId);
+  }
+
+  return { results, warnedNoLabels: warnedNoLabelsOut, warnedNoEdgeTypes: warnedNoEdgeTypesOut };
+}
+
+/**
+ * Execute a MATCH or OPTIONAL MATCH stage (supports multi-hop patterns).
  */
 export function executeMatch(
   graph: GraphInstance,
@@ -189,7 +295,8 @@ export function executeMatch(
   onWarning?: (message: string) => void,
   evalExpr?: (e: Expression, ctx: QueryContext) => CypherValue | undefined,
 ): { contexts: (QueryContext | ContextChain)[]; warnedNoLabels: boolean; warnedNoEdgeTypes: boolean } {
-  const { sourcePattern, relationPattern, targetPattern, optional, hasChains, pathVariable } = clause;
+  const { hops, optional, pathVariable } = clause;
+  const hasChains = clause.hasChains;
   const outgoingContexts: (QueryContext | ContextChain)[] = [];
 
   const buildPath = (source: CypherNode, edges: CypherEdge[]): CypherValue => {
@@ -201,117 +308,136 @@ export function executeMatch(
     return { nodes: pathNodes, relationships: edges } as unknown as CypherValue;
   };
 
-  const nullVar = hasChains ? targetPattern.variable : sourcePattern.variable;
+  // Collect all nullable variables for OPTIONAL MATCH
+  const nullVars: string[] = [];
+  for (const hop of hops) {
+    if (hop.sourcePattern.variable) nullVars.push(hop.sourcePattern.variable);
+    if (hop.relationPattern.variable) nullVars.push(hop.relationPattern.variable);
+    if (hop.targetPattern.variable) nullVars.push(hop.targetPattern.variable);
+  }
 
   let warnedNoLabelsOut = warnedNoLabels;
-  const targetResult = getMatchingNodeIds(graph, indexes, config, targetPattern, warnedNoLabelsOut, onWarning);
-  warnedNoLabelsOut = targetResult.warned;
-  const eligibleTargetIds = new Set(targetResult.ids);
-
-  const getNeighbors = buildNeighborGetter(graph, indexes, config, relationPattern, warnedNoEdgeTypes, onWarning);
   let warnedNoEdgeTypesOut = warnedNoEdgeTypes;
 
-  // Check if target pattern has dynamic properties (needs per-context filtering)
-  const hasTargetDynamicProps = targetPattern.propertiesExpr && evalExpr;
-
   for (const context of incomingContexts) {
+    const flatContext = isContextChain(context) ? materialiseChain(context) : context;
+
+    // Resolve start node IDs for the first hop
     let startNodeIds: string[] = [];
-    const boundNode = resolveChainValue(context, sourcePattern.variable);
+    const firstHop = hops[0]!;
+    const boundNode = resolveChainValue(context, firstHop.sourcePattern.variable);
     if (boundNode && typeof boundNode === 'object' && !Array.isArray(boundNode) && 'id' in boundNode) {
       const boundId = (boundNode as CypherNode).id;
       if (graph.hasNode(boundId)) {
         const freshAttrs = graph.getNodeAttributes(boundId);
-        if (matchNodeCriteria(freshAttrs, config, sourcePattern)) {
-          // Also check dynamic properties against the current context
-          if (!sourcePattern.propertiesExpr || matchDynamicProperties(sourcePattern.propertiesExpr, freshAttrs, isContextChain(context) ? materialiseChain(context) : context, evalExpr!)) {
+        if (matchNodeCriteria(freshAttrs, config, firstHop.sourcePattern)) {
+          if (!firstHop.sourcePattern.propertiesExpr || matchDynamicProperties(firstHop.sourcePattern.propertiesExpr, freshAttrs, flatContext, evalExpr!)) {
             startNodeIds = [boundId];
           }
         }
       }
     } else {
-      const result = getMatchingNodeIds(graph, indexes, config, sourcePattern, warnedNoLabelsOut, onWarning);
+      const result = getMatchingNodeIds(graph, indexes, config, firstHop.sourcePattern, warnedNoLabelsOut, onWarning);
       startNodeIds = result.ids;
       warnedNoLabelsOut = result.warned;
-      // Filter by dynamic properties (propertiesExpr) if present
-      if (sourcePattern.propertiesExpr && evalExpr) {
-        const flatCtx = isContextChain(context) ? materialiseChain(context) : context;
-        startNodeIds = startNodeIds.filter((id) => matchDynamicProperties(sourcePattern.propertiesExpr!, graph.getNodeAttributes(id), flatCtx, evalExpr));
+      if (firstHop.sourcePattern.propertiesExpr && evalExpr) {
+        startNodeIds = startNodeIds.filter((id) => matchDynamicProperties(firstHop.sourcePattern.propertiesExpr!, graph.getNodeAttributes(id), flatContext, evalExpr));
       }
     }
 
-    let matchFoundForThisContext = false;
+    // Chain hops: each hop produces results that seed the next hop
+    interface ChainState {
+      overrides: QueryContext;
+      allEdges: CypherEdge[];
+      firstSourceNode: CypherNode;
+    }
+    let chainStates: ChainState[] = [];
 
-    startNodeIds.forEach((startId) => {
-      const sourceAttr = graph.getNodeAttributes(startId);
-      const sourceNode = { id: startId, ...sourceAttr } as CypherNode;
+    for (let hopIdx = 0; hopIdx < hops.length; hopIdx++) {
+      const hop = hops[hopIdx]!;
+      hop._hasChain = hopIdx === 0 ? hasChains : true;
 
-      if (!hasChains) {
-        matchFoundForThisContext = true;
-        const overrides: QueryContext = { [sourcePattern.variable]: sourceNode };
-        if (pathVariable) overrides[pathVariable] = buildPath(sourceNode, []);
-        outgoingContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: overrides });
-        return;
+      const nextStates: ChainState[] = [];
+
+      // Collect start node IDs for this hop
+      let hopStartIds: string[] = [];
+      if (hopIdx === 0) {
+        hopStartIds = startNodeIds;
+      } else {
+        // Use target nodes from previous hop results
+        const prevTargetVar = hops[hopIdx - 1]!.targetPattern.variable;
+        const seen = new Set<string>();
+        for (const state of chainStates) {
+          const targetVal = state.overrides[prevTargetVar];
+          if (targetVal && typeof targetVal === 'object' && !Array.isArray(targetVal) && 'id' in targetVal) {
+            seen.add((targetVal as CypherNode).id);
+          }
+        }
+        hopStartIds = [...seen];
       }
 
-      const minDepth = relationPattern.minDepth ?? 1;
-      const maxDepth = relationPattern.maxDepth ?? (relationPattern.variableLength ? 100 : minDepth);
+      // Execute this hop
+      const { results, warnedNoLabels, warnedNoEdgeTypes } = executeSingleHop(
+        graph, indexes, config, hop, hopStartIds, flatContext,
+        warnedNoLabelsOut, warnedNoEdgeTypesOut, onWarning, evalExpr,
+      );
+      warnedNoLabelsOut = warnedNoLabels;
+      warnedNoEdgeTypesOut = warnedNoEdgeTypes;
 
-      const onStack = new Set<string>();
-      type EdgeStep = { edgeId: string; source: string; target: string };
-      const edgeHistory: EdgeStep[] = [];
-
-      const explore = (currentId: string) => {
-        if (onStack.has(currentId)) return;
-        onStack.add(currentId);
-
-        if (edgeHistory.length >= minDepth && eligibleTargetIds.has(currentId)) {
-          const targetAttr = graph.getNodeAttributes(currentId);
-          // Check dynamic target properties if present
-          if (hasTargetDynamicProps && !matchDynamicProperties(targetPattern.propertiesExpr!, targetAttr, isContextChain(context) ? materialiseChain(context) : context, evalExpr!)) return;
-          matchFoundForThisContext = true;
-          const targetNode = { id: currentId, ...targetAttr } as CypherNode;
-          const edges = edgeHistory.map(({ edgeId, source, target }) => ({ id: edgeId, source, target, ...graph.getEdgeAttributes(edgeId) } as CypherEdge));
-          const matchOverrides: QueryContext = { [sourcePattern.variable]: sourceNode, [targetPattern.variable]: targetNode };
-          if (relationPattern.variable) matchOverrides[relationPattern.variable] = bindRelationshipVariable(edges, relationPattern);
-          if (pathVariable) matchOverrides[pathVariable] = buildPath(sourceNode, edges);
-          outgoingContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: matchOverrides });
+      if (hopIdx === 0) {
+        // First hop: create initial chain states
+        for (const result of results) {
+          nextStates.push({
+            overrides: { ...result.overrides },
+            allEdges: [...result.edges],
+            firstSourceNode: result.sourceNode,
+          });
         }
+      } else {
+        // Subsequent hops: merge with previous chain states
+        for (const state of chainStates) {
+          const prevTargetVar = hops[hopIdx - 1]!.targetPattern.variable;
+          const prevTargetVal = state.overrides[prevTargetVar];
+          const prevTargetId = prevTargetVal && typeof prevTargetVal === 'object' && !Array.isArray(prevTargetVal) && 'id' in prevTargetVal
+            ? (prevTargetVal as CypherNode).id
+            : '';
 
-        if (edgeHistory.length >= maxDepth) { onStack.delete(currentId); return; }
+          // Find matching hop results where source matches previous target
+          const matchingResults = results.filter((r) => r.sourceNode.id === prevTargetId);
 
-        getNeighbors(currentId, (neighborId, edgeId) => {
-          if (neighborId === currentId) {
-            if (edgeHistory.length + 1 >= minDepth && eligibleTargetIds.has(currentId)) {
-              const targetAttr = graph.getNodeAttributes(currentId);
-              // Check dynamic target properties if present
-              if (hasTargetDynamicProps && !matchDynamicProperties(targetPattern.propertiesExpr!, targetAttr, isContextChain(context) ? materialiseChain(context) : context, evalExpr!)) return;
-              matchFoundForThisContext = true;
-              const targetNode = { id: currentId, ...targetAttr } as CypherNode;
-              const allSteps = [...edgeHistory, { edgeId, source: currentId, target: currentId }];
-              const edges = allSteps.map(({ edgeId: eid, source, target }) => ({ id: eid, source, target, ...graph.getEdgeAttributes(eid) } as CypherEdge));
-              const selfLoopOverrides: QueryContext = { [sourcePattern.variable]: sourceNode, [targetPattern.variable]: targetNode };
-              if (relationPattern.variable) selfLoopOverrides[relationPattern.variable] = bindRelationshipVariable(edges, relationPattern);
-              if (pathVariable) selfLoopOverrides[pathVariable] = buildPath(sourceNode, edges);
-              outgoingContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: selfLoopOverrides });
-            }
-            return;
+          for (const result of matchingResults) {
+            const mergedOverrides: QueryContext = { ...state.overrides, ...result.overrides };
+            nextStates.push({
+              overrides: mergedOverrides,
+              allEdges: [...state.allEdges, ...result.edges],
+              firstSourceNode: state.firstSourceNode,
+            });
           }
-          edgeHistory.push({ edgeId, source: currentId, target: neighborId });
-          explore(neighborId);
-          edgeHistory.pop();
-        });
+        }
+      }
 
-        onStack.delete(currentId);
-      };
+      if (nextStates.length === 0) break;
+      chainStates = nextStates;
+    }
 
-      explore(startId);
-    });
-
-    if (optional && !matchFoundForThisContext) {
-      const nullChain: ContextChain = { [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: { [nullVar]: null } };
-      if (relationPattern.variable) nullChain[CHAIN_OVERRIDES][relationPattern.variable] = relationPattern.variableLength ? [] : null;
-      if (pathVariable) nullChain[CHAIN_OVERRIDES][pathVariable] = null;
-      outgoingContexts.push(nullChain);
+    if (chainStates.length > 0) {
+      for (const state of chainStates) {
+        const overrides = { ...state.overrides };
+        if (pathVariable && state.firstSourceNode) {
+          overrides[pathVariable] = buildPath(state.firstSourceNode, state.allEdges);
+        }
+        outgoingContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: overrides });
+      }
+    } else if (optional) {
+      // OPTIONAL MATCH — emit null row
+      const nullOverrides: QueryContext = {};
+      for (const v of nullVars) {
+        const relHop = hops.find((h) => h.relationPattern.variable === v);
+        if (relHop) nullOverrides[v] = relHop.relationPattern.variableLength ? [] : null;
+        else nullOverrides[v] = null;
+      }
+      if (pathVariable) nullOverrides[pathVariable] = null;
+      outgoingContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: nullOverrides });
     }
   }
 
@@ -326,10 +452,14 @@ export function executeMatch(
       for (const ctx of filtered) { const base = isContextChain(ctx) ? ctx[CHAIN_BASE] : ctx; if (base) matchedBases.add(base); }
       for (const context of incomingContexts) {
         if (!matchedBases.has(context)) {
-          const nullChain: ContextChain = { [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: { [nullVar]: null } };
-          if (relationPattern.variable) nullChain[CHAIN_OVERRIDES][relationPattern.variable] = relationPattern.variableLength ? [] : null;
-          if (pathVariable) nullChain[CHAIN_OVERRIDES][pathVariable] = null;
-          filtered.push(nullChain);
+          const nullOverrides: QueryContext = {};
+          for (const v of nullVars) {
+            const relHop = hops.find((h) => h.relationPattern.variable === v);
+            if (relHop) nullOverrides[v] = relHop.relationPattern.variableLength ? [] : null;
+            else nullOverrides[v] = null;
+          }
+          if (pathVariable) nullOverrides[pathVariable] = null;
+          filtered.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: nullOverrides });
         }
       }
     }
