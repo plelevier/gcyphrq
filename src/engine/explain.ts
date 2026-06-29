@@ -247,35 +247,30 @@ function analyzeMatch(clause: MatchClause, index: number): ExplainStage {
   const vars: string[] = [];
   const details: Record<string, unknown> = {};
 
-  // Source node
-  const sourceVars = extractNodePatternVariables(clause.sourcePattern);
-  vars.push(...sourceVars);
-
-  // Target node
-  const targetVars = extractNodePatternVariables(clause.targetPattern);
-  vars.push(...targetVars);
-
-  // Relationship
-  const relVars = extractRelationPatternVariables(clause.relationPattern);
-  vars.push(...relVars);
+  // Collect variables from all hops
+  for (const hop of clause.hops) {
+    const sourceVars = extractNodePatternVariables(hop.sourcePattern);
+    vars.push(...sourceVars);
+    const targetVars = extractNodePatternVariables(hop.targetPattern);
+    vars.push(...targetVars);
+    const relVars = extractRelationPatternVariables(hop.relationPattern);
+    vars.push(...relVars);
+  }
 
   // Path variable
   if (clause.pathVariable) vars.push(clause.pathVariable);
 
-  // Description
-  const sourceVar = clause.sourcePattern.variable ? `(${clause.sourcePattern.variable}${formatLabels(clause.sourcePattern.labels)})` : '(?)';
-  const targetVar = clause.targetPattern.variable ? `(${clause.targetPattern.variable}${formatLabels(clause.targetPattern.labels)})` : '(?)';
-  const relType = formatRelationType(clause.relationPattern);
-  const relDir = clause.relationPattern.direction === 'UNDIRECTED' ? '-' : (clause.relationPattern.direction === 'OUT' ? '->' : '<-');
-
-  let pattern = '';
-  if (clause.hasChains) {
-    const relVar = clause.relationPattern.variable ? `[${clause.relationPattern.variable}${relType}]` : `[${relType}]`;
-    const arrow = clause.relationPattern.direction === 'UNDIRECTED' ? '-' : (clause.relationPattern.direction === 'OUT' ? '->' : '<-');
-    pattern = `${sourceVar}${arrow}${relVar}${arrow}${targetVar}`;
-  } else {
-    pattern = sourceVar;
+  // Build pattern description from hops
+  const hopDescriptions: string[] = [];
+  for (const hop of clause.hops) {
+    const sourceVar = hop.sourcePattern.variable ? `(${hop.sourcePattern.variable}${formatLabels(hop.sourcePattern.labels)})` : '(?)';
+    const targetVar = hop.targetPattern.variable ? `(${hop.targetPattern.variable}${formatLabels(hop.targetPattern.labels)})` : '(?)';
+    const relType = formatRelationType(hop.relationPattern);
+    const relVar = hop.relationPattern.variable ? `[${hop.relationPattern.variable}${relType}]` : `[${relType}]`;
+    const arrow = hop.relationPattern.direction === 'UNDIRECTED' ? '-' : (hop.relationPattern.direction === 'OUT' ? '->' : '<-');
+    hopDescriptions.push(`${sourceVar}${arrow}${relVar}${arrow}${targetVar}`);
   }
+  const pattern = hopDescriptions.join('');
 
   const optional = clause.optional ? 'OPTIONAL ' : '';
   const whereInfo = clause.where ? ' WHERE <filter>' : '';
@@ -350,23 +345,27 @@ function analyzeCreate(clause: CreateClause, index: number): ExplainStage {
   const vars: string[] = [];
   const details: Record<string, unknown> = {};
 
-  if (clause.variable) vars.push(clause.variable);
-  if (clause.hasChain && clause.targetPattern?.variable) vars.push(clause.targetPattern.variable);
-  if (clause.hasChain && clause.relationPattern?.variable) vars.push(clause.relationPattern.variable);
+  for (const hop of clause.hops) {
+    if (hop.sourcePattern.variable) vars.push(hop.sourcePattern.variable);
+    if (hop.targetPattern.variable) vars.push(hop.targetPattern.variable);
+    if (hop.relationPattern.variable) vars.push(hop.relationPattern.variable);
+  }
 
-  const labels = clause.labels ? `:${clause.labels.join(':')}` : '';
-  const props = Object.keys(clause.properties || {}).length;
-  const propsExpr = Object.keys(clause.propertiesExpr || {}).length;
+  const firstHop = clause.hops[0];
+  const labels = firstHop?.sourcePattern.labels?.labels ? `:${firstHop.sourcePattern.labels.labels.join(':')}` : '';
+  const allProps = clause.hops.reduce((sum, hop) => sum + Object.keys(hop.sourcePattern.properties || {}).length + Object.keys(hop.sourcePattern.propertiesExpr || {}).length + Object.keys(hop.targetPattern.properties || {}).length + Object.keys(hop.targetPattern.propertiesExpr || {}).length, 0);
+  const allEdgeProps = clause.hops.reduce((sum, hop) => sum + Object.keys(hop.edgeProperties || {}).length + Object.keys(hop.edgePropertiesExpr || {}).length, 0);
 
-  details.variable = clause.variable;
-  details.labels = clause.labels;
-  details.propertyCount = props + propsExpr;
-  details.hasChain = clause.hasChain;
+  details.variable = firstHop?.sourcePattern.variable;
+  details.labels = firstHop?.sourcePattern.labels?.labels;
+  details.propertyCount = allProps + allEdgeProps;
+  details.hasChains = clause.hasChains;
+  details.hopCount = clause.hops.length;
 
   return {
     index,
     type: 'CREATE',
-    description: `CREATE (${clause.variable}${labels})${clause.hasChain ? ' -> ...' : ''}`,
+    description: `CREATE (${firstHop?.sourcePattern.variable}${labels})${clause.hasChains ? ' -> ...' : ''}`,
     variables: vars,
     details,
   };
@@ -433,12 +432,14 @@ function analyzeMerge(clause: MergeClause, index: number): ExplainStage {
   const vars: string[] = [];
   const details: Record<string, unknown> = {};
 
-  const sourceVars = extractNodePatternVariables(clause.sourcePattern);
-  vars.push(...sourceVars);
-  const targetVars = extractNodePatternVariables(clause.targetPattern);
-  vars.push(...targetVars);
-  const relVars = extractRelationPatternVariables(clause.relationPattern);
-  vars.push(...relVars);
+  for (const hop of clause.hops) {
+    const sourceVars = extractNodePatternVariables(hop.sourcePattern);
+    vars.push(...sourceVars);
+    const targetVars = extractNodePatternVariables(hop.targetPattern);
+    vars.push(...targetVars);
+    const relVars = extractRelationPatternVariables(hop.relationPattern);
+    vars.push(...relVars);
+  }
 
   details.hasChains = clause.hasChains;
   details.hasWhere = !!clause.where;
@@ -453,20 +454,24 @@ function analyzeMerge(clause: MergeClause, index: number): ExplainStage {
     detachDeleteCount: clause.onMatch.detachDeleteVariables.length,
   };
 
-  const sourceVar = clause.sourcePattern.variable ? `(${clause.sourcePattern.variable}${formatLabels(clause.sourcePattern.labels)})` : '(?)';
-  const targetVar = clause.targetPattern.variable ? `(${clause.targetPattern.variable}${formatLabels(clause.targetPattern.labels)})` : '(?)';
-  let pattern = sourceVar;
-  if (clause.hasChains) {
-    const relVar = clause.relationPattern.variable ? `[${clause.relationPattern.variable}${formatRelationType(clause.relationPattern)}]` : `[${formatRelationType(clause.relationPattern)}]`;
-    const arrow = clause.relationPattern.direction === 'UNDIRECTED' ? '-' : (clause.relationPattern.direction === 'OUT' ? '->' : '<-');
-    pattern = `${sourceVar}${arrow}${relVar}${arrow}${targetVar}`;
+  const hopDescriptions: string[] = [];
+  for (const hop of clause.hops) {
+    const sourceVar = hop.sourcePattern.variable ? `(${hop.sourcePattern.variable}${formatLabels(hop.sourcePattern.labels)})` : '(?)';
+    const targetVar = hop.targetPattern.variable ? `(${hop.targetPattern.variable}${formatLabels(hop.targetPattern.labels)})` : '(?)';
+    if (!hop._hasChain) {
+      hopDescriptions.push(sourceVar);
+    } else {
+      const relVar = hop.relationPattern.variable ? `[${hop.relationPattern.variable}${formatRelationType(hop.relationPattern)}]` : `[${formatRelationType(hop.relationPattern)}]`;
+      const arrow = hop.relationPattern.direction === 'UNDIRECTED' ? '-' : (hop.relationPattern.direction === 'OUT' ? '->' : '<-');
+      hopDescriptions.push(`${sourceVar}${arrow}${relVar}${arrow}${targetVar}`);
+    }
   }
-  details.pattern = pattern;
+  details.pattern = hopDescriptions.join('');
 
   return {
     index,
     type: 'MERGE',
-    description: `MERGE ${pattern}${clause.where ? ' WHERE <filter>' : ''}`,
+    description: `MERGE ${details.pattern}${clause.where ? ' WHERE <filter>' : ''}`,
     variables: vars,
     details,
   };

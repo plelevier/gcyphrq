@@ -83,28 +83,28 @@ export function extractMatchClause(clauseCtx: ParseTreeNode): MatchClause {
   const nodePatterns = findAllChildren(element, Ctx.NodePattern);
   const chains = findAllChildren(element, Ctx.PatternElementChain);
 
-  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
-
-  let relationPattern = extractRelationPattern(null);
-  let targetPattern: import('../types/cypher').NodePattern = { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
-
   const hasChains = chains.length > 0;
 
-  if (chains.length > 1) {
-    throw new Error('Multi-hop patterns (more than one relationship chain) are not supported. Use multiple MATCH stages or a WITH clause.');
-  }
+  const hops: import('../types/cypher').MatchHop[] = [];
 
   if (hasChains) {
-    const chain = chains[0];
-    const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
-    relationPattern = extractRelationPattern(relPatternCtx);
+    for (const chain of chains) {
+      const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
+      const relationPattern = extractRelationPattern(relPatternCtx);
 
-    const targetNodeCtx = findChild(chain, Ctx.NodePattern);
-    if (targetNodeCtx) {
-      targetPattern = extractNodePattern(targetNodeCtx);
+      const targetNodeCtx = findChild(chain, Ctx.NodePattern);
+      const targetPattern = targetNodeCtx ? extractNodePattern(targetNodeCtx) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
+
+      hops.push({ sourcePattern: { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined }, relationPattern, targetPattern });
     }
-  } else if (nodePatterns.length > 1) {
-    targetPattern = extractNodePattern(nodePatterns[1]);
+    // Set the source pattern of the first hop from the first node pattern
+    if (nodePatterns.length > 0 && hops.length > 0) {
+      hops[0]!.sourcePattern = extractNodePattern(nodePatterns[0]);
+    }
+  } else if (nodePatterns.length > 0) {
+    // Single node pattern (no chains)
+    const sourcePattern = extractNodePattern(nodePatterns[0]);
+    hops.push({ sourcePattern, relationPattern: extractRelationPattern(null), targetPattern: { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined } });
   }
 
   let pathVariable: string | undefined;
@@ -136,7 +136,7 @@ export function extractMatchClause(clauseCtx: ParseTreeNode): MatchClause {
   const whereExpr = findChild(whereCtx, Ctx.Expression);
   const where = whereExpr ? extractWhereExpression(whereExpr) : undefined;
 
-  return { optional: !!optional, hasChains, sourcePattern, relationPattern, targetPattern, where: where ?? undefined, pathVariable };
+  return { optional: !!optional, hasChains, hops, where: where ?? undefined, pathVariable };
 }
 
 // ── Projection helpers ───────────────────────────────────────────────────────
@@ -859,40 +859,45 @@ export function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | unde
     const propertiesExpr = extractDynamicProperties(mapLitCtx);
 
     const chains = findAllChildren(element, Ctx.PatternElementChain);
-    const hasChain = chains.length > 0;
+    const hasChains = chains.length > 0;
 
-    if (hasChain) {
-      if (chains.length > 1) {
-        throw new Error('Multi-hop CREATE patterns are not supported. Use multiple CREATE stages.');
+    const hops: import('../types/cypher').CreateHop[] = [];
+
+    if (hasChains) {
+      for (const chain of chains) {
+        const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
+        const relationPattern = extractRelationPattern(relPatternCtx);
+
+        const relDetailCtx = findChild(relPatternCtx, Ctx.RelationshipDetail);
+        const edgePropsCtx = relDetailCtx ? findChild(relDetailCtx, Ctx.Properties) : undefined;
+        const edgeMapLitCtx = findChild(edgePropsCtx, Ctx.MapLiteral);
+        const edgeProperties = extractProperties(edgeMapLitCtx);
+        const edgePropertiesExpr = extractDynamicProperties(edgeMapLitCtx);
+
+        const targetNodeCtx = findChild(chain, Ctx.NodePattern);
+        const targetPattern = targetNodeCtx ? extractNodePattern(targetNodeCtx) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
+
+        hops.push({
+          sourcePattern: { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined },
+          relationPattern,
+          targetPattern,
+          edgeProperties,
+          edgePropertiesExpr,
+        });
       }
-      const chain = chains[0];
-      const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
-      const relationPattern = extractRelationPattern(relPatternCtx);
-
-      const relDetailCtx = findChild(relPatternCtx, Ctx.RelationshipDetail);
-      const edgePropsCtx = relDetailCtx ? findChild(relDetailCtx, Ctx.Properties) : undefined;
-      const edgeMapLitCtx = findChild(edgePropsCtx, Ctx.MapLiteral);
-      const edgeProperties = extractProperties(edgeMapLitCtx);
-      const edgePropertiesExpr = extractDynamicProperties(edgeMapLitCtx);
-
-      const targetNodeCtx = findChild(chain, Ctx.NodePattern);
-      const targetPattern = targetNodeCtx ? extractNodePattern(targetNodeCtx) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
-
-      return {
-        type: 'CREATE' as const,
-        variable,
-        labels,
-        properties,
-        propertiesExpr,
-        hasChain: true,
-        relationPattern,
-        targetPattern,
-        edgeProperties,
-        edgePropertiesExpr,
-      };
+      // Set the source pattern of the first hop from the first node pattern
+      if (hops.length > 0) {
+        hops[0]!.sourcePattern = { variable, labels: labelExpr, properties, propertiesExpr };
+      }
+    } else {
+      hops.push({
+        sourcePattern: { variable, labels: labelExpr, properties, propertiesExpr },
+        relationPattern: extractRelationPattern(null),
+        targetPattern: { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined },
+      });
     }
 
-    return { type: 'CREATE' as const, variable, labels, properties, propertiesExpr, hasChain: false };
+    return { type: 'CREATE' as const, hasChains, hops };
   }
 
   // DELETE clause
@@ -1346,28 +1351,34 @@ export function extractMergeClause(clauseCtx: ParseTreeNode): MergeClause {
   const nodePatterns = findAllChildren(element, Ctx.NodePattern);
   const chains = findAllChildren(element, Ctx.PatternElementChain);
 
-  const sourcePattern = nodePatterns[0] ? extractNodePattern(nodePatterns[0]) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
-
-  let relationPattern = extractRelationPattern(null);
-  let targetPattern: import('../types/cypher').NodePattern = { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
-
   const hasChains = chains.length > 0;
-
-  if (chains.length > 1) {
-    throw new Error('Multi-hop MERGE patterns are not supported. Use multiple MERGE stages.');
-  }
+  const hops: import('../types/cypher').MatchHop[] = [];
 
   if (hasChains) {
-    const chain = chains[0];
-    const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
-    relationPattern = extractRelationPattern(relPatternCtx);
+    for (const chain of chains) {
+      const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
+      const relationPattern = extractRelationPattern(relPatternCtx);
 
-    const targetNodeCtx = findChild(chain, Ctx.NodePattern);
-    if (targetNodeCtx) {
-      targetPattern = extractNodePattern(targetNodeCtx);
+      const targetNodeCtx = findChild(chain, Ctx.NodePattern);
+      const targetPattern = targetNodeCtx ? extractNodePattern(targetNodeCtx) : { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined };
+
+      hops.push({
+        sourcePattern: { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined },
+        relationPattern,
+        targetPattern,
+      });
     }
-  } else if (nodePatterns.length > 1) {
-    targetPattern = extractNodePattern(nodePatterns[1]);
+    // Set the source pattern of the first hop from the first node pattern
+    if (nodePatterns.length > 0 && hops.length > 0) {
+      hops[0]!.sourcePattern = extractNodePattern(nodePatterns[0]);
+    }
+  } else if (nodePatterns.length > 0) {
+    const sourcePattern = extractNodePattern(nodePatterns[0]);
+    hops.push({
+      sourcePattern,
+      relationPattern: extractRelationPattern(null),
+      targetPattern: { variable: '', labels: undefined, properties: undefined, propertiesExpr: undefined },
+    });
   }
 
   const mergeActions = findAllChildren(mergeCtx, Ctx.MergeAction);
@@ -1390,7 +1401,7 @@ export function extractMergeClause(clauseCtx: ParseTreeNode): MergeClause {
   const whereExpr = findChild(whereCtx, Ctx.Expression);
   const where = whereExpr ? extractWhereExpression(whereExpr) : undefined;
 
-  return { type: 'MERGE', hasChains, sourcePattern, relationPattern, targetPattern, where, onCreate, onMatch };
+  return { type: 'MERGE', hasChains, hops, where, onCreate, onMatch };
 }
 
 // ── MERGE action extraction from raw text (ANTLR4 workaround) ────────────────

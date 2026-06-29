@@ -106,35 +106,42 @@ export interface RelationPattern {
   direction: Direction;
 }
 
-export interface MatchClause {
-  optional: boolean;
-  hasChains: boolean;
+export interface MatchHop {
   sourcePattern: NodePattern;
   relationPattern: RelationPattern;
   targetPattern: NodePattern;
+  /** Internal flag: whether this hop has a relationship chain. Set during parsing. */
+  _hasChain?: boolean;
+}
+
+export interface MatchClause {
+  optional: boolean;
+  hasChains: boolean;
+  /** Each hop is one relationship chain: (source)-[rel]->(target). First hop source is the initial node. */
+  hops: MatchHop[];
   where: WhereExpression | undefined;
   /** Path variable from `MATCH path = (a)-[r]->(b)` syntax. */
   pathVariable: string | undefined;
 }
 
-export interface CreateClause {
-  type: 'CREATE';
-  variable: string;
-  labels: string[] | undefined;
-  /** Static properties evaluated at parse time (for CREATE outside FOREACH). */
-  properties: Record<string, CypherValue> | undefined;
-  /** Dynamic property expressions evaluated at runtime (for CREATE inside FOREACH). */
-  propertiesExpr: Record<string, Expression> | undefined;
-  /** Whether the CREATE includes a relationship chain (source)-[rel]->(target). */
-  hasChain: boolean;
-  /** Relationship pattern (type, variable, direction) when hasChain is true. */
-  relationPattern?: RelationPattern;
-  /** Target node pattern when hasChain is true (includes properties/propertiesExpr). */
-  targetPattern?: NodePattern;
+export interface CreateHop {
+  sourcePattern: NodePattern;
+  relationPattern: RelationPattern;
+  targetPattern: NodePattern;
   /** Static properties for the edge. */
   edgeProperties?: Record<string, CypherValue> | undefined;
   /** Dynamic property expressions for the edge. */
   edgePropertiesExpr?: Record<string, Expression> | undefined;
+  /** Internal flag: whether this hop has a relationship chain. */
+  _hasChain?: boolean;
+}
+
+export interface CreateClause {
+  type: 'CREATE';
+  /** Array of hops: each hop is (source)-[rel]->(target). Single node = 1 hop with no chain. */
+  hops: CreateHop[];
+  /** Whether the CREATE includes any relationship chain. */
+  hasChains: boolean;
 }
 
 export interface DeleteClause {
@@ -198,11 +205,10 @@ export interface MergeAction {
 
 export interface MergeClause {
   type: 'MERGE';
-  /** Whether the pattern includes a relationship chain */
+  /** Array of hops: each hop is (source)-[rel]->(target). Single node = 1 hop with no chain. */
+  hops: MatchHop[];
+  /** Whether the pattern includes any relationship chain */
   hasChains: boolean;
-  sourcePattern: NodePattern;
-  relationPattern: RelationPattern;
-  targetPattern: NodePattern;
   /** Optional WHERE clause to filter which existing nodes count as a match */
   where: WhereExpression | undefined;
   /** ON CREATE actions (empty array if absent) */
