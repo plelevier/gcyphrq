@@ -859,11 +859,11 @@ export function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | unde
     const propertiesExpr = extractDynamicProperties(mapLitCtx);
 
     const chains = findAllChildren(element, Ctx.PatternElementChain);
-    const hasChain = chains.length > 0;
+    const hasChains = chains.length > 0;
 
     const hops: import('../types/cypher').CreateHop[] = [];
 
-    if (hasChain) {
+    if (hasChains) {
       for (const chain of chains) {
         const relPatternCtx = findChild(chain, Ctx.RelationshipPattern);
         const relationPattern = extractRelationPattern(relPatternCtx);
@@ -897,7 +897,7 @@ export function extractWriteClause(clauseCtx: ParseTreeNode): WriteClause | unde
       });
     }
 
-    return { type: 'CREATE' as const, hasChain, hops };
+    return { type: 'CREATE' as const, hasChains, hops };
   }
 
   // DELETE clause

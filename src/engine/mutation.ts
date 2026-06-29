@@ -52,9 +52,9 @@ export function executeWrite(
       const hops = clause.hops;
       for (let hopIdx = 0; hopIdx < hops.length; hopIdx++) {
         const hop = hops[hopIdx]!;
-        hop._hasChain = hopIdx === 0 && !clause.hasChain ? false : true;
+        const isChain = hopIdx === 0 ? clause.hasChains : true;
 
-        if (!hop._hasChain) {
+        if (!isChain) {
           // Single node pattern
           resolveOrCreateNode(graph, config, hop.sourcePattern, context, evalExpr);
           continue;
@@ -214,20 +214,22 @@ export function executeMerge(
     } else {
       // Chain MERGE: process hops sequentially
       let warnedLocal = warnedNoLabelsOut;
+      let lastTargetId: string | undefined;
+
       for (let hopIdx = 0; hopIdx < hops.length; hopIdx++) {
         const hop = hops[hopIdx]!;
-        hop._hasChain = hopIdx === 0 ? hasChains : true;
+        const isChain = hopIdx === 0 ? hasChains : true;
 
         // Resolve source node
         let sourceId: string;
         let sourceCreated = false;
 
         // For multi-hop: use previous hop's target as source
-        let prevTargetVar = '';
-        if (hopIdx > 0) {
-          prevTargetVar = hops[hopIdx - 1]!.targetPattern.variable;
-        }
-        const boundSource = resolveChainValue(context, hop.sourcePattern.variable) || overrides[hop.sourcePattern.variable] || (prevTargetVar ? overrides[prevTargetVar] : undefined);
+        const prevTargetVar = hopIdx > 0 ? hops[hopIdx - 1]!.targetPattern.variable : '';
+        const boundSource = resolveChainValue(context, hop.sourcePattern.variable)
+          || overrides[hop.sourcePattern.variable]
+          || (prevTargetVar ? overrides[prevTargetVar] : undefined)
+          || (lastTargetId ? { id: lastTargetId } as CypherNode : undefined);
         if (boundSource && typeof boundSource === 'object' && !Array.isArray(boundSource) && 'id' in boundSource) {
           sourceId = (boundSource as CypherNode).id;
           const freshAttrs = graph.getNodeAttributes(sourceId);
@@ -247,7 +249,10 @@ export function executeMerge(
         const sourceAttr = graph.getNodeAttributes(sourceId);
         overrides[hop.sourcePattern.variable] = { id: sourceId, ...sourceAttr } as CypherNode;
 
-        if (!hop._hasChain) continue;
+        if (!isChain) {
+          lastTargetId = sourceId;
+          continue;
+        }
 
         // Resolve target node
         let targetId: string;
@@ -289,6 +294,7 @@ export function executeMerge(
         created = created || targetCreated;
         const targetAttr = graph.getNodeAttributes(targetId);
         overrides[hop.targetPattern.variable] = { id: targetId, ...targetAttr } as CypherNode;
+        lastTargetId = targetId;
 
         // Find or create edge
         let edgeId: string | undefined;

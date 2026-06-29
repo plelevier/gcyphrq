@@ -141,7 +141,7 @@ export interface CreateClause {
   /** Array of hops: each hop is (source)-[rel]->(target). Single node = 1 hop with no chain. */
   hops: CreateHop[];
   /** Whether the CREATE includes any relationship chain. */
-  hasChain: boolean;
+  hasChains: boolean;
 }
 
 export interface DeleteClause {

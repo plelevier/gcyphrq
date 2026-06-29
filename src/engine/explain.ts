@@ -359,13 +359,13 @@ function analyzeCreate(clause: CreateClause, index: number): ExplainStage {
   details.variable = firstHop?.sourcePattern.variable;
   details.labels = firstHop?.sourcePattern.labels?.labels;
   details.propertyCount = allProps + allEdgeProps;
-  details.hasChain = clause.hasChain;
+  details.hasChains = clause.hasChains;
   details.hopCount = clause.hops.length;
 
   return {
     index,
     type: 'CREATE',
-    description: `CREATE (${firstHop?.sourcePattern.variable}${labels})${clause.hasChain ? ' -> ...' : ''}`,
+    description: `CREATE (${firstHop?.sourcePattern.variable}${labels})${clause.hasChains ? ' -> ...' : ''}`,
     variables: vars,
     details,
   };
@@ -467,12 +467,11 @@ function analyzeMerge(clause: MergeClause, index: number): ExplainStage {
     }
   }
   details.pattern = hopDescriptions.join('');
-  const pattern = hopDescriptions.join('');
 
   return {
     index,
     type: 'MERGE',
-    description: `MERGE ${pattern}${clause.where ? ' WHERE <filter>' : ''}`,
+    description: `MERGE ${details.pattern}${clause.where ? ' WHERE <filter>' : ''}`,
     variables: vars,
     details,
   };

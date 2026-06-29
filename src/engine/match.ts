@@ -182,6 +182,7 @@ interface HopResult {
   overrides: QueryContext;
   edges: CypherEdge[];
   sourceNode: CypherNode;
+  targetNode: CypherNode;
 }
 
 /**
@@ -210,7 +211,7 @@ function executeSingleHop(
     for (const startId of startNodeIds) {
       const sourceAttr = graph.getNodeAttributes(startId);
       const sourceNode = { id: startId, ...sourceAttr } as CypherNode;
-      results.push({ overrides: { [sourcePattern.variable]: sourceNode }, edges: [], sourceNode });
+      results.push({ overrides: { [sourcePattern.variable]: sourceNode }, edges: [], sourceNode, targetNode: sourceNode });
     }
     return { results, warnedNoLabels: warnedNoLabelsOut, warnedNoEdgeTypes: warnedNoEdgeTypesOut };
   }
@@ -247,7 +248,7 @@ function executeSingleHop(
         const edges = edgeHistory.map(({ edgeId, source, target }) => ({ id: edgeId, source, target, ...graph.getEdgeAttributes(edgeId) } as CypherEdge));
         const overrides: QueryContext = { [sourcePattern.variable]: sourceNode, [targetPattern.variable]: targetNode };
         if (relationPattern.variable) overrides[relationPattern.variable] = bindRelationshipVariable(edges, relationPattern);
-        results.push({ overrides, edges, sourceNode });
+        results.push({ overrides, edges, sourceNode, targetNode });
       }
 
       if (edgeHistory.length >= maxDepth) { onStack.delete(currentId); return; }
@@ -262,7 +263,7 @@ function executeSingleHop(
             const edges = allSteps.map(({ edgeId: eid, source, target }) => ({ id: eid, source, target, ...graph.getEdgeAttributes(eid) } as CypherEdge));
             const overrides: QueryContext = { [sourcePattern.variable]: sourceNode, [targetPattern.variable]: targetNode };
             if (relationPattern.variable) overrides[relationPattern.variable] = bindRelationshipVariable(edges, relationPattern);
-            results.push({ overrides, edges, sourceNode });
+            results.push({ overrides, edges, sourceNode, targetNode });
           }
           return;
         }
@@ -350,12 +351,13 @@ export function executeMatch(
       overrides: QueryContext;
       allEdges: CypherEdge[];
       firstSourceNode: CypherNode;
+      lastTargetId: string;
     }
     let chainStates: ChainState[] = [];
 
     for (let hopIdx = 0; hopIdx < hops.length; hopIdx++) {
       const hop = hops[hopIdx]!;
-      hop._hasChain = hopIdx === 0 ? hasChains : true;
+      const isChain = hopIdx === 0 ? hasChains : true;
 
       const nextStates: ChainState[] = [];
 
@@ -364,21 +366,18 @@ export function executeMatch(
       if (hopIdx === 0) {
         hopStartIds = startNodeIds;
       } else {
-        // Use target nodes from previous hop results
-        const prevTargetVar = hops[hopIdx - 1]!.targetPattern.variable;
+        // Use lastTargetId from each chain state for start nodes.
+        // This works for both bound and unbound intermediate nodes.
         const seen = new Set<string>();
         for (const state of chainStates) {
-          const targetVal = state.overrides[prevTargetVar];
-          if (targetVal && typeof targetVal === 'object' && !Array.isArray(targetVal) && 'id' in targetVal) {
-            seen.add((targetVal as CypherNode).id);
-          }
+          seen.add(state.lastTargetId);
         }
         hopStartIds = [...seen];
       }
 
       // Execute this hop
       const { results, warnedNoLabels, warnedNoEdgeTypes } = executeSingleHop(
-        graph, indexes, config, hop, hopStartIds, flatContext,
+        graph, indexes, config, { ...hop, _hasChain: isChain }, hopStartIds, flatContext,
         warnedNoLabelsOut, warnedNoEdgeTypesOut, onWarning, evalExpr,
       );
       warnedNoLabelsOut = warnedNoLabels;
@@ -391,19 +390,25 @@ export function executeMatch(
             overrides: { ...result.overrides },
             allEdges: [...result.edges],
             firstSourceNode: result.sourceNode,
+            lastTargetId: result.targetNode.id,
           });
         }
       } else {
         // Subsequent hops: merge with previous chain states
-        for (const state of chainStates) {
-          const prevTargetVar = hops[hopIdx - 1]!.targetPattern.variable;
-          const prevTargetVal = state.overrides[prevTargetVar];
-          const prevTargetId = prevTargetVal && typeof prevTargetVal === 'object' && !Array.isArray(prevTargetVal) && 'id' in prevTargetVal
-            ? (prevTargetVal as CypherNode).id
-            : '';
+        // Pre-group results by source node ID for O(1) lookup
+        const resultsBySource = new Map<string, HopResult[]>();
+        for (const result of results) {
+          const key = result.sourceNode.id;
+          const group = resultsBySource.get(key);
+          if (group) group.push(result);
+          else resultsBySource.set(key, [result]);
+        }
 
-          // Find matching hop results where source matches previous target
-          const matchingResults = results.filter((r) => r.sourceNode.id === prevTargetId);
+        for (const state of chainStates) {
+          // Use the tracked lastTargetId from this chain state
+          const prevTargetId = state.lastTargetId;
+
+          const matchingResults = resultsBySource.get(prevTargetId) || [];
 
           for (const result of matchingResults) {
             const mergedOverrides: QueryContext = { ...state.overrides, ...result.overrides };
@@ -411,6 +416,7 @@ export function executeMatch(
               overrides: mergedOverrides,
               allEdges: [...state.allEdges, ...result.edges],
               firstSourceNode: state.firstSourceNode,
+              lastTargetId: result.targetNode.id,
             });
           }
         }

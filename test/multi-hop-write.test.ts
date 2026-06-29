@@ -13,7 +13,7 @@ describe('Multi-hop CREATE', () => {
       const ast = parseCypher('CREATE (a:Person)-[r1:KNOWS]->(b)-[r2:LIKES]->(c) RETURN a, b, c');
       const create = ast.stages[0]! as { type: 'WRITE'; clause: any };
       expect(create.clause.type).toBe('CREATE');
-      expect(create.clause.hasChain).toBe(true);
+      expect(create.clause.hasChains).toBe(true);
       expect(create.clause.hops.length).toBe(2);
       expect(create.clause.hops[0]?.sourcePattern.variable).toBe('a');
       expect(create.clause.hops[0]?.relationPattern.variable).toBe('r1');

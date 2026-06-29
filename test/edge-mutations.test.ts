@@ -31,7 +31,7 @@ describe('CREATE chain parser', () => {
     expect(ast.stages[0]?.type).toBe('WRITE');
     const create = ast.stages[0]! as { type: 'WRITE'; clause: any };
     expect(create.clause.type).toBe('CREATE');
-    expect(create.clause.hasChain).toBe(true);
+    expect(create.clause.hasChains).toBe(true);
     expect(create.clause.hops[0]?.sourcePattern.variable).toBe('a');
     expect(create.clause.hops[0]?.sourcePattern.labels?.labels).toEqual(['Person']);
     expect(create.clause.hops[0]?.relationPattern.variable).toBe('r');
@@ -56,7 +56,7 @@ describe('CREATE chain parser', () => {
   it('parses CREATE chain with inline properties', async () => {
     const ast = parseCypher('CREATE (a:Person {name: "Alice"})-[r:KNOWS {since: 2020}]->(b:Person {name: "Bob"}) RETURN a, b');
     const create = ast.stages[0]! as { type: 'WRITE'; clause: any };
-    expect(create.clause.hasChain).toBe(true);
+    expect(create.clause.hasChains).toBe(true);
     expect(create.clause.hops[0]?.sourcePattern.properties).toEqual({ name: 'Alice' });
     expect(create.clause.hops[0]?.targetPattern.properties).toEqual({ name: 'Bob' });
     expect(create.clause.hops[0]?.edgeProperties).toEqual({ since: 2020 });

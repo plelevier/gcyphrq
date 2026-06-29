@@ -133,6 +133,26 @@ describe('Multi-hop patterns', () => {
     });
   });
 
+  describe('Unbound intermediate nodes', () => {    it('MATCH (a)-[]->()-[]->(c) chains through unbound node', async () => {
+      const results = await executeQuery(socialGraph, 'MATCH (a)-[]->()-[]->(c) RETURN a.name, c.name');
+      expect(results.length).toBe(2);
+      expect(results[0]).toEqual({ 'a.name': 'Alice', 'c.name': 'Charlie' });
+      expect(results[1]).toEqual({ 'a.name': 'Bob', 'c.name': 'Diana' });
+    });
+
+    it('MATCH (a)-[]->()-[]->()-[]->(d) chains through two unbound nodes', async () => {
+      const results = await executeQuery(socialGraph, 'MATCH (a)-[]->()-[]->()-[]->(d) RETURN a.name, d.name');
+      expect(results.length).toBe(1);
+      expect(results[0]).toEqual({ 'a.name': 'Alice', 'd.name': 'Diana' });
+    });
+
+    it('mixed bound and unbound intermediates', async () => {
+      const results = await executeQuery(socialGraph, 'MATCH (a)-[]->(b)-[]->()-[]->(d) RETURN a.name, b.name, d.name');
+      expect(results.length).toBe(1);
+      expect(results[0]).toEqual({ 'a.name': 'Alice', 'b.name': 'Bob', 'd.name': 'Diana' });
+    });
+  });
+
   describe('Single-hop still works (regression)', () => {
     it('MATCH (a)-[r]->(b) returns single edge', async () => {
       const results = await executeQuery(socialGraph, 'MATCH (a)-[r]->(b) RETURN r.type AS t');
