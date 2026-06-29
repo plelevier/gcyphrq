@@ -49,10 +49,10 @@ describe('FOREACH parser', () => {
     const clause = (ast.stages[1]! as { type: 'FOREACH'; clause: ForeachClause }).clause;
     expect(clause.innerClauses[0]?.type).toBe('CREATE');
     if (clause.innerClauses[0]?.type === 'CREATE') {
-      expect(clause.innerClauses[0].variable).toBe('t');
-      expect(clause.innerClauses[0].labels).toEqual(['Tag']);
-      expect(clause.innerClauses[0].propertiesExpr).toBeDefined();
-      expect(clause.innerClauses[0].propertiesExpr?.['name']).toBeDefined();
+      expect(clause.innerClauses[0].hops[0]?.sourcePattern.variable).toBe('t');
+      expect(clause.innerClauses[0].hops[0]?.sourcePattern.labels?.labels).toEqual(['Tag']);
+      expect(clause.innerClauses[0].hops[0]?.sourcePattern.propertiesExpr).toBeDefined();
+      expect(clause.innerClauses[0].hops[0]?.sourcePattern.propertiesExpr?.['name']).toBeDefined();
     }
   });
 

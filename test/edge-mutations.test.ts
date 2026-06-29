@@ -32,34 +32,34 @@ describe('CREATE chain parser', () => {
     const create = ast.stages[0]! as { type: 'WRITE'; clause: any };
     expect(create.clause.type).toBe('CREATE');
     expect(create.clause.hasChain).toBe(true);
-    expect(create.clause.variable).toBe('a');
-    expect(create.clause.labels).toEqual(['Person']);
-    expect(create.clause.relationPattern.variable).toBe('r');
-    expect(create.clause.relationPattern.type).toBe('KNOWS');
-    expect(create.clause.relationPattern.direction).toBe('OUT');
-    expect(create.clause.targetPattern.variable).toBe('b');
+    expect(create.clause.hops[0]?.sourcePattern.variable).toBe('a');
+    expect(create.clause.hops[0]?.sourcePattern.labels?.labels).toEqual(['Person']);
+    expect(create.clause.hops[0]?.relationPattern.variable).toBe('r');
+    expect(create.clause.hops[0]?.relationPattern.type).toBe('KNOWS');
+    expect(create.clause.hops[0]?.relationPattern.direction).toBe('OUT');
+    expect(create.clause.hops[0]?.targetPattern.variable).toBe('b');
     expect(ast.return).toBeDefined();
   });
 
   it('parses CREATE with incoming direction (a)<-[r:TYPE]-(b)', async () => {
     const ast = parseCypher('CREATE (a:Person)<-[r:KNOWS]-(b:Person) RETURN a, b');
     const create = ast.stages[0]! as { type: 'WRITE'; clause: any };
-    expect(create.clause.relationPattern.direction).toBe('IN');
+    expect(create.clause.hops[0]?.relationPattern.direction).toBe('IN');
   });
 
   it('parses CREATE with undirected edge (a)-[r]-(b)', async () => {
     const ast = parseCypher('CREATE (a:Person)-[r]-(b:Person) RETURN a, b');
     const create = ast.stages[0]! as { type: 'WRITE'; clause: any };
-    expect(create.clause.relationPattern.direction).toBe('UNDIRECTED');
+    expect(create.clause.hops[0]?.relationPattern.direction).toBe('UNDIRECTED');
   });
 
   it('parses CREATE chain with inline properties', async () => {
     const ast = parseCypher('CREATE (a:Person {name: "Alice"})-[r:KNOWS {since: 2020}]->(b:Person {name: "Bob"}) RETURN a, b');
     const create = ast.stages[0]! as { type: 'WRITE'; clause: any };
     expect(create.clause.hasChain).toBe(true);
-    expect(create.clause.properties).toEqual({ name: 'Alice' });
-    expect(create.clause.targetPattern.properties).toEqual({ name: 'Bob' });
-    expect(create.clause.edgeProperties).toEqual({ since: 2020 });
+    expect(create.clause.hops[0]?.sourcePattern.properties).toEqual({ name: 'Alice' });
+    expect(create.clause.hops[0]?.targetPattern.properties).toEqual({ name: 'Bob' });
+    expect(create.clause.hops[0]?.edgeProperties).toEqual({ since: 2020 });
   });
 
   it('parses CREATE chain with MATCH prefix', async () => {
