@@ -316,13 +316,13 @@ export class AdvancedCypherGraphologyEngine {
   // ── WITH STAGE ───────────────────────────────────────────────────────
 
   private executeWith(clause: WithClause, contexts: (QueryContext | ContextChain)[]): QueryContext[] {
-    return executeWithImpl(clause, contexts, (e, c) => this.evaluateExpression(e, c), (e, c, a) => this.evaluateExpressionWithAggregations(e, c, a), (b, r, p, e, ea) => this.computeAggregations(b, r, p), (w, c) => this.evaluateWhere(w, c), compareValuesImpl);
+    return executeWithImpl(clause, contexts, (e, c) => this.evaluateExpression(e, c), (e, c, a) => this.evaluateExpressionWithAggregations(e, c, a), (b, r, p, e, ea) => this.computeAggregations(b, r, p), (w, c) => this.evaluateWhere(w, c));
   }
 
   // ── RETURN PROJECTION STAGE ──────────────────────────────────────────
 
   private executeReturn(clause: ReturnClause, contexts: (QueryContext | ContextChain)[]): ResultRow[] {
-    return executeReturnImpl(clause, contexts, (e, c) => this.evaluateExpression(e, c), (e, c, a) => this.evaluateExpressionWithAggregations(e, c, a), (b, r, p, e, ea) => this.computeAggregations(b, r, p), compareValuesImpl);
+    return executeReturnImpl(clause, contexts, (e, c) => this.evaluateExpression(e, c), (e, c, a) => this.evaluateExpressionWithAggregations(e, c, a), (b, r, p, e, ea) => this.computeAggregations(b, r, p));
   }
 
   // ── Shared aggregation logic ─────────────────────────────────────────

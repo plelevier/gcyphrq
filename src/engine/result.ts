@@ -1,7 +1,69 @@
 import type { CypherValue, Expression, OrderByItem, Projection, QueryContext, ReturnClause, WithClause, WhereExpression } from '../types/cypher';
 import { isContextChain, materialiseChain, type ContextChain } from './context-chain';
 import { containsAggregation, collectAggregations } from './aggregation';
-import { applyOrderByToContexts, applyOrderByToRows, compareValuesWithNulls } from './where';
+import { applyOrderByToContexts, compareValuesWithNulls } from './where';
+
+type ProjectedRow = { row: Record<string, CypherValue>; context: QueryContext };
+
+/** Apply DISTINCT, ORDER BY, SKIP, LIMIT to a list of projected rows. */
+function applyPostProcessing(
+  projected: ProjectedRow[],
+  projections: Projection[],
+  orderBy: OrderByItem[] | undefined,
+  skip: number | undefined,
+  limit: number | undefined,
+  evalExpr: (expr: Expression, ctx: QueryContext) => CypherValue | undefined,
+): ProjectedRow[] {
+  const hasDistinct = projections.some((p) => p.distinct);
+  if (hasDistinct) {
+    const seen = new Set<string>();
+    const deduped: ProjectedRow[] = [];
+    for (const { row, context } of projected) {
+      const key = projections.map((p) => JSON.stringify(row[p.alias])).join('\0');
+      if (!seen.has(key)) { seen.add(key); deduped.push({ row, context }); }
+    }
+    projected.splice(0, projected.length, ...deduped);
+  }
+
+  if (orderBy && orderBy.length > 0) {
+    const keyed = projected.map(({ row, context }) => ({ row, context, keys: orderBy.map((item) => evalExpr(item.expression, context)) }));
+    keyed.sort((a, b) => {
+      for (let i = 0; i < orderBy.length; i++) {
+        const item = orderBy[i];
+        if (!item) continue;
+        const cmp = compareValuesWithNulls(a.keys[i], b.keys[i], item);
+        if (cmp !== 0) return cmp;
+      }
+      return 0;
+    });
+    projected.splice(0, projected.length, ...keyed.map((k) => ({ row: k.row, context: k.context })));
+  }
+
+  if (skip !== undefined && skip !== null) projected.splice(0, skip);
+  if (limit !== undefined && limit !== null) projected.length = Math.min(projected.length, limit);
+
+  return projected;
+}
+
+/** Build a grouping map from rows, keyed by non-aggregated projection values. */
+function buildGroups(
+  materialised: QueryContext[],
+  keysSimple: Projection[],
+  evalExpr: (expr: Expression, ctx: QueryContext) => CypherValue | undefined,
+): Map<string, { simpleValues: QueryContext; rows: QueryContext[] }> {
+  const groups = new Map<string, { simpleValues: QueryContext; rows: QueryContext[] }>();
+
+  for (const context of materialised) {
+    const groupKeyObj: QueryContext = {};
+    keysSimple.forEach((p) => { groupKeyObj[p.alias] = evalExpr(p.expression, context); });
+    const sortedKeys = Object.keys(groupKeyObj).sort();
+    const groupKeyStr = sortedKeys.map((k) => JSON.stringify([k, groupKeyObj[k]])).join(',');
+    if (!groups.has(groupKeyStr)) groups.set(groupKeyStr, { simpleValues: groupKeyObj, rows: [] });
+    groups.get(groupKeyStr)!.rows.push(context);
+  }
+
+  return groups;
+}
 
 /** Execute a RETURN projection stage. */
 export function executeReturn(
@@ -10,24 +72,34 @@ export function executeReturn(
   evalExpr: (expr: Expression, ctx: QueryContext) => CypherValue | undefined,
   evalExprWithAgg: (expr: Expression, ctx: QueryContext, aggResults: Map<string, CypherValue>) => CypherValue,
   computeAggregations: (baseContext: QueryContext, rows: QueryContext[], aggrProjections: Projection[], evalExpr: any, evalExprWithAgg: any) => QueryContext,
-  compareValues: (a: CypherValue | undefined, b: CypherValue | undefined) => number,
 ): Record<string, CypherValue>[] {
   const keysSimple = clause.projections.filter((p) => !containsAggregation(p.expression));
   const keysAggr = clause.projections.filter((p) => containsAggregation(p.expression));
 
   if (keysAggr.length > 0) {
     const materialised = contexts.map((c) => materialiseChain(c));
-    const result: Record<string, CypherValue> = {};
 
-    keysSimple.forEach((p) => {
-      const values = materialised.map((ctx) => evalExpr(p.expression, ctx));
-      const uniqueValues = new Set(values.map((v) => JSON.stringify(v)));
-      if (uniqueValues.size > 1) throw new Error(`Mixed aggregation and non-aggregation in RETURN without WITH: "${p.alias}" has different values across rows. Use a WITH clause to group first.`);
-      result[p.alias] = values[0] as CypherValue;
+    // When there are no input rows but aggregations are present, produce one row with defaults
+    if (materialised.length === 0) {
+      const emptyResult = computeAggregations({}, [], keysAggr, evalExpr, evalExprWithAgg);
+      const row: Record<string, CypherValue> = {};
+      clause.projections.forEach((p) => { row[p.alias] = emptyResult[p.alias]; });
+      return [row];
+    }
+
+    const groups = buildGroups(materialised, keysSimple, evalExpr);
+
+    const groupedContexts: QueryContext[] = [];
+    groups.forEach(({ simpleValues, rows }) => { groupedContexts.push(computeAggregations(simpleValues, rows, keysAggr, evalExpr, evalExprWithAgg)); });
+
+    // Build projected rows from grouped contexts
+    const projected = groupedContexts.map((ctx) => {
+      const row: Record<string, CypherValue> = {};
+      clause.projections.forEach((p) => { row[p.alias] = ctx[p.alias]; });
+      return { row, context: ctx };
     });
 
-    const aggResult = computeAggregations(result, materialised, keysAggr, evalExpr, evalExprWithAgg);
-    return [aggResult as Record<string, CypherValue>];
+    return applyPostProcessing(projected, clause.projections, clause.orderBy, clause.skip, clause.limit, evalExpr).map((p) => p.row);
   }
 
   const materialised = contexts.map((c) => materialiseChain(c));
@@ -38,35 +110,7 @@ export function executeReturn(
     return { row, context };
   });
 
-  const hasDistinct = clause.projections.some((p) => p.distinct);
-  if (hasDistinct) {
-    const seen = new Set<string>();
-    const deduped: typeof projected = [];
-    for (const { row, context } of projected) {
-      const key = clause.projections.map((p) => JSON.stringify(row[p.alias])).join('\0');
-      if (!seen.has(key)) { seen.add(key); deduped.push({ row, context }); }
-    }
-    projected.splice(0, projected.length, ...deduped);
-  }
-
-  if (clause.orderBy && clause.orderBy.length > 0) {
-    const keyed = projected.map(({ row, context }) => ({ row, context, keys: clause.orderBy!.map((item) => evalExpr(item.expression, context)) }));
-    keyed.sort((a, b) => {
-      for (let i = 0; i < clause.orderBy!.length; i++) {
-        const item = clause.orderBy![i];
-        if (!item) continue;
-        const cmp = compareValuesWithNulls(a.keys[i], b.keys[i], item);
-        if (cmp !== 0) return cmp;
-      }
-      return 0;
-    });
-    projected.splice(0, projected.length, ...keyed.map((k) => ({ row: k.row, context: k.context })));
-  }
-
-  if (clause.skip !== undefined && clause.skip !== null) projected.splice(0, clause.skip);
-  if (clause.limit !== undefined && clause.limit !== null) projected.length = Math.min(projected.length, clause.limit);
-
-  return projected.map((p) => p.row);
+  return applyPostProcessing(projected, clause.projections, clause.orderBy, clause.skip, clause.limit, evalExpr).map((p) => p.row);
 }
 
 /** Execute a WITH clause. */
@@ -77,7 +121,6 @@ export function executeWith(
   evalExprWithAgg: (expr: Expression, ctx: QueryContext, aggResults: Map<string, CypherValue>) => CypherValue,
   computeAggregations: (baseContext: QueryContext, rows: QueryContext[], aggrProjections: Projection[], evalExpr: any, evalExprWithAgg: any) => QueryContext,
   evaluateWhere: (whereNode: WhereExpression, context: QueryContext) => boolean,
-  compareValues: (a: CypherValue | undefined, b: CypherValue | undefined) => number,
 ): QueryContext[] {
   const keysSimple = clause.projections.filter((p) => !containsAggregation(p.expression));
   const keysAggr = clause.projections.filter((p) => containsAggregation(p.expression));
@@ -91,17 +134,20 @@ export function executeWith(
     return newContexts;
   }
 
-  const groups = new Map<string, { simpleValues: QueryContext; rows: QueryContext[] }>();
   const materialised = contexts.map((c) => materialiseChain(c));
 
-  for (const context of materialised) {
-    const groupKeyObj: QueryContext = {};
-    keysSimple.forEach((p) => { groupKeyObj[p.alias] = evalExpr(p.expression, context); });
-    const sortedKeys = Object.keys(groupKeyObj).sort();
-    const groupKeyStr = sortedKeys.map((k) => JSON.stringify([k, groupKeyObj[k]])).join(',');
-    if (!groups.has(groupKeyStr)) groups.set(groupKeyStr, { simpleValues: groupKeyObj, rows: [] });
-    groups.get(groupKeyStr)!.rows.push(context);
+  // When there are no input rows but aggregations are present, produce one row with defaults
+  if (materialised.length === 0 && keysAggr.length > 0) {
+    const emptyResult = computeAggregations({}, [], keysAggr, evalExpr, evalExprWithAgg);
+    let newContexts = [emptyResult];
+    if (clause.where) newContexts = newContexts.filter((ctx) => evaluateWhere(clause.where!, ctx));
+    if (clause.orderBy && clause.orderBy.length > 0) newContexts = applyOrderByToContexts(newContexts, clause.orderBy, evalExpr);
+    if (clause.skip !== undefined && clause.skip !== null) newContexts = newContexts.slice(clause.skip);
+    if (clause.limit !== undefined && clause.limit !== null) newContexts = newContexts.slice(0, clause.limit);
+    return newContexts;
   }
+
+  const groups = buildGroups(materialised, keysSimple, evalExpr);
 
   let newContexts: QueryContext[] = [];
   groups.forEach(({ simpleValues, rows }) => { newContexts.push(computeAggregations(simpleValues, rows, keysAggr, evalExpr, evalExprWithAgg)); });

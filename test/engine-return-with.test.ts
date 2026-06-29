@@ -156,6 +156,26 @@ describe('Engine - RETURN / WITH / multi-stage', () => {
       expect(results.length).toBe(1);
       expect(results[0]!.maxVal).toBeNull();
     });
+
+    it('WITH with aggregations on no matches produces one row with defaults', async () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', value: 1 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+      const ast = parseCypher('MATCH (n:NonExistent) WITH count(*) AS c, collect(n.value) AS vals RETURN c, vals');
+      const results = await e.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.c).toBe(0);
+      expect(results[0]!.vals).toEqual([]);
+    });
+
+    it('WITH with aggregations on no matches respects WHERE filter', async () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Item', value: 1 });
+      const e = new AdvancedCypherGraphologyEngine(g);
+      const ast = parseCypher('MATCH (n:NonExistent) WITH count(*) AS c WHERE c > 0 RETURN c');
+      const results = await e.execute(ast);
+      expect(results.length).toBe(0);
+    });
   });
 
   describe('execute - multi-stage queries', () => {
@@ -250,6 +270,48 @@ describe('Engine - RETURN / WITH / multi-stage', () => {
       expect(results[0]!.avgAge).toBe(29.5);
       expect(results[0]!.minAge).toBe(25);
       expect(results[0]!.maxAge).toBe(35);
+    });
+
+    it('implicitly groups by non-aggregated column with relationship traversal in RETURN', async () => {
+      const ast = parseCypher('MATCH (a:User)-[r:FRIEND]->(b:User) RETURN a.name AS service, count(b) AS deps');
+      const results = await engine.execute(ast);
+      expect(results.length).toBe(2);
+      const map = new Map(results.map((r) => [r.service, r.deps]));
+      expect(map.get('Alice')).toBe(1);
+      expect(map.get('Bob')).toBe(1);
+    });
+
+    it('implicitly groups with multiple aggregations per group in RETURN', async () => {
+      const ast = parseCypher('MATCH (a:User)-[r:FRIEND]->(b:User) RETURN a.name AS name, count(b) AS friendCount, avg(b.age) AS avgFriendAge');
+      const results = await engine.execute(ast);
+      expect(results.length).toBe(2);
+      const alice = results.find((r) => r.name === 'Alice');
+      expect(alice?.friendCount).toBe(1);
+      expect(alice?.avgFriendAge).toBe(25);
+      const bob = results.find((r) => r.name === 'Bob');
+      expect(bob?.friendCount).toBe(1);
+      expect(bob?.avgFriendAge).toBe(35);
+    });
+
+    it('implicitly groups with ORDER BY on aggregated column in RETURN', async () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'Service', name: 'A' });
+      g.addNode('b', { label: 'Service', name: 'B' });
+      g.addNode('c', { label: 'Service', name: 'C' });
+      g.addNode('d', { label: 'Service', name: 'D' });
+      g.addEdge('a', 'b', { type: 'DEPENDS_ON' });
+      g.addEdge('a', 'c', { type: 'DEPENDS_ON' });
+      g.addEdge('a', 'd', { type: 'DEPENDS_ON' });
+      g.addEdge('b', 'c', { type: 'DEPENDS_ON' });
+      const e = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher('MATCH (s:Service)-[:DEPENDS_ON]->(dep:Service) RETURN s.name AS service, count(dep) AS deps ORDER BY deps DESC');
+      const results = await e.execute(ast);
+      expect(results.length).toBe(2);
+      expect(results[0]!.service).toBe('A');
+      expect(results[0]!.deps).toBe(3);
+      expect(results[1]!.service).toBe('B');
+      expect(results[1]!.deps).toBe(1);
     });
 
     it('handles multiple matches from different start nodes', async () => {
