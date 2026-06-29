@@ -264,9 +264,9 @@ function resultsToGraph(
   const nodeMap = new Map<string, Record<string, unknown>>();
   const edgeMap = new Map<string, { key?: string; source: string; target: string; attributes: Record<string, unknown> }>();
 
-  /** Check if an object looks like an edge (has id+source+target). Edges are checked before nodes. */
+  /** Check if an object looks like an edge (has string id+source+target). Edges are checked before nodes. */
   const isEdgeObject = (obj: Record<string, unknown>): boolean => {
-    return 'id' in obj && 'source' in obj && 'target' in obj && typeof obj.id === 'string';
+    return typeof obj.id === 'string' && typeof obj.source === 'string' && typeof obj.target === 'string';
   };
 
   /** Register a single edge into the edge map. */

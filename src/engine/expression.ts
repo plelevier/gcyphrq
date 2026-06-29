@@ -783,12 +783,12 @@ export function evaluateStringFunction(name: string, args: CypherValue[], config
     case 'reltype':
     case 'type': {
       const val = args[0]; if (!val || typeof val !== 'object') return null;
-      if (Array.isArray(val)) {
-        const edges = val as CypherEdge[];
-        if (edges.length === 1) return edges[0]![config.edgeTypeProperty] ?? null;
-        return edges.map((e) => e[config.edgeTypeProperty] ?? null);
+      // Single edge (single-hop MATCH, CREATE, MERGE) — scalar result
+      if (!Array.isArray(val)) {
+        return (val as CypherEdge)[config.edgeTypeProperty] ?? null;
       }
-      const edge = val as CypherEdge; return edge[config.edgeTypeProperty] ?? null;
+      // Array of edges (variable-length pattern) — always array result
+      return (val as CypherEdge[]).map((e) => e[config.edgeTypeProperty] ?? null);
     }
     case 'startnode': {
       const val = args[0]; if (!val || typeof val !== 'object') return null;
