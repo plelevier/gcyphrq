@@ -12,6 +12,7 @@ import type {
   RelationPattern,
   NodePattern,
 } from '../types/cypher';
+import { DEFAULT_MAX_VAR_LENGTH_DEPTH, DEFAULT_MAX_VAR_LENGTH_PATHS } from '../types/cypher';
 import { isContextChain, materialiseChain, resolveChainValue, type ContextChain, CHAIN_BASE, CHAIN_OVERRIDES } from './context-chain';
 
 /**
@@ -226,34 +227,58 @@ function executeSingleHop(
   const hasTargetDynamicProps = targetPattern.propertiesExpr && evalExpr;
   const results: HopResult[] = [];
 
+  const minDepth = relationPattern.minDepth ?? 1;
+  const effectiveMaxDepth = config.maxVariableLengthDepth ?? DEFAULT_MAX_VAR_LENGTH_DEPTH;
+  const maxDepth = relationPattern.maxDepth ?? (relationPattern.variableLength ? effectiveMaxDepth : minDepth);
+
+  // Warn on unbounded variable-length patterns (no explicit maxDepth in query)
+  if (relationPattern.variableLength && relationPattern.maxDepth === undefined) {
+    const warn = onWarning ?? console.warn;
+    warn(`gcyphrq: Unbounded variable-length pattern [*${minDepth}..] detected. Using max depth of ${effectiveMaxDepth}. Add an explicit upper bound (e.g. [*${minDepth}..20]) or increase the limit via config to avoid missing results.`);
+  }
+
+  // Safety cap: abort if too many paths are emitted (prevents OOM on dense graphs)
+  const maxPaths = config.maxVariableLengthPaths ?? DEFAULT_MAX_VAR_LENGTH_PATHS;
+
   for (const startId of startNodeIds) {
     const sourceAttr = graph.getNodeAttributes(startId);
     const sourceNode = { id: startId, ...sourceAttr } as CypherNode;
 
-    const minDepth = relationPattern.minDepth ?? 1;
-    const maxDepth = relationPattern.maxDepth ?? (relationPattern.variableLength ? 100 : minDepth);
-
     const onStack = new Set<string>();
     type EdgeStep = { edgeId: string; source: string; target: string };
     const edgeHistory: EdgeStep[] = [];
+    let limitReached = false;
+
+    const emitResult = (edges: CypherEdge[], targetNode: CypherNode) => {
+      const overrides: QueryContext = { [sourcePattern.variable]: sourceNode, [targetPattern.variable]: targetNode };
+      if (relationPattern.variable) overrides[relationPattern.variable] = bindRelationshipVariable(edges, relationPattern);
+      results.push({ overrides, edges, sourceNode, targetNode });
+      if (results.length >= maxPaths) {
+        const warn = onWarning ?? console.warn;
+        warn(`gcyphrq: Variable-length traversal exceeded ${maxPaths} paths limit. Results may be incomplete. Add more constraints (label, WHERE, upper bound) or use shortestPath() instead.`);
+        limitReached = true;
+      }
+    };
 
     const explore = (currentId: string) => {
-      if (onStack.has(currentId)) return;
+      if (limitReached || onStack.has(currentId)) return;
       onStack.add(currentId);
 
       if (edgeHistory.length >= minDepth && eligibleTargetIds.has(currentId)) {
         const targetAttr = graph.getNodeAttributes(currentId);
-        if (hasTargetDynamicProps && !matchDynamicProperties(targetPattern.propertiesExpr!, targetAttr, context, evalExpr!)) return;
-        const targetNode = { id: currentId, ...targetAttr } as CypherNode;
-        const edges = edgeHistory.map(({ edgeId, source, target }) => ({ id: edgeId, source, target, ...graph.getEdgeAttributes(edgeId) } as CypherEdge));
-        const overrides: QueryContext = { [sourcePattern.variable]: sourceNode, [targetPattern.variable]: targetNode };
-        if (relationPattern.variable) overrides[relationPattern.variable] = bindRelationshipVariable(edges, relationPattern);
-        results.push({ overrides, edges, sourceNode, targetNode });
+        if (hasTargetDynamicProps && !matchDynamicProperties(targetPattern.propertiesExpr!, targetAttr, context, evalExpr!)) {
+          // Not a valid target via dynamic props — still explore neighbors below
+        } else {
+          const targetNode = { id: currentId, ...targetAttr } as CypherNode;
+          const edges = edgeHistory.map(({ edgeId, source, target }) => ({ id: edgeId, source, target, ...graph.getEdgeAttributes(edgeId) } as CypherEdge));
+          emitResult(edges, targetNode);
+        }
       }
 
-      if (edgeHistory.length >= maxDepth) { onStack.delete(currentId); return; }
+      if (limitReached || edgeHistory.length >= maxDepth) { onStack.delete(currentId); return; }
 
       getNeighbors(currentId, (neighborId, edgeId) => {
+        if (limitReached) return;
         if (neighborId === currentId) {
           if (edgeHistory.length + 1 >= minDepth && eligibleTargetIds.has(currentId)) {
             const targetAttr = graph.getNodeAttributes(currentId);
@@ -261,9 +286,7 @@ function executeSingleHop(
             const targetNode = { id: currentId, ...targetAttr } as CypherNode;
             const allSteps = [...edgeHistory, { edgeId, source: currentId, target: currentId }];
             const edges = allSteps.map(({ edgeId: eid, source, target }) => ({ id: eid, source, target, ...graph.getEdgeAttributes(eid) } as CypherEdge));
-            const overrides: QueryContext = { [sourcePattern.variable]: sourceNode, [targetPattern.variable]: targetNode };
-            if (relationPattern.variable) overrides[relationPattern.variable] = bindRelationshipVariable(edges, relationPattern);
-            results.push({ overrides, edges, sourceNode, targetNode });
+            emitResult(edges, targetNode);
           }
           return;
         }
@@ -276,6 +299,7 @@ function executeSingleHop(
     };
 
     explore(startId);
+    if (limitReached) break;
   }
 
   return { results, warnedNoLabels: warnedNoLabelsOut, warnedNoEdgeTypes: warnedNoEdgeTypesOut };
