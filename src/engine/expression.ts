@@ -792,21 +792,21 @@ export function evaluateStringFunction(name: string, args: CypherValue[], config
     }
     case 'startnode': {
       const val = args[0]; if (!val || typeof val !== 'object') return null;
-      if (Array.isArray(val)) {
-        const edges = val as CypherEdge[];
-        if (edges.length === 1) return edges[0]!.source ?? null;
-        return edges.map((e) => e.source ?? null);
+      // Single edge (single-hop MATCH, CREATE, MERGE) — scalar result
+      if (!Array.isArray(val)) {
+        return (val as CypherEdge).source ?? null;
       }
-      return (val as CypherEdge).source ?? null;
+      // Array of edges (variable-length pattern) — always array result
+      return (val as CypherEdge[]).map((e) => e.source ?? null);
     }
     case 'endnode': {
       const val = args[0]; if (!val || typeof val !== 'object') return null;
-      if (Array.isArray(val)) {
-        const edges = val as CypherEdge[];
-        if (edges.length === 1) return edges[0]!.target ?? null;
-        return edges.map((e) => e.target ?? null);
+      // Single edge (single-hop MATCH, CREATE, MERGE) — scalar result
+      if (!Array.isArray(val)) {
+        return (val as CypherEdge).target ?? null;
       }
-      return (val as CypherEdge).target ?? null;
+      // Array of edges (variable-length pattern) — always array result
+      return (val as CypherEdge[]).map((e) => e.target ?? null);
     }
     case 'reverse': {
       const val = args[0];

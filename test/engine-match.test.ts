@@ -200,7 +200,7 @@ describe('Engine - MATCH', () => {
       const results = await engine.execute(ast);
       expect(results.length).toBe(1);
       const edge = results[0]!.r as { type: string };
-      expect(edge).not.toBe(Array);
+      expect(Array.isArray(edge)).toBe(false);
       expect(edge.type).toBe('FRIEND');
     });
 

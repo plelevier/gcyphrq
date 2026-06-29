@@ -110,22 +110,22 @@ describe('Relationship variable semantics', () => {
       expect(results.length).toBe(2);
     });
 
-    it('startnode(r) returns scalar for VL with 1 hop, array for 2+ hops', async () => {
+    it('startnode(r) returns array for VL patterns (consistent with reltype)', async () => {
       const results = await executeQuery(graphData, 'MATCH (a:Person {name: "Alice"})-[r*1..2]->(c:Person) RETURN startnode(r) AS starts ORDER BY size(starts)');
       expect(results.length).toBe(2);
-      // Single-edge VL: startnode returns scalar (consistent with reltype)
-      expect(results[0]!.starts).toBe('alice');
-      // Multi-edge VL: startnode returns array
+      // VL patterns: startnode always returns array (consistent with reltype)
+      expect(Array.isArray(results[0]!.starts)).toBe(true);
+      expect(results[0]!.starts).toEqual(['alice']);
       expect(Array.isArray(results[1]!.starts)).toBe(true);
       expect(results[1]!.starts).toEqual(['alice', 'bob']);
     });
 
-    it('endnode(r) returns scalar for VL with 1 hop, array for 2+ hops', async () => {
+    it('endnode(r) returns array for VL patterns (consistent with reltype)', async () => {
       const results = await executeQuery(graphData, 'MATCH (a:Person {name: "Alice"})-[r*1..2]->(c:Person) RETURN endnode(r) AS ends ORDER BY size(ends)');
       expect(results.length).toBe(2);
-      // Single-edge VL: endnode returns scalar (consistent with reltype)
-      expect(results[0]!.ends).toBe('bob');
-      // Multi-edge VL: endnode returns array
+      // VL patterns: endnode always returns array (consistent with reltype)
+      expect(Array.isArray(results[0]!.ends)).toBe(true);
+      expect(results[0]!.ends).toEqual(['bob']);
       expect(Array.isArray(results[1]!.ends)).toBe(true);
       expect(results[1]!.ends).toEqual(['bob', 'charlie']);
     });
