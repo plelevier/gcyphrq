@@ -6,6 +6,9 @@ import type { AdvancedCypherAST } from '../src/types/cypher';
 const parseCypher = _parseCypher as (query: string) => AdvancedCypherAST;
 
 const emptyGraph = { nodes: [], edges: [] };
+// Graph with a dummy labeled node — suppresses "no nodes have label" warning
+// while still not matching any MERGE criteria.
+const emptyGraphWithLabel = { nodes: [{ key: 'x', attributes: { label: 'Dummy' } }], edges: [] };
 
 describe('Multi-hop CREATE', () => {
   describe('Parser', () => {
@@ -109,7 +112,7 @@ describe('Multi-hop MERGE', () => {
 
   describe('Engine', () => {
     it('MERGE 2-hop creates all nodes and edges when nothing exists', async () => {
-      const results = await executeQuery(emptyGraph, 'MERGE (a:Person {name: "Alice"})-[r1:KNOWS]->(b:Person {name: "Bob"})-[r2:LIKES]->(c:Person {name: "Charlie"}) RETURN a.name, b.name, c.name');
+      const results = await executeQuery(emptyGraphWithLabel, 'MERGE (a:Person {name: "Alice"})-[r1:KNOWS]->(b:Person {name: "Bob"})-[r2:LIKES]->(c:Person {name: "Charlie"}) RETURN a.name, b.name, c.name');
       expect(results).toEqual([{ 'a.name': 'Alice', 'b.name': 'Bob', 'c.name': 'Charlie' }]);
     });
 
@@ -142,7 +145,7 @@ describe('Multi-hop MERGE', () => {
     });
 
     it('MERGE 2-hop with ON CREATE', async () => {
-      const results = await executeQuery(emptyGraph, 'MERGE (a:Person {name: "Alice"})-[r1:KNOWS]->(b:Person {name: "Bob"})-[r2:LIKES]->(c:Person {name: "Charlie"}) ON CREATE SET a.created = true RETURN a.name AS n, a.created AS c');
+      const results = await executeQuery(emptyGraphWithLabel, 'MERGE (a:Person {name: "Alice"})-[r1:KNOWS]->(b:Person {name: "Bob"})-[r2:LIKES]->(c:Person {name: "Charlie"}) ON CREATE SET a.created = true RETURN a.name AS n, a.created AS c');
       expect(results).toEqual([{ n: 'Alice', c: true }]);
     });
 
@@ -163,17 +166,17 @@ describe('Multi-hop MERGE', () => {
     });
 
     it('MERGE 2-hop binds all relationship variables', async () => {
-      const results = await executeQuery(emptyGraph, 'MERGE (a:Node)-[r1:TYPE1]->(b:Node)-[r2:TYPE2]->(c:Node) RETURN r1.type AS t1, r2.type AS t2');
+      const results = await executeQuery(emptyGraphWithLabel, 'MERGE (a:Node)-[r1:TYPE1]->(b:Node)-[r2:TYPE2]->(c:Node) RETURN r1.type AS t1, r2.type AS t2');
       expect(results).toEqual([{ t1: 'TYPE1', t2: 'TYPE2' }]);
     });
 
     it('MERGE 3-hop creates full chain', async () => {
-      const results = await executeQuery(emptyGraph, 'MERGE (a:Person {name: "A"})-[r1]->(b:Person {name: "B"})-[r2]->(c:Person {name: "C"})-[r3]->(d:Person {name: "D"}) RETURN a.name, b.name, c.name, d.name');
+      const results = await executeQuery(emptyGraphWithLabel, 'MERGE (a:Person {name: "A"})-[r1]->(b:Person {name: "B"})-[r2]->(c:Person {name: "C"})-[r3]->(d:Person {name: "D"}) RETURN a.name, b.name, c.name, d.name');
       expect(results).toEqual([{ 'a.name': 'A', 'b.name': 'B', 'c.name': 'C', 'd.name': 'D' }]);
     });
 
     it('MERGE 2-hop with unbound intermediate node', async () => {
-      const results = await executeQuery(emptyGraph, 'MERGE (a:Person {name: "Alice"})-[:KNOWS]->()-[:LIKES]->(c:Person {name: "Charlie"}) RETURN a.name, c.name');
+      const results = await executeQuery(emptyGraphWithLabel, 'MERGE (a:Person {name: "Alice"})-[:KNOWS]->()-[:LIKES]->(c:Person {name: "Charlie"}) RETURN a.name, c.name');
       expect(results).toEqual([{ 'a.name': 'Alice', 'c.name': 'Charlie' }]);
     });
 
@@ -194,7 +197,7 @@ describe('Multi-hop MERGE', () => {
     });
 
     it('MERGE 3-hop with two unbound intermediates creates distinct nodes', async () => {
-      const results = await executeQuery(emptyGraph, 'MERGE (a:Person {name: "A"})-[:R1]->()-[:R2]->()-[:R3]->(d:Person {name: "D"}) RETURN a.name, d.name, count(*) AS cnt');
+      const results = await executeQuery(emptyGraphWithLabel, 'MERGE (a:Person {name: "A"})-[:R1]->()-[:R2]->()-[:R3]->(d:Person {name: "D"}) RETURN a.name, d.name, count(*) AS cnt');
       // Unbound intermediates without labels/properties create distinct nodes per hop (self-loop prevention)
       expect(results.length).toBe(1);
       expect(results[0]!['a.name']).toBe('A');
@@ -215,12 +218,12 @@ describe('Single-hop CREATE/MERGE regression', () => {
   });
 
   it('single-hop MERGE still works', async () => {
-    const results = await executeQuery(emptyGraph, 'MERGE (a:Person {name: "Alice"})-[r:KNOWS]->(b:Person {name: "Bob"}) RETURN a.name AS na, b.name AS nb');
+    const results = await executeQuery(emptyGraphWithLabel, 'MERGE (a:Person {name: "Alice"})-[r:KNOWS]->(b:Person {name: "Bob"}) RETURN a.name AS na, b.name AS nb');
     expect(results).toEqual([{ na: 'Alice', nb: 'Bob' }]);
   });
 
   it('single node MERGE still works', async () => {
-    const results = await executeQuery(emptyGraph, 'MERGE (a:Person {name: "Alice"}) RETURN a.name AS n');
+    const results = await executeQuery(emptyGraphWithLabel, 'MERGE (a:Person {name: "Alice"}) RETURN a.name AS n');
     expect(results).toEqual([{ n: 'Alice' }]);
   });
 });
