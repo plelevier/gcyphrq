@@ -266,12 +266,102 @@ describe('Engine - DISTINCT / UNWIND / mixed aggregation', () => {
     });
   });
 
-  describe('execute - mixed aggregation error', () => {
-    it('throws when non-aggregation varies across rows in RETURN without WITH', async () => {
+  describe('execute - implicit grouping in RETURN', () => {
+    it('groups by non-aggregated column in RETURN without WITH', async () => {
       const ast = parseCypher(
         'MATCH (u:User) RETURN u.name AS name, count(u) AS total',
       );
-      await expect(engine.execute(ast)).rejects.toThrow(/Mixed aggregation/i);
+      const results = await engine.execute(ast);
+      expect(results.length).toBe(4);
+      const map = new Map(results.map((r) => [r.name, r.total]));
+      expect(map.get('Alice')).toBe(1);
+      expect(map.get('Bob')).toBe(1);
+      expect(map.get('Charlie')).toBe(1);
+      expect(map.get('Dave')).toBe(1);
+    });
+
+    it('groups by multiple non-aggregated columns in RETURN', async () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', dept: 'Eng' });
+      g.addNode('b', { label: 'User', name: 'Bob', dept: 'Eng' });
+      g.addNode('c', { label: 'User', name: 'Charlie', dept: 'Sales' });
+      g.addNode('d', { label: 'User', name: 'Dave', dept: 'Sales' });
+      g.addNode('e', { label: 'User', name: 'Eve', dept: 'Sales' });
+      const e2 = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (u:User) RETURN u.dept AS dept, count(u) AS total',
+      );
+      const results = await e2.execute(ast);
+      expect(results.length).toBe(2);
+      const map = new Map(results.map((r) => [r.dept, r.total]));
+      expect(map.get('Eng')).toBe(2);
+      expect(map.get('Sales')).toBe(3);
+    });
+
+    it('supports ORDER BY on aggregated result in RETURN', async () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', dept: 'Eng', age: 30 });
+      g.addNode('b', { label: 'User', name: 'Bob', dept: 'Eng', age: 25 });
+      g.addNode('c', { label: 'User', name: 'Charlie', dept: 'Sales', age: 35 });
+      g.addNode('d', { label: 'User', name: 'Dave', dept: 'Sales', age: 28 });
+      g.addNode('e', { label: 'User', name: 'Eve', dept: 'HR', age: 40 });
+      const e2 = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (u:User) RETURN u.dept AS dept, count(u) AS total ORDER BY total DESC',
+      );
+      const results = await e2.execute(ast);
+      expect(results.length).toBe(3);
+      expect(results[0]!.dept).toBe('Eng');
+      expect(results[0]!.total).toBe(2);
+      expect(results[1]!.dept).toBe('Sales');
+      expect(results[1]!.total).toBe(2);
+      expect(results[2]!.dept).toBe('HR');
+      expect(results[2]!.total).toBe(1);
+    });
+
+    it('supports SKIP and LIMIT on grouped RETURN', async () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', dept: 'A' });
+      g.addNode('b', { label: 'User', name: 'Bob', dept: 'B' });
+      g.addNode('c', { label: 'User', name: 'Charlie', dept: 'B' });
+      g.addNode('d', { label: 'User', name: 'Dave', dept: 'C' });
+      g.addNode('e', { label: 'User', name: 'Eve', dept: 'C' });
+      g.addNode('f', { label: 'User', name: 'Frank', dept: 'C' });
+      const e2 = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (u:User) RETURN u.dept AS dept, count(u) AS total ORDER BY total DESC SKIP 1 LIMIT 1',
+      );
+      const results = await e2.execute(ast);
+      expect(results.length).toBe(1);
+      expect(results[0]!.dept).toBe('B');
+      expect(results[0]!.total).toBe(2);
+    });
+
+    it('supports multiple aggregations per group in RETURN', async () => {
+      const g = new Graph();
+      g.addNode('a', { label: 'User', name: 'Alice', dept: 'Eng', age: 30 });
+      g.addNode('b', { label: 'User', name: 'Bob', dept: 'Eng', age: 25 });
+      g.addNode('c', { label: 'User', name: 'Charlie', dept: 'Sales', age: 35 });
+      const e2 = new AdvancedCypherGraphologyEngine(g);
+
+      const ast = parseCypher(
+        'MATCH (u:User) RETURN u.dept AS dept, count(u) AS total, avg(u.age) AS avgAge, min(u.age) AS minAge, max(u.age) AS maxAge',
+      );
+      const results = await e2.execute(ast);
+      expect(results.length).toBe(2);
+      const eng = results.find((r) => r.dept === 'Eng');
+      expect(eng?.total).toBe(2);
+      expect(eng?.avgAge).toBe(27.5);
+      expect(eng?.minAge).toBe(25);
+      expect(eng?.maxAge).toBe(30);
+      const sales = results.find((r) => r.dept === 'Sales');
+      expect(sales?.total).toBe(1);
+      expect(sales?.avgAge).toBe(35);
+      expect(sales?.minAge).toBe(35);
+      expect(sales?.maxAge).toBe(35);
     });
 
     it('does not throw when non-aggregation is constant in RETURN without WITH', async () => {
