@@ -790,8 +790,16 @@ export function evaluateStringFunction(name: string, args: CypherValue[], config
       }
       const edge = val as CypherEdge; return edge[config.edgeTypeProperty] ?? null;
     }
-    case 'startnode': { const val = args[0]; if (!val || typeof val !== 'object') return null; return (val as CypherEdge).source ?? null; }
-    case 'endnode': { const val = args[0]; if (!val || typeof val !== 'object') return null; return (val as CypherEdge).target ?? null; }
+    case 'startnode': {
+      const val = args[0]; if (!val || typeof val !== 'object') return null;
+      if (Array.isArray(val)) { const edges = val as CypherEdge[]; return edges.map((e) => e.source ?? null); }
+      return (val as CypherEdge).source ?? null;
+    }
+    case 'endnode': {
+      const val = args[0]; if (!val || typeof val !== 'object') return null;
+      if (Array.isArray(val)) { const edges = val as CypherEdge[]; return edges.map((e) => e.target ?? null); }
+      return (val as CypherEdge).target ?? null;
+    }
     case 'reverse': {
       const val = args[0];
       const list = asList(val);

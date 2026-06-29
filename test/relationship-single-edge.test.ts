@@ -109,6 +109,36 @@ describe('Relationship variable semantics', () => {
       const results = await executeQuery(graphData, 'MATCH (a:Person {name: "Alice"})-[r*1..2]->(c:Person) RETURN reltype(r) AS types ORDER BY size(types)');
       expect(results.length).toBe(2);
     });
+
+    it('startnode(r) returns array of sources for variable-length', async () => {
+      const results = await executeQuery(graphData, 'MATCH (a:Person {name: "Alice"})-[r*1..2]->(c:Person) RETURN startnode(r) AS starts ORDER BY size(starts)');
+      expect(results.length).toBe(2);
+      // For variable-length patterns, r is always an array, so startnode returns array
+      expect(Array.isArray(results[0]!.starts)).toBe(true);
+      expect(results[0]!.starts).toEqual(['alice']);
+      expect(Array.isArray(results[1]!.starts)).toBe(true);
+      expect(results[1]!.starts).toEqual(['alice', 'bob']);
+    });
+
+    it('endnode(r) returns array of targets for variable-length', async () => {
+      const results = await executeQuery(graphData, 'MATCH (a:Person {name: "Alice"})-[r*1..2]->(c:Person) RETURN endnode(r) AS ends ORDER BY size(ends)');
+      expect(results.length).toBe(2);
+      // For variable-length patterns, r is always an array, so endnode returns array
+      expect(Array.isArray(results[0]!.ends)).toBe(true);
+      expect(results[0]!.ends).toEqual(['bob']);
+      expect(Array.isArray(results[1]!.ends)).toBe(true);
+      expect(results[1]!.ends).toEqual(['bob', 'charlie']);
+    });
+
+    it('startnode(r) returns single source for single-hop', async () => {
+      const results = await executeQuery(graphData, 'MATCH (a:Person {name: "Alice"})-[r]->(b:Person) RETURN startnode(r) AS start');
+      expect(results).toEqual([{ start: 'alice' }]);
+    });
+
+    it('endnode(r) returns single target for single-hop', async () => {
+      const results = await executeQuery(graphData, 'MATCH (a:Person {name: "Alice"})-[r]->(b:Person) RETURN endnode(r) AS end');
+      expect(results).toEqual([{ end: 'bob' }]);
+    });
   });
 
   describe('OPTIONAL MATCH nulls relationship variable (single-hop)', () => {
