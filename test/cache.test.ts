@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, unlinkSync, rmSync, statSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import {
   computeCacheKey,
   readCache,
@@ -297,6 +297,40 @@ describe('clearCache', () => {
     clearCache();
 
     expect(existsSync(orphanPath)).toBe(false); // Orphan removed
+  });
+
+  it('removes leftover .tmp files from interrupted writes', () => {
+    const filePath = createTestFile('<gexf>test</gexf>');
+    const stat = statSync(filePath);
+    const { hash, key } = computeCacheKey(filePath, 'gexf');
+
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
+
+    // Create leftover .tmp files (simulating interrupted writes)
+    const tmpPath = join(getCacheDir(), 'abc123.json.tmp');
+    const metaTmpPath = join(getCacheDir(), '_meta.json.tmp');
+    writeFileSync(tmpPath, '{}', 'utf-8');
+    writeFileSync(metaTmpPath, '{}', 'utf-8');
+    expect(existsSync(tmpPath)).toBe(true);
+    expect(existsSync(metaTmpPath)).toBe(true);
+
+    clearCache();
+
+    expect(existsSync(tmpPath)).toBe(false);
+    expect(existsSync(metaTmpPath)).toBe(false);
+  });
+});
+
+describe('getBaseCacheDir', () => {
+  it('returns ~/.cache/gcyphrq on non-Windows platforms', () => {
+    const origEnv = process.env.GCYPHRQ_CACHE_DIR;
+    delete process.env.GCYPHRQ_CACHE_DIR;
+    try {
+      const dir = getBaseCacheDir();
+      expect(dir).toBe(join(homedir(), '.cache', 'gcyphrq'));
+    } finally {
+      if (origEnv) process.env.GCYPHRQ_CACHE_DIR = origEnv;
+    }
   });
 });
 

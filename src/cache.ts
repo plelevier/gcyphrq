@@ -69,13 +69,19 @@ function isValidMetaEntry(entry: unknown): entry is MetaEntry {
   );
 }
 
-/** Load metadata index. Returns empty array if file is missing or corrupted. */
+/** Load metadata index. Returns empty array if file is missing or corrupted.
+ * Persists cleaned metadata if invalid entries were filtered out (best-effort). */
 function loadMeta(): MetaEntry[] {
   try {
     const content = readFileSync(metaPath(), 'utf-8');
     const parsed = JSON.parse(content);
     if (Array.isArray(parsed)) {
-      return parsed.filter(isValidMetaEntry);
+      const valid = parsed.filter(isValidMetaEntry);
+      // If some entries were invalid, persist the cleaned version (best-effort)
+      if (valid.length < parsed.length) {
+        try { saveMeta(valid); } catch { /* write failure — non-fatal */ }
+      }
+      return valid;
     }
     return [];
   } catch {
@@ -126,47 +132,42 @@ function cacheFilePath(hash: string): string {
  * Try to read a cached graph. Returns the GraphInput on hit, or undefined on miss.
  *
  * Validates freshness by comparing file mtime and size against stored values.
- * Updates accessedAt on hit.
+ * Updates accessedAt on hit. All I/O errors are caught and treated as cache miss.
  */
 export function readCache(
   hash: string,
   expectedMtime: number,
   expectedSize: number,
 ): GraphInput | undefined {
-  const meta = loadMeta();
-  const entry = meta.find((e) => e.hash === hash);
-
-  if (!entry) {
-    return undefined;
-  }
-
-  // Check freshness: file must not have been modified
-  if (entry.fileMtime !== expectedMtime || entry.fileSize !== expectedSize) {
-    // Stale entry — remove it
-    const stalePath = cacheFilePath(hash);
-    try {
-      unlinkSync(stalePath);
-    } catch {
-      // File already gone
-    }
-    saveMeta(meta.filter((e) => e.hash !== hash));
-    return undefined;
-  }
-
-  // Read the cached data
-  const cacheFile = cacheFilePath(hash);
   try {
+    const meta = loadMeta();
+    const entry = meta.find((e) => e.hash === hash);
+
+    if (!entry) {
+      return undefined;
+    }
+
+    // Check freshness: file must not have been modified
+    if (entry.fileMtime !== expectedMtime || entry.fileSize !== expectedSize) {
+      // Stale entry — remove it (best-effort)
+      const stalePath = cacheFilePath(hash);
+      try { unlinkSync(stalePath); } catch { /* already gone */ }
+      try { saveMeta(meta.filter((e) => e.hash !== hash)); } catch { /* write failure — non-fatal */ }
+      return undefined;
+    }
+
+    // Read the cached data
+    const cacheFile = cacheFilePath(hash);
     const content = readFileSync(cacheFile, 'utf-8');
     const data = JSON.parse(content);
 
-    // Update accessedAt
+    // Update accessedAt (best-effort)
     entry.accessedAt = Date.now();
-    saveMeta(meta);
+    try { saveMeta(meta); } catch { /* write failure — non-fatal */ }
 
     return data as GraphInput;
   } catch {
-    // Cache file missing or corrupted — treat as miss
-    saveMeta(meta.filter((e) => e.hash !== hash));
+    // Cache file missing, corrupted, or I/O error — treat as miss
     return undefined;
   }
 }
@@ -258,12 +259,12 @@ export function clearCache(): void {
     }
   }
 
-  // Also remove any orphaned .json files not in metadata
+  // Also remove any orphaned .json and .tmp files not in metadata
   try {
     const dir = getCacheDir();
     const files = readdirSync(dir);
     for (const file of files) {
-      if (file.endsWith('.json') && file !== '_meta.json') {
+      if ((file.endsWith('.json') || file.endsWith('.tmp')) && file !== '_meta.json') {
         try {
           unlinkSync(join(dir, file));
         } catch {

@@ -398,18 +398,20 @@ Load a graph-input extension and convert file content to `GraphInput`.
 | `extensionName` | `string` | Extension name (key in `gcyphrqExtensions`) |
 | `context` | [`GraphInputExtensionContext`](#graphinputextensioncontext) | File content and optional config |
 
-**Returns:** `Promise<GraphInput>`
+**Returns:** `Promise<{ graph: GraphInput; cacheable: boolean }>`
+
+The `cacheable` field indicates whether the extension's output is eligible for CLI-side caching (`true` unless the extension manifest sets `cacheable: false`).
 
 ```ts
 import { convertWithExtension, executeQuery } from 'gcyphrq';
 import { readFileSync } from 'fs';
 
 const content = readFileSync('data.gexf', 'utf-8');
-const graphData = await convertWithExtension('gexf', {
+const { graph } = await convertWithExtension('gexf', {
   content,
   filePath: 'data.gexf',
 });
-const results = await executeQuery(graphData, 'MATCH (n) RETURN n');
+const results = await executeQuery(graph, 'MATCH (n) RETURN n');
 ```
 
 > **Caching note:** The CLI automatically caches results from graph-input extensions (see [CLI Reference — Graph Caching](cli#graph-caching)). This caching is a CLI-layer feature and does not apply when using `convertWithExtension` directly as a library. If you need caching in your application, you can implement it around `convertWithExtension` calls or use the CLI for batch processing.

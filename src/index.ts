@@ -3,7 +3,7 @@ import { resolve } from 'path';
 import { GraphError, createGraph, parseCypher, GraphEngine, buildGraphIndexes, explainQuery } from './lib';
 import type { GraphInput } from './lib';
 import { runInstall } from './install';
-import { formatExtensionsList, convertWithExtension, registerFunctionExtension, preprocessQueryForExtensions, loadExtension } from './ext/registry';
+import { formatExtensionsList, convertWithExtension, registerFunctionExtension, preprocessQueryForExtensions } from './ext/registry';
 import { getExtensionFunctions, getExtensionAggregations } from './ext/registry';
 import { computeCacheKey, readCache, writeCache } from './cache';
 
@@ -418,18 +418,19 @@ async function loadGraphWithCache(
   };
   if (labelProperty !== undefined) extContext.labelProperty = labelProperty;
   if (edgeTypeProperty !== undefined) extContext.edgeTypeProperty = edgeTypeProperty;
-  const graphData = await convertWithExtension(extensionName, extContext);
+  const { graph, cacheable } = await convertWithExtension(extensionName, extContext);
 
   // Write to cache unless disabled or extension opted out
-  if (!noCache) {
-    const loaded = await loadExtension(extensionName);
-    if (loaded.manifest.cacheable !== false) {
-      const { hash, key } = computeCacheKey(resolvedPath, extensionName, labelProperty, edgeTypeProperty);
-      writeCache(hash, key, stat.mtimeMs, stat.size, graphData);
+  if (!noCache && cacheable) {
+    const { hash, key } = computeCacheKey(resolvedPath, extensionName, labelProperty, edgeTypeProperty);
+    try {
+      writeCache(hash, key, stat.mtimeMs, stat.size, graph);
+    } catch {
+      // Cache write failure is non-fatal — graph was parsed successfully
     }
   }
 
-  return graphData;
+  return graph;
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
