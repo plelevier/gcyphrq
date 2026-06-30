@@ -11,6 +11,7 @@ import type {
   MatchHop,
   RelationPattern,
   NodePattern,
+  WhereExpression,
 } from '../types/cypher';
 import { DEFAULT_MAX_VAR_LENGTH_DEPTH, DEFAULT_MAX_VAR_LENGTH_PATHS } from '../types/cypher';
 import { isContextChain, materialiseChain, resolveChainValue, type ContextChain, CHAIN_BASE, CHAIN_OVERRIDES } from './context-chain';
@@ -585,4 +586,196 @@ export function deepEquals(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (Array.isArray(a) && Array.isArray(b)) { if (a.length !== b.length) return false; return a.every((v, i) => deepEquals(v, b[i])); }
   return false;
+}
+
+// ── Streaming MATCH ──────────────────────────────────────────────────────────
+
+/**
+ * Execute a MATCH or OPTIONAL MATCH stage as a generator.
+ * Yields results one-at-a-time instead of materialising all contexts.
+ *
+ * This is the streaming equivalent of `executeMatch`. The per-context chain
+ * logic is kept as-is (bounded by the 100K path cap). The real win is
+ * streaming across input contexts.
+ */
+export async function* executeMatchStream(
+  graph: GraphInstance,
+  getIndexes: () => GraphIndexes | undefined,
+  config: GraphConfig,
+  clause: MatchClause,
+  inputGen: AsyncGenerator<{ context: QueryContext | ContextChain }, void, void>,
+  signal: { aborted: boolean },
+  evaluateWhere: (whereNode: WhereExpression, context: QueryContext) => boolean,
+  warnedNoLabels: boolean,
+  warnedNoEdgeTypes: boolean,
+  onWarning?: (message: string) => void,
+  evalExpr?: (e: Expression, ctx: QueryContext) => CypherValue | undefined,
+): AsyncGenerator<{ context: QueryContext | ContextChain }, void, void> {
+  const { hops, optional, pathVariable } = clause;
+  const hasChains = clause.hasChains;
+
+  const buildPath = (source: CypherNode, edges: CypherEdge[]) => {
+    const pathNodes: CypherNode[] = [source];
+    for (const step of edges) {
+      const tAttr = graph.getNodeAttributes(step.target);
+      pathNodes.push({ id: step.target, ...tAttr } as CypherNode);
+    }
+    return { nodes: pathNodes, relationships: edges } as unknown as CypherValue;
+  };
+
+  // Collect all nullable variables for OPTIONAL MATCH
+  const nullVars: string[] = [];
+  for (const hop of hops) {
+    if (hop.sourcePattern.variable) nullVars.push(hop.sourcePattern.variable);
+    if (hop.relationPattern.variable) nullVars.push(hop.relationPattern.variable);
+    if (hop.targetPattern.variable) nullVars.push(hop.targetPattern.variable);
+  }
+
+  let warnedNoLabelsOut = warnedNoLabels;
+  let warnedNoEdgeTypesOut = warnedNoEdgeTypes;
+
+  for await (const { context } of inputGen) {
+    if (signal.aborted) break;
+    const flatContext = isContextChain(context) ? materialiseChain(context) : context;
+
+    // Resolve start node IDs for the first hop
+    let startNodeIds: string[] = [];
+    const firstHop = hops[0]!;
+    const boundNode = resolveChainValue(context, firstHop.sourcePattern.variable);
+    if (boundNode && typeof boundNode === 'object' && !Array.isArray(boundNode) && 'id' in boundNode) {
+      const boundId = (boundNode as CypherNode).id;
+      if (graph.hasNode(boundId)) {
+        const freshAttrs = graph.getNodeAttributes(boundId);
+        if (matchNodeCriteria(freshAttrs, config, firstHop.sourcePattern)) {
+          if (!firstHop.sourcePattern.propertiesExpr || matchDynamicProperties(firstHop.sourcePattern.propertiesExpr, freshAttrs, flatContext, evalExpr!)) {
+            startNodeIds = [boundId];
+          }
+        }
+      }
+    } else {
+      const result = getMatchingNodeIds(graph, getIndexes(), config, firstHop.sourcePattern, warnedNoLabelsOut, onWarning);
+      startNodeIds = result.ids;
+      warnedNoLabelsOut = result.warned;
+      if (firstHop.sourcePattern.propertiesExpr && evalExpr) {
+        startNodeIds = startNodeIds.filter((id) => matchDynamicProperties(firstHop.sourcePattern.propertiesExpr!, graph.getNodeAttributes(id), flatContext, evalExpr));
+      }
+    }
+
+    // Chain hops
+    interface ChainState {
+      overrides: QueryContext;
+      allEdges: CypherEdge[];
+      firstSourceNode: CypherNode;
+      lastTargetId: string;
+    }
+    let chainStates: ChainState[] = [];
+
+    for (let hopIdx = 0; hopIdx < hops.length; hopIdx++) {
+      const hop = hops[hopIdx]!;
+      const isChain = hopIdx === 0 ? hasChains : true;
+
+      const nextStates: ChainState[] = [];
+
+      let hopStartIds: string[] = [];
+      if (hopIdx === 0) {
+        hopStartIds = startNodeIds;
+      } else {
+        const seen = new Set<string>();
+        for (const state of chainStates) seen.add(state.lastTargetId);
+        hopStartIds = [...seen];
+      }
+
+      const { results, warnedNoLabels, warnedNoEdgeTypes } = executeSingleHop(
+        graph, getIndexes(), config, { ...hop, _hasChain: isChain }, hopStartIds, flatContext,
+        warnedNoLabelsOut, warnedNoEdgeTypesOut, onWarning, evalExpr,
+      );
+      warnedNoLabelsOut = warnedNoLabels;
+      warnedNoEdgeTypesOut = warnedNoEdgeTypes;
+
+      if (hopIdx === 0) {
+        for (const result of results) {
+          nextStates.push({
+            overrides: { ...result.overrides },
+            allEdges: [...result.edges],
+            firstSourceNode: result.sourceNode,
+            lastTargetId: result.targetNode.id,
+          });
+        }
+      } else {
+        const resultsBySource = new Map<string, HopResult[]>();
+        for (const result of results) {
+          const key = result.sourceNode.id;
+          const group = resultsBySource.get(key);
+          if (group) group.push(result);
+          else resultsBySource.set(key, [result]);
+        }
+
+        for (const state of chainStates) {
+          const prevTargetId = state.lastTargetId;
+          const matchingResults = resultsBySource.get(prevTargetId) || [];
+
+          for (const result of matchingResults) {
+            const mergedOverrides: QueryContext = { ...state.overrides, ...result.overrides };
+            nextStates.push({
+              overrides: mergedOverrides,
+              allEdges: [...state.allEdges, ...result.edges],
+              firstSourceNode: state.firstSourceNode,
+              lastTargetId: result.targetNode.id,
+            });
+          }
+        }
+      }
+
+      if (nextStates.length === 0) break;
+      chainStates = nextStates;
+    }
+
+    if (chainStates.length > 0) {
+      const matchedContexts: (QueryContext | ContextChain)[] = [];
+      for (const state of chainStates) {
+        const overrides = { ...state.overrides };
+        if (pathVariable && state.firstSourceNode) {
+          overrides[pathVariable] = buildPath(state.firstSourceNode, state.allEdges);
+        }
+        matchedContexts.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: overrides });
+      }
+
+      // Apply WHERE filter if present
+      if (clause.where) {
+        const filtered = matchedContexts.filter((ctx) => {
+          const flat = isContextChain(ctx) ? materialiseChain(ctx) : ctx;
+          return evaluateWhere(clause.where!, flat);
+        });
+
+        if (optional) {
+          const matchedBases = new Set<QueryContext | ContextChain>();
+          for (const ctx of filtered) { const base = isContextChain(ctx) ? ctx[CHAIN_BASE] : ctx; if (base) matchedBases.add(base); }
+          if (!matchedBases.has(context)) {
+            const nullOverrides: QueryContext = {};
+            for (const v of nullVars) {
+              const relHop = hops.find((h) => h.relationPattern.variable === v);
+              if (relHop) nullOverrides[v] = relHop.relationPattern.variableLength ? [] : null;
+              else nullOverrides[v] = null;
+            }
+            if (pathVariable) nullOverrides[pathVariable] = null;
+            filtered.push({ [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: nullOverrides });
+          }
+        }
+
+        for (const ctx of filtered) yield { context: ctx };
+      } else {
+        for (const ctx of matchedContexts) yield { context: ctx };
+      }
+    } else if (optional) {
+      const nullOverrides: QueryContext = {};
+      for (const v of nullVars) {
+        const relHop = hops.find((h) => h.relationPattern.variable === v);
+        if (relHop) nullOverrides[v] = relHop.relationPattern.variableLength ? [] : null;
+        else nullOverrides[v] = null;
+      }
+      if (pathVariable) nullOverrides[pathVariable] = null;
+      yield { context: { [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: nullOverrides } };
+    }
+
+  }
 }
