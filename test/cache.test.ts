@@ -460,21 +460,28 @@ describe('concurrent access protection', () => {
   });
 
   it('readCache returns undefined on lock timeout (non-fatal)', () => {
-    // Simulate a lock held by the current process (which will never release)
-    const lockPath = join(getCacheDir(), '.lock');
-    writeFileSync(lockPath, String(process.pid), 'utf-8');
+    // Suppress the expected lock timeout warning for this test
+    const origStderr = process.stderr.write;
+    process.stderr.write = () => true;
 
-    const filePath = createTestFile('<gexf>test</gexf>');
-    const stat = statSync(filePath);
-    const { hash } = computeCacheKey(filePath, 'gexf');
+    try {
+      // Simulate a lock held by the current process (which will never release)
+      const lockPath = join(getCacheDir(), '.lock');
+      writeFileSync(lockPath, String(process.pid), 'utf-8');
 
-    // readCache should time out and return undefined (not throw)
-    // Takes ~5s for lock timeout, so allow enough time
-    const result = readCache(hash, stat.mtimeMs, stat.size);
-    expect(result).toBeUndefined();
+      const filePath = createTestFile('<gexf>test</gexf>');
+      const stat = statSync(filePath);
+      const { hash } = computeCacheKey(filePath, 'gexf');
 
-    // Clean up
-    try { unlinkSync(lockPath); } catch { /* already removed */ }
+      // readCache should time out and return undefined (not throw)
+      const result = readCache(hash, stat.mtimeMs, stat.size);
+      expect(result).toBeUndefined();
+
+      // Clean up
+      try { unlinkSync(lockPath); } catch { /* already removed */ }
+    } finally {
+      process.stderr.write = origStderr;
+    }
   }, 10000); // 10s timeout to accommodate 5s lock timeout
 
   it('clearCache removes .lock file', () => {
