@@ -412,6 +412,8 @@ const graphData = await convertWithExtension('gexf', {
 const results = await executeQuery(graphData, 'MATCH (n) RETURN n');
 ```
 
+> **Caching note:** The CLI automatically caches results from graph-input extensions (see [CLI Reference — Graph Caching](cli#graph-caching)). This caching is a CLI-layer feature and does not apply when using `convertWithExtension` directly as a library. If you need caching in your application, you can implement it around `convertWithExtension` calls or use the CLI for batch processing.
+
 #### `registerFunctionExtension(extensionName)`
 
 Load a function extension and register its functions. Multiple extensions can share the same namespace.

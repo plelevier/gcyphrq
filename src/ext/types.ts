@@ -68,6 +68,8 @@ export interface ExtensionManifest {
   namespace?: string;
   mimetypes?: string[];
   author?: string;
+  /** Whether this graph-input extension's output should be cached by the CLI. Default: true. */
+  cacheable?: boolean;
 }
 
 /**

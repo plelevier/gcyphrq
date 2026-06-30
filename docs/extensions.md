@@ -44,7 +44,8 @@ All extension packages follow the same convention:
       "type": "graph-input",
       "description": "Convert GEXF files to gcyphrq graph format",
       "entryPoint": "./dist/gexf/index.js",
-      "fileExtensions": [".gexf", ".xml"]
+      "fileExtensions": [".gexf", ".xml"],
+      "cacheable": true   // optional, defaults to true
     },
     "apoc-commons": {
       "type": "function",
@@ -65,6 +66,7 @@ All extension packages follow the same convention:
 | `entryPoint` | `string` | Yes | Relative path to the entry module |
 | `fileExtensions` | `string[]` | Graph-input only | File extensions this extension can handle |
 | `namespace` | `string` | Function only | Namespace prefix for functions (e.g., `"apoc"`) |
+| `cacheable` | `boolean` | No (default: `true`) | Whether the extension's output should be cached by the CLI. Set to `false` for extensions that produce non-deterministic results or that are fast enough to skip caching |
 
 ## Creating a Graph-Input Extension
 
@@ -276,6 +278,18 @@ The engine pre-processes dotted function names into backtick-quoted identifiers 
 2. Add `gcyphrqExtensions` to `package.json`
 3. Add `gcyphrq` as a `peerDependency`
 4. Publish to npm: `npm publish`
+
+## Controlling Cache Behaviour
+
+By default, the CLI caches the output of graph-input extensions so that the same file is not re-parsed on every invocation. If your extension produces non-deterministic results (e.g., fetches live data) or is fast enough that caching provides no benefit, you can opt out:
+
+```json
+{
+  "cacheable": false
+}
+```
+
+This field is ignored for function extensions (which are not subject to graph caching).
 
 ## Listing Extensions
 

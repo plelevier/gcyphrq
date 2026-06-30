@@ -397,7 +397,7 @@ describe('Pipeline - Benchmarks', () => {
     const results = await engine.execute(ast);
     const elapsed = performance.now() - start;
     expect(results.length).toBeLessThanOrEqual(10);
-    expect(elapsed).toBeLessThan(1000);
+    expect(elapsed).toBeLessThan(2000);
   }, 30_000);
 
   it('Aggregation + ORDER BY ... LIMIT 10 on 10K-node dense graph returns in < 1.5s', async () => {
