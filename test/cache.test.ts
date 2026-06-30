@@ -7,6 +7,7 @@ import {
   readCache,
   writeCache,
   clearCache,
+  getBaseCacheDir,
   getCacheDir,
   cacheExists,
 } from '../src/cache';
@@ -14,7 +15,7 @@ import type { GraphInput } from '../src/lib';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-const TEST_CACHE_DIR = join(tmpdir(), 'gcyphrq-test-cache', 'graphs');
+const TEST_BASE_CACHE_DIR = join(tmpdir(), 'gcyphrq-test-cache');
 const TEST_FILE_DIR = join(tmpdir(), 'gcyphrq-test-files');
 const TEST_GRAPH: GraphInput = {
   nodes: [
@@ -28,16 +29,18 @@ const TEST_GRAPH: GraphInput = {
 
 function setup() {
   // Clean up any leftover from previous runs
-  try { rmSync(TEST_CACHE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+  try { rmSync(TEST_BASE_CACHE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
   try { rmSync(TEST_FILE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
-  mkdirSync(TEST_CACHE_DIR, { recursive: true });
+  mkdirSync(TEST_BASE_CACHE_DIR, { recursive: true });
   mkdirSync(TEST_FILE_DIR, { recursive: true });
-  process.env.GCYPHRQ_CACHE_DIR = TEST_CACHE_DIR;
+  process.env.GCYPHRQ_CACHE_DIR = TEST_BASE_CACHE_DIR;
+  // Ensure the graphs subdirectory exists (created lazily by writeCache in real usage)
+  mkdirSync(join(TEST_BASE_CACHE_DIR, 'graphs'), { recursive: true });
 }
 
 function teardown() {
   delete process.env.GCYPHRQ_CACHE_DIR;
-  try { rmSync(TEST_CACHE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+  try { rmSync(TEST_BASE_CACHE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
   try { rmSync(TEST_FILE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 
@@ -298,23 +301,24 @@ describe('clearCache', () => {
 });
 
 describe('GCYPHRQ_CACHE_DIR override', () => {
-  const CUSTOM_CACHE_DIR = join(tmpdir(), 'gcyphrq-custom-cache', 'graphs');
+  const CUSTOM_BASE_CACHE_DIR = join(tmpdir(), 'gcyphrq-custom-cache');
 
   beforeEach(() => {
-    try { rmSync(CUSTOM_CACHE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
-    mkdirSync(CUSTOM_CACHE_DIR, { recursive: true });
+    try { rmSync(CUSTOM_BASE_CACHE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    mkdirSync(CUSTOM_BASE_CACHE_DIR, { recursive: true });
     mkdirSync(TEST_FILE_DIR, { recursive: true });
-    process.env.GCYPHRQ_CACHE_DIR = CUSTOM_CACHE_DIR;
+    process.env.GCYPHRQ_CACHE_DIR = CUSTOM_BASE_CACHE_DIR;
   });
 
   afterEach(() => {
     delete process.env.GCYPHRQ_CACHE_DIR;
-    try { rmSync(CUSTOM_CACHE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    try { rmSync(CUSTOM_BASE_CACHE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
     try { rmSync(TEST_FILE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
-  it('uses custom cache directory when env var is set', () => {
-    expect(getCacheDir()).toBe(CUSTOM_CACHE_DIR);
+  it('uses custom base cache directory when env var is set', () => {
+    expect(getBaseCacheDir()).toBe(CUSTOM_BASE_CACHE_DIR);
+    expect(getCacheDir()).toBe(join(CUSTOM_BASE_CACHE_DIR, 'graphs'));
 
     const filePath = createTestFile('<gexf>test</gexf>');
     const stat = statSync(filePath);
@@ -322,8 +326,8 @@ describe('GCYPHRQ_CACHE_DIR override', () => {
 
     writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
 
-    // Verify file exists in custom directory
-    const cacheFile = join(CUSTOM_CACHE_DIR, `${hash}.json`);
+    // Verify file exists in custom graphs subdirectory
+    const cacheFile = join(CUSTOM_BASE_CACHE_DIR, 'graphs', `${hash}.json`);
     expect(existsSync(cacheFile)).toBe(true);
   });
 });
@@ -391,12 +395,12 @@ describe('cacheExists', () => {
   beforeEach(() => setup());
   afterEach(() => teardown());
 
-  it('returns true when cache directory exists', () => {
+  it('returns true when graphs cache directory exists', () => {
     expect(cacheExists()).toBe(true);
   });
 
-  it('returns false when cache directory does not exist', () => {
-    rmSync(TEST_CACHE_DIR, { recursive: true, force: true });
+  it('returns false when graphs cache directory does not exist', () => {
+    rmSync(getCacheDir(), { recursive: true, force: true });
     expect(cacheExists()).toBe(false);
   });
 });

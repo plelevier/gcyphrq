@@ -12,19 +12,27 @@ const CACHE_DIR_ENV = 'GCYPHRQ_CACHE_DIR';
 // ── Cache directory ─────────────────────────────────────────────────────────
 
 /**
- * Get the cache directory path.
+ * Get the base cache directory.
  * Uses GCYPHRQ_CACHE_DIR env var if set, otherwise user cache directory.
+ * Subdirectories (e.g., "graphs") are appended by specific cache modules.
  */
-export function getCacheDir(): string {
+export function getBaseCacheDir(): string {
   const envOverride = process.env[CACHE_DIR_ENV];
   if (envOverride) {
     return envOverride;
   }
   const p = platform();
   if (p === 'win32') {
-    return join(homedir(), 'AppData', 'Local', 'gcyphrq', 'cache', 'graphs');
+    return join(homedir(), 'AppData', 'Local', 'gcyphrq', 'cache');
   }
-  return join(homedir(), '.cache', 'gcyphrq', 'graphs');
+  return join(homedir(), '.cache', 'gcyphrq');
+}
+
+/**
+ * Get the graphs cache directory.
+ */
+export function getCacheDir(): string {
+  return join(getBaseCacheDir(), 'graphs');
 }
 
 /** Ensure the cache directory exists. */

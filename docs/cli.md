@@ -345,7 +345,7 @@ The cache is invalidated automatically when the input file is modified (detected
 
 - **Enabled by default** when `--ext` is used. No effect for plain JSON input (no extension).
 - **Maximum 10 cached graphs** stored on disk. The least-recently-used entry is evicted when a new entry is added.
-- **Cache directory**: `~/.cache/gcyphrq/graphs/` on Linux/macOS, `%LOCALAPPDATA%/gcyphrq/cache/graphs` on Windows. Override with the `GCYPHRQ_CACHE_DIR` environment variable.
+- **Cache directory**: `~/.cache/gcyphrq/graphs/` on Linux/macOS, `%LOCALAPPDATA%/gcyphrq/cache/graphs` on Windows. Override the base directory (`~/.cache/gcyphrq` / `%LOCALAPPDATA%/gcyphrq/cache`) with the `GCYPHRQ_CACHE_DIR` environment variable.
 - **Per-extension control**: Extension authors can set `cacheable: false` in their manifest to disable caching for their format.
 
 ### Disabling the cache
