@@ -387,6 +387,8 @@ try {
 
 gcyphrq supports pluggable extensions for non-JSON input formats and custom functions.
 
+> See the [Available Extensions]({{ '/extensions/' | relative_url }}#available-extensions) table for a list of published extensions.
+
 #### `convertWithExtension(extensionName, context)`
 
 Load a graph-input extension and convert file content to `GraphInput`.
