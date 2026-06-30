@@ -14,6 +14,7 @@ import type {
   GraphConfig,
   GraphIndexes,
   LoadCsvClause,
+  MatchClause,
   MergeClause,
   OrderByItem,
   PatternComprehensionExpression,
@@ -21,6 +22,7 @@ import type {
   QueryContext,
   ReturnClause,
   ResultRow,
+  Stage,
   UnwindClause,
   WhereExpression,
   WithClause,
@@ -52,6 +54,18 @@ import {
 } from './graph-functions';
 import { executeReturn as executeReturnImpl, executeWith as executeWithImpl } from './result';
 import { loadCsv, buildCsvRows } from './csv-reader';
+import { executeMatchStream } from './match';
+import {
+  fromContexts,
+  collect as collectPipeline,
+  AbortSignal,
+  shouldLazy,
+  streamGroupedAggregation,
+  executeUnwindStream,
+  executeWithStream,
+  applyPostProcessing,
+  buildEmptyAggDefaults,
+} from './pipeline';
 
 // ── Engine ───────────────────────────────────────────────────────────────────
 
@@ -81,7 +95,19 @@ export class AdvancedCypherGraphologyEngine {
   }
 
   /** MAIN ENTRY POINT - Sequentially executes query stages and formats the return projection. */
-  public async execute(ast: AdvancedCypherAST): Promise<ResultRow[]> {
+  public async execute(ast: AdvancedCypherAST, opts?: { forceLazy?: boolean; forceEager?: boolean }): Promise<ResultRow[]> {
+    if (opts?.forceLazy) return this.executeLazy(ast);
+    if (opts?.forceEager) return this.executeEager(ast);
+    // Use lazy (generator-based) pipeline when beneficial
+    if (shouldLazy(ast)) {
+      return this.executeLazy(ast);
+    }
+    // Fall back to eager pipeline
+    return this.executeEager(ast);
+  }
+
+  /** EAGER pipeline — original implementation, materialises all results per stage. */
+  private async executeEager(ast: AdvancedCypherAST): Promise<ResultRow[]> {
     let contexts: (QueryContext | ContextChain)[] = [{}];
 
     for (const stage of ast.stages) {
@@ -120,6 +146,359 @@ export class AdvancedCypherGraphologyEngine {
       return materialised as unknown as ResultRow[];
     }
     return [];
+  }
+
+  /** LAZY pipeline — generator-based, short-circuits on LIMIT, streams aggregations. */
+  private async executeLazy(ast: AdvancedCypherAST): Promise<ResultRow[]> {
+    const signal = new AbortSignal();
+
+    // Build initial generator from incoming contexts
+    let gen = fromContexts([{}]);
+
+    // Build generator pipeline stage by stage
+    for (const stage of ast.stages) {
+      if (signal.aborted) break;
+      gen = this.buildStageStream(stage, gen, signal);
+    }
+
+    // Apply RETURN
+    if (ast.return) {
+      const returnGen = this.executeReturnStream(ast.return, gen, signal);
+      const collected = await collectPipeline(returnGen);
+      return collected as unknown as ResultRow[];
+    }
+
+    // No RETURN clause -- if CALL produced results, materialise and return them.
+    if (ast.stages.some((s) => s.type === 'CALL')) {
+      const contexts = await collectPipeline(gen);
+      return contexts.map((c) => (isContextChain(c) ? materialiseChain(c) : c)) as unknown as ResultRow[];
+    }
+    return [];
+  }
+
+  /** Build a streaming stage transformer for the lazy pipeline. */
+  private buildStageStream(stage: Stage, inputGen: ReturnType<typeof fromContexts>, signal: AbortSignal): ReturnType<typeof fromContexts> {
+    switch (stage.type) {
+      case 'MATCH':
+        return this.streamMatch(stage.clause, inputGen, signal);
+      case 'WITH':
+        return this.executeWithStream(stage.clause, inputGen, signal);
+      case 'UNWIND':
+        return this.executeUnwindStream(stage.clause, inputGen, signal);
+      case 'WRITE':
+        // WRITE mutates graph — must collect before continuing
+        return this.executeWriteStream(stage.clause, inputGen, signal);
+      case 'MERGE':
+        // MERGE mutates graph — must collect before continuing (forces barrier)
+        return this.executeMergeStream(stage.clause, inputGen, signal);
+      case 'FOREACH':
+        // FOREACH mutates graph — must collect before continuing
+        return this.executeForeachStream(stage.clause, inputGen, signal);
+      case 'CALL':
+        // CALL subquery — collect input, execute inner query, yield results
+        return this.executeCallStream(stage.clause, inputGen, signal);
+      case 'LOAD_CSV':
+        return this.executeLoadCsvStream(stage.clause, inputGen, signal);
+      default:
+        return inputGen;
+    }
+  }
+
+  // ── Streaming stage implementations ──────────────────────────────────
+
+  private async * streamMatch(
+    clause: MatchClause,
+    inputGen: ReturnType<typeof fromContexts>,
+    signal: AbortSignal,
+  ): ReturnType<typeof fromContexts> {
+    // Use a getter for indexes so that WRITE's invalidation is seen at consumption time
+    const stream = executeMatchStream(
+      this.graph, () => this.indexes, this.config, clause, inputGen, signal,
+      (w, c) => this.evaluateWhere(w, c),
+      this.warnedNoLabels, this.warnedNoEdgeTypes, this.onWarning,
+      (e, c) => this.evaluateExpression(e, c),
+    );
+    for await (const row of stream) yield row;
+  }
+
+  private async * executeWithStream(
+    clause: WithClause,
+    inputGen: ReturnType<typeof fromContexts>,
+    signal: AbortSignal,
+  ): ReturnType<typeof fromContexts> {
+    // Check if WITH has aggregations
+    const hasAgg = clause.projections.some((p) => containsAggregation(p.expression));
+
+    if (hasAgg) {
+      // Stream through grouped aggregation
+      let groups = await streamGroupedAggregation(
+        inputGen, clause.projections, signal,
+        (e, c) => this.evaluateExpression(e, c),
+      );
+
+      // When there are no input rows but aggregations are present, produce one row with defaults
+      if (groups.length === 0) {
+        groups = [{ keyValues: buildEmptyAggDefaults(clause.projections), accumulators: new Map() }];
+      }
+
+      // Convert group contexts to alias-based format (matching eager path)
+      let results = groups.map((g) => this.buildWithContextFromGroup(g, clause.projections));
+
+      // Apply WHERE after aggregation
+      if (clause.where) {
+        results = results.filter((ctx) => this.evaluateWhere(clause.where!, ctx));
+      }
+
+      // Apply ORDER BY on finalised groups
+      if (clause.orderBy && clause.orderBy.length > 0) {
+        results = this.applyOrderByToContexts(results, clause.orderBy);
+      }
+
+      // Apply SKIP
+      if (clause.skip !== undefined && clause.skip !== null) {
+        results = results.slice(clause.skip);
+      }
+
+      // Apply LIMIT
+      if (clause.limit !== undefined && clause.limit !== null) {
+        results = results.slice(0, clause.limit);
+      }
+
+      for (const ctx of results) yield { context: ctx };
+    } else {
+      // Non-aggregation WITH: use streaming projection
+      const stream = executeWithStream(
+        inputGen, clause, signal,
+        (e, c) => this.evaluateExpression(e, c),
+        (w, c) => this.evaluateWhere(w, c),
+      );
+      for await (const row of stream) yield row;
+    }
+  }
+
+  private async * executeUnwindStream(
+    clause: UnwindClause,
+    inputGen: ReturnType<typeof fromContexts>,
+    signal: AbortSignal,
+  ): ReturnType<typeof fromContexts> {
+    const stream = executeUnwindStream(
+      inputGen, clause, signal,
+      (e, c) => this.evaluateExpression(e, c),
+      (w, c) => this.evaluateWhere(w, c),
+    );
+    for await (const row of stream) yield row;
+  }
+
+  /** WRITE stage — forces a barrier (collect all, execute, yield through). */
+  private async * executeWriteStream(
+    clause: WriteClause,
+    inputGen: ReturnType<typeof fromContexts>,
+    signal: AbortSignal,
+  ): ReturnType<typeof fromContexts> {
+    const contexts = await collectPipeline(inputGen);
+    this.executeWrite(clause, contexts);
+    for (const ctx of contexts) yield { context: ctx };
+  }
+
+  /** MERGE stage — forces a barrier (collect all, execute, yield results). */
+  private async * executeMergeStream(
+    clause: MergeClause,
+    inputGen: ReturnType<typeof fromContexts>,
+    signal: AbortSignal,
+  ): ReturnType<typeof fromContexts> {
+    const contexts = await collectPipeline(inputGen);
+    const mergeResult = executeMerge(
+      this.graph, this.indexes, this.config, clause, contexts,
+      (e, c) => this.evaluateExpression(e, c),
+      (w, c) => this.evaluateWhere(w, c),
+      this.warnedNoLabels, this.onWarning,
+    );
+    this.warnedNoLabels = mergeResult.warnedNoLabels;
+    this.indexes = undefined;
+    for (const ctx of mergeResult.contexts) yield { context: ctx };
+  }
+
+  /** FOREACH stage — forces a barrier (collect all, execute, yield through). */
+  private async * executeForeachStream(
+    clause: ForeachClause,
+    inputGen: ReturnType<typeof fromContexts>,
+    signal: AbortSignal,
+  ): ReturnType<typeof fromContexts> {
+    const contexts = await collectPipeline(inputGen);
+    this.executeForeach(clause, contexts);
+    for (const ctx of contexts) yield { context: ctx };
+  }
+
+  /** CALL stage — collect input, execute inner query per context, yield results. */
+  private async * executeCallStream(
+    clause: CallClause,
+    inputGen: ReturnType<typeof fromContexts>,
+    signal: AbortSignal,
+  ): ReturnType<typeof fromContexts> {
+    const contexts = await collectPipeline(inputGen);
+    for (const context of contexts) {
+      if (signal.aborted) break;
+      const flat = isContextChain(context) ? materialiseChain(context) : context;
+      const innerContext: QueryContext = clause.inline ? { ...flat } : {};
+      const innerResults = await this.executeInnerQuery(clause.innerQuery, innerContext);
+
+      for (const innerRow of innerResults) {
+        let overrides: QueryContext;
+        if (clause.yieldVariables && clause.yieldVariables.length > 0) {
+          overrides = {};
+          for (const varName of clause.yieldVariables) { if (varName in innerRow) overrides[varName] = innerRow[varName]; }
+        } else {
+          overrides = { ...innerRow };
+        }
+        yield { context: { [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: overrides } };
+      }
+    }
+    this.indexes = undefined;
+  }
+
+  /** LOAD CSV stage — collect input, load CSV, yield cross-product. */
+  private async * executeLoadCsvStream(
+    clause: LoadCsvClause,
+    inputGen: ReturnType<typeof fromContexts>,
+    signal: AbortSignal,
+  ): ReturnType<typeof fromContexts> {
+    const contexts = await collectPipeline(inputGen);
+    const { rows, headers } = await loadCsv(clause.source, clause.withHeaders, {
+      fieldTerminator: clause.fieldTerminator,
+      enclosedBy: clause.enclosedBy,
+    });
+    const csvRows = buildCsvRows(rows, headers);
+
+    for (const context of contexts) {
+      if (signal.aborted) break;
+      for (const csvRow of csvRows) {
+        yield { context: { [CHAIN_BASE]: context, [CHAIN_OVERRIDES]: { [clause.variable]: csvRow } } };
+      }
+    }
+  }
+
+  // ── RETURN streaming ─────────────────────────────────────────────────
+
+  /**
+   * Execute RETURN with three paths:
+   * 1. LIMIT-only (no ORDER BY/DISTINCT/agg) — short-circuit at N
+   * 2. Aggregation — stream through grouped accumulators, then sort/limit
+   * 3. Full materialisation fallback (DISTINCT, ORDER BY without LIMIT)
+   */
+  private async * executeReturnStream(
+    clause: ReturnClause,
+    inputGen: ReturnType<typeof fromContexts>,
+    signal: AbortSignal,
+  ): ReturnType<typeof fromContexts> {
+    const hasAgg = clause.projections.some((p) => containsAggregation(p.expression));
+    const hasOrderBy = clause.orderBy && clause.orderBy.length > 0;
+    const hasDistinct = clause.projections.some((p) => p.distinct);
+    const hasLimit = clause.limit !== undefined && clause.limit !== null;
+    const hasSkip = clause.skip !== undefined && clause.skip !== null;
+
+    // Path 1: SKIP+LIMIT only (no ORDER BY/DISTINCT/agg) — short-circuit at N
+    if (!hasAgg && !hasOrderBy && !hasDistinct && (hasLimit || hasSkip)) {
+      let count = 0;
+      const skip = clause.skip ?? 0;
+      const limit = clause.limit ?? Infinity;
+      for await (const { context } of inputGen) {
+        if (signal.aborted) break;
+        if (count >= skip + limit) break;
+        if (count < skip) { count++; continue; }
+        const flat = isContextChain(context) ? materialiseChain(context) : context;
+        const row = this.buildReturnRow(clause.projections, flat);
+        yield { context: row };
+        count++;
+      }
+      return;
+    }
+
+    // Path 2: Aggregation — stream through grouped accumulators
+    if (hasAgg) {
+      let groups = await streamGroupedAggregation(
+        inputGen, clause.projections, signal,
+        (e, c) => this.evaluateExpression(e, c),
+      );
+
+      // When there are no input rows but aggregations are present, produce one row with defaults
+      if (groups.length === 0) {
+        groups = [{ keyValues: buildEmptyAggDefaults(clause.projections), accumulators: new Map() }];
+      }
+
+      // Build projected rows from grouped contexts
+      // group.keyValues contains both simple projection values AND aggregation results (stored by aggKey)
+      const projected = groups.map((g) => {
+        const ctx = g.keyValues;
+        const row = this.buildRowFromGroup(clause.projections, ctx);
+        return { row, context: ctx };
+      });
+
+      // Apply ORDER BY + SKIP + LIMIT on finalised groups
+      const processed = applyPostProcessing(
+        projected, clause.projections, clause.orderBy, clause.skip, clause.limit,
+        (e, c) => this.evaluateExpression(e, c),
+      );
+
+      for (const { row } of processed) yield { context: row };
+      return;
+    }
+
+    // Path 3: Full materialisation fallback (DISTINCT, ORDER BY without LIMIT)
+    const allContexts = await collectPipeline(inputGen);
+    const materialised = allContexts.map((c) => materialiseChain(c));
+
+    const projected = materialised.map((ctx) => ({
+      row: this.buildReturnRow(clause.projections, ctx),
+      context: ctx,
+    }));
+
+    const processed = applyPostProcessing(
+      projected, clause.projections, clause.orderBy, clause.skip, clause.limit,
+      (e, c) => this.evaluateExpression(e, c),
+    );
+
+    for (const { row } of processed) yield { context: row };
+  }
+
+  /** Build a single RETURN row from projections and context. */
+  private buildReturnRow(projections: Projection[], context: QueryContext): Record<string, CypherValue> {
+    const row: Record<string, CypherValue> = {};
+    projections.forEach((p) => { row[p.alias] = this.evaluateExpression(p.expression, context); });
+    return row;
+  }
+
+  /** Build a projected row from a streaming aggregation group context. */
+  private buildRowFromGroup(projections: Projection[], groupContext: QueryContext): Record<string, CypherValue> {
+    const row: Record<string, CypherValue> = {};
+    const keysSimple = projections.filter((p) => !containsAggregation(p.expression));
+    const keysAggr = projections.filter((p) => containsAggregation(p.expression));
+
+    // Build aggResults Map from the group context (which stores results by aggKey)
+    const aggResults = new Map<string, CypherValue>();
+    for (const proj of keysAggr) {
+      const aggs = collectAggregations(proj.expression);
+      for (const agg of aggs) {
+        const aggKey = `${getAggKey(agg)}:${agg.aggregationType}:${agg.distinct}`;
+        aggResults.set(aggKey, groupContext[aggKey]);
+      }
+    }
+
+    // Simple projections: use pre-computed alias values from group context
+    for (const p of keysSimple) {
+      row[p.alias] = groupContext[p.alias];
+    }
+
+    // Aggregation projections: evaluate with aggResults map
+    for (const p of keysAggr) {
+      row[p.alias] = this.evaluateExpressionWithAggregations(p.expression, groupContext, aggResults);
+    }
+
+    return row;
+  }
+
+  /** Convert a streaming aggregation group to an alias-based context (matching eager WITH path). */
+  private buildWithContextFromGroup(group: { keyValues: QueryContext }, projections: Projection[]): QueryContext {
+    return this.buildRowFromGroup(projections, group.keyValues) as QueryContext;
   }
 
   /** Invalidate pre-computed indexes so subsequent queries fall back to full-graph scan. */
