@@ -32,6 +32,7 @@ gcyphrq [options]
 | `--ext-fn <name>` | Load a function extension (repeatable, e.g., `--ext-fn apoc-commons`) |
 | `--list-extensions` | List all available extensions with descriptions |
 | `--install-skill <mode>` | Install the gcyphrq skill for AI coding agents. Mode: `global` (symlinks) or `local` (copies into current directory) |
+| `--no-cache` | Disable graph caching for input extensions (enabled by default) |
 | `--pass-through` | Output the input graph as-is without executing a Cypher query. Requires `-g`, ignores `-e`. Useful with `--ext` to convert file formats to Graphology JSON |
 | `-v, --version` | Show version number |
 | `-h, --help` | Show help message |
@@ -333,6 +334,26 @@ gcyphrq -g my-graph.gexf --ext gexf --ext-fn apoc-commons -e 'MATCH (n) RETURN a
 | Extension type mismatch | "Extension 'X' is a function extension, not a graph-input extension" |
 
 See [Extensions Guide]({{ '/extensions/' | relative_url }}) for creating your own extensions.
+
+## Graph Caching
+
+When using a graph-input extension (`--ext`), gcyphrq automatically caches the parsed graph on disk. Subsequent runs against the same file skip the (potentially expensive) parsing step and load the cached result instead.
+
+The cache is invalidated automatically when the input file is modified (detected via file mtime and size).
+
+### Cache behaviour
+
+- **Enabled by default** when `--ext` is used. No effect for plain JSON input (no extension).
+- **Maximum 10 cached graphs** stored on disk. The least-recently-used entry is evicted when a new entry is added.
+- **Cache directory**: `~/.cache/gcyphrq/graphs/` on Linux/macOS, `%LOCALAPPDATA%/gcyphrq/cache/graphs` on Windows. Override the base directory (`~/.cache/gcyphrq` / `%LOCALAPPDATA%/gcyphrq/cache`) with the `GCYPHRQ_CACHE_DIR` environment variable.
+- **Per-extension control**: Extension authors can set `cacheable: false` in their manifest to disable caching for their format.
+
+### Disabling the cache
+
+```bash
+# Disable caching for this invocation
+gcyphrq -g data.gexf --ext gexf --no-cache -e 'MATCH (n) RETURN n'
+```
 
 ## Exit Codes
 

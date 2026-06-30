@@ -1,10 +1,11 @@
-import { readFileSync } from 'fs';
+import { readFileSync, statSync } from 'fs';
 import { resolve } from 'path';
 import { GraphError, createGraph, parseCypher, GraphEngine, buildGraphIndexes, explainQuery } from './lib';
 import type { GraphInput } from './lib';
 import { runInstall } from './install';
 import { formatExtensionsList, convertWithExtension, registerFunctionExtension, preprocessQueryForExtensions } from './ext/registry';
 import { getExtensionFunctions, getExtensionAggregations } from './ext/registry';
+import { computeCacheKey, readCache, writeCache } from './cache';
 
 declare const __VERSION__: string;
 
@@ -28,6 +29,7 @@ Options:
   --explain              Show the query execution plan instead of executing. Does not require a graph file (-g is optional)
   --ext <name>           Use a graph-input extension to parse the input file (e.g., --ext gexf)
   --ext-fn <name>        Load a function extension (repeatable, e.g., --ext-fn apoc-commons)
+  --no-cache             Disable graph caching for input extensions (enabled by default)
   --pass-through         Output the input graph as-is without executing a Cypher query. Requires -g, ignores -e. Useful with --ext to convert file formats to Graphology JSON
   --list-extensions      List all available extensions with descriptions
   --install-skill <mode> Install the gcyphrq skill for AI coding agents. Mode: "global" (symlinks) or "local" (copies into current directory)
@@ -87,10 +89,11 @@ type ParsedArgs = {
   extFn: string[];
   listExtensions: boolean;
   passThrough: boolean;
+  noCache: boolean;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
-  const args: ParsedArgs = { expr: undefined, graph: undefined, labelProperty: undefined, edgeTypeProperty: undefined, format: undefined, explain: false, help: false, version: false, install: undefined, ext: undefined, extFn: [], listExtensions: false, passThrough: false };
+  const args: ParsedArgs = { expr: undefined, graph: undefined, labelProperty: undefined, edgeTypeProperty: undefined, format: undefined, explain: false, help: false, version: false, install: undefined, ext: undefined, extFn: [], listExtensions: false, passThrough: false, noCache: false };
   let exprFlag: string | null = null;
   let graphFlag: string | null = null;
   let labelFlag: string | null = null;
@@ -220,6 +223,11 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     if (arg === '--pass-through') {
       args.passThrough = true;
+      continue;
+    }
+
+    if (arg === '--no-cache') {
+      args.noCache = true;
       continue;
     }
 
@@ -374,6 +382,57 @@ async function readJsonFile(source: 'file' | 'stdin', path?: string): Promise<Gr
   }
 }
 
+// ── Cache-aware graph loading ──────────────────────────────────────────────
+
+/**
+ * Load a graph using a graph-input extension, with optional disk caching.
+ *
+ * When caching is enabled (default), the parsed GraphInput is cached on disk
+ * keyed by file path, extension name, and config parameters. Subsequent runs
+ * against the same file skip the parsing step.
+ */
+async function loadGraphWithCache(
+  filePath: string,
+  extensionName: string,
+  labelProperty: string | undefined,
+  edgeTypeProperty: string | undefined,
+  noCache: boolean,
+): Promise<GraphInput> {
+  const resolvedPath = resolve(filePath);
+  const stat = statSync(resolvedPath);
+
+  // Try cache first (unless disabled)
+  if (!noCache) {
+    const { hash } = computeCacheKey(resolvedPath, extensionName, labelProperty, edgeTypeProperty);
+    const cached = readCache(hash, stat.mtimeMs, stat.size);
+    if (cached !== undefined) {
+      return cached;
+    }
+  }
+
+  // Cache miss or cache disabled — run the extension
+  const content = readFileSync(resolvedPath, 'utf-8');
+  const extContext: import('./ext/types').GraphInputExtensionContext = {
+    content,
+    filePath,
+  };
+  if (labelProperty !== undefined) extContext.labelProperty = labelProperty;
+  if (edgeTypeProperty !== undefined) extContext.edgeTypeProperty = edgeTypeProperty;
+  const { graph, cacheable } = await convertWithExtension(extensionName, extContext);
+
+  // Write to cache unless disabled or extension opted out
+  if (!noCache && cacheable) {
+    const { hash, key } = computeCacheKey(resolvedPath, extensionName, labelProperty, edgeTypeProperty);
+    try {
+      writeCache(hash, key, stat.mtimeMs, stat.size, graph);
+    } catch {
+      // Cache write failure is non-fatal — graph was parsed successfully
+    }
+  }
+
+  return graph;
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -430,14 +489,13 @@ async function main(): Promise<void> {
       // Load graph data
       let passThroughData: GraphInput;
       if (args.ext) {
-        const content = readFileSync(resolve(args.graph!), 'utf-8');
-        const extContext: import('./ext/types').GraphInputExtensionContext = {
-          content,
-          filePath: args.graph!,
-        };
-        if (args.labelProperty !== undefined) extContext.labelProperty = args.labelProperty;
-        if (args.edgeTypeProperty !== undefined) extContext.edgeTypeProperty = args.edgeTypeProperty;
-        passThroughData = await convertWithExtension(args.ext, extContext);
+        passThroughData = await loadGraphWithCache(
+          args.graph!,
+          args.ext,
+          args.labelProperty,
+          args.edgeTypeProperty,
+          args.noCache,
+        );
       } else {
         passThroughData = args.graph === '-'
           ? await readJsonFile('stdin')
@@ -495,15 +553,13 @@ async function main(): Promise<void> {
 
     let graphData: GraphInput;
     if (args.ext) {
-      // Use graph-input extension to parse the file
-      const content = readFileSync(resolve(args.graph!), 'utf-8');
-      const extContext: import('./ext/types').GraphInputExtensionContext = {
-        content,
-        filePath: args.graph!,
-      };
-      if (args.labelProperty !== undefined) extContext.labelProperty = args.labelProperty;
-      if (args.edgeTypeProperty !== undefined) extContext.edgeTypeProperty = args.edgeTypeProperty;
-      graphData = await convertWithExtension(args.ext, extContext);
+      graphData = await loadGraphWithCache(
+        args.graph!,
+        args.ext,
+        args.labelProperty,
+        args.edgeTypeProperty,
+        args.noCache,
+      );
     } else {
       graphData = args.graph === '-'
         ? await readJsonFile('stdin')

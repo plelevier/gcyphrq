@@ -129,7 +129,7 @@ export async function loadExtension(name: string): Promise<LoadedExtension> {
 export async function convertWithExtension(
   extensionName: string,
   context: GraphInputExtensionContext,
-): Promise<import('../lib').GraphInput> {
+): Promise<{ graph: import('../lib').GraphInput; cacheable: boolean }> {
   const loaded = await loadExtension(extensionName);
 
   if (loaded.manifest.type !== 'graph-input') {
@@ -140,7 +140,8 @@ export async function convertWithExtension(
 
   const ext = loaded.module as GraphInputExtension;
   try {
-    return await ext.convert(context);
+    const graph = await ext.convert(context);
+    return { graph, cacheable: loaded.manifest.cacheable !== false };
   } catch (err: unknown) {
     throw new GraphError(
       `Extension "${extensionName}" failed to parse "${context.filePath}": ${err instanceof Error ? err.message : String(err)}`,

@@ -374,15 +374,15 @@ describe('Extension registry', () => {
       const origCwd = process.cwd();
       process.chdir(testCwd);
       try {
-        const result = await convertWithExtension('mock-graph', {
+        const { graph } = await convertWithExtension('mock-graph', {
           content: 'nodes: A,B,C edges: A->B,B->C',
           filePath: 'test.mock',
         });
-        expect(result.nodes).toHaveLength(3);
-        expect(result.edges).toHaveLength(2);
-        expect(result.nodes[0]!.key).toBe('A');
-        expect(result.edges[0]!.source).toBe('A');
-        expect(result.edges[0]!.target).toBe('B');
+        expect(graph.nodes).toHaveLength(3);
+        expect(graph.edges).toHaveLength(2);
+        expect(graph.nodes[0]!.key).toBe('A');
+        expect(graph.edges[0]!.source).toBe('A');
+        expect(graph.edges[0]!.target).toBe('B');
       } finally {
         process.chdir(origCwd);
       }

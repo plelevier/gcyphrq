@@ -186,7 +186,7 @@ describe('Extension integration', () => {
       const origCwd = process.cwd();
       process.chdir(testCwd);
       try {
-        const graphData = await convertWithExtension('mock-graph', {
+        const { graph: graphData } = await convertWithExtension('mock-graph', {
           content: 'nodes: A,B,C edges: A->B,B->C',
           filePath: 'test.mock',
         });
@@ -212,7 +212,7 @@ describe('Extension integration', () => {
       const origCwd = process.cwd();
       process.chdir(testCwd);
       try {
-        const graphData = await convertWithExtension('mock-graph', {
+        const { graph: graphData } = await convertWithExtension('mock-graph', {
           content: 'nodes: A,B,C edges: A->B,B->C',
           filePath: 'test.mock',
         });
@@ -238,7 +238,7 @@ describe('Extension integration', () => {
       process.chdir(testCwd);
       try {
         // Convert using graph-input extension
-        const graphData = await convertWithExtension('mock-graph', {
+        const { graph: graphData } = await convertWithExtension('mock-graph', {
           content: 'nodes: A,B,C edges: A->B,B->C',
           filePath: 'test.mock',
         });
