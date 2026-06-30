@@ -438,3 +438,24 @@ describe('cacheExists', () => {
     expect(cacheExists()).toBe(false);
   });
 });
+
+describe('concurrent access protection', () => {
+  beforeEach(() => setup());
+  afterEach(() => teardown());
+
+  it('removes stale lock file from dead process', () => {
+    const lockPath = join(getCacheDir(), '.lock');
+    // Simulate a stale lock from a non-existent PID
+    writeFileSync(lockPath, '99999', 'utf-8');
+    expect(existsSync(lockPath)).toBe(true);
+
+    // Cache operations should remove the stale lock and proceed
+    const filePath = createTestFile('<gexf>test</gexf>');
+    const stat = statSync(filePath);
+    const { hash, key } = computeCacheKey(filePath, 'gexf');
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
+
+    // Lock file should be cleaned up after operation
+    expect(existsSync(lockPath)).toBe(false);
+  });
+});

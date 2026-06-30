@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, existsSync, readdirSync, openSync, closeSync, statSync, constants } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { join, resolve as resolvePath } from 'node:path';
 import type { GraphInput } from './lib';
@@ -8,6 +8,76 @@ import type { GraphInput } from './lib';
 
 const MAX_CACHE_ENTRIES = 10;
 const CACHE_DIR_ENV = 'GCYPHRQ_CACHE_DIR';
+
+// ── File locking (concurrent access protection) ────────────────────────────
+
+const LOCK_TIMEOUT = 5000; // 5 seconds
+const LOCK_RETRY_DELAY = 50; // ms
+const LOCK_MAX_AGE = 30000; // 30 seconds — force-remove if older than this
+
+/**
+ * Acquire an exclusive lock on the cache directory.
+ * Prevents concurrent access from multiple CLI instances.
+ * Returns a release function that must be called when done.
+ */
+function acquireLock(): () => void {
+  ensureCacheDir();
+  const lockPath = join(getCacheDir(), '.lock');
+  const deadline = Date.now() + LOCK_TIMEOUT;
+
+  while (Date.now() < deadline) {
+    try {
+      // Attempt to create lock file exclusively
+      const fd = openSync(lockPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
+      writeFileSync(fd, String(process.pid), 'utf-8');
+      return () => {
+        try { closeSync(fd); } catch { /* ignore */ }
+        try { unlinkSync(lockPath); } catch { /* ignore */ }
+      };
+    } catch {
+      // Lock file exists — check if holder is still alive
+      try {
+        const stat = statSync(lockPath);
+        // Force-remove if lock is too old
+        if (Date.now() - stat.mtimeMs > LOCK_MAX_AGE) {
+          unlinkSync(lockPath);
+          continue;
+        }
+        const pid = parseInt(readFileSync(lockPath, 'utf-8').trim(), 10);
+        if (isNaN(pid) || !isProcessAlive(pid)) {
+          unlinkSync(lockPath);
+          continue;
+        }
+      } catch {
+        // Can't read lock — remove and retry
+        try { unlinkSync(lockPath); } catch { /* ignore */ }
+        continue;
+      }
+      // Lock held by another active process — wait and retry
+      sleepSync(LOCK_RETRY_DELAY);
+    }
+  }
+
+  throw new Error('Timed out waiting for cache lock. Another gcyphrq instance may be running.');
+}
+
+/** Check if a process with the given PID is alive. */
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Sleep for the given number of milliseconds (busy-wait). */
+function sleepSync(ms: number): void {
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    // Busy-wait — acceptable for short durations in CLI context
+  }
+}
 
 // ── Cache directory ─────────────────────────────────────────────────────────
 
@@ -133,13 +203,16 @@ function cacheFilePath(hash: string): string {
  *
  * Validates freshness by comparing file mtime and size against stored values.
  * Updates accessedAt on hit. All I/O errors are caught and treated as cache miss.
+ * Uses file locking to prevent concurrent access corruption.
  */
 export function readCache(
   hash: string,
   expectedMtime: number,
   expectedSize: number,
 ): GraphInput | undefined {
+  let releaseLock: (() => void) | undefined;
   try {
+    releaseLock = acquireLock();
     const meta = loadMeta();
     const entry = meta.find((e) => e.hash === hash);
 
@@ -169,6 +242,8 @@ export function readCache(
   } catch {
     // Cache file missing, corrupted, or I/O error — treat as miss
     return undefined;
+  } finally {
+    releaseLock?.();
   }
 }
 
@@ -176,6 +251,7 @@ export function readCache(
 
 /**
  * Write a graph to the cache. Evicts old entries if needed to stay within MAX_CACHE_ENTRIES.
+ * Uses file locking to prevent concurrent access corruption.
  */
 export function writeCache(
   hash: string,
@@ -184,42 +260,47 @@ export function writeCache(
   fileSize: number,
   data: GraphInput,
 ): void {
-  ensureCacheDir();
+  const releaseLock = acquireLock();
+  try {
+    ensureCacheDir();
 
-  const meta = loadMeta();
+    const meta = loadMeta();
 
-  // Check if entry already exists — update in place
-  const existingIndex = meta.findIndex((e) => e.hash === hash);
-  if (existingIndex >= 0) {
-    meta[existingIndex] = {
-      hash,
-      key,
-      fileMtime,
-      fileSize,
-      accessedAt: Date.now(),
-    };
-  } else {
-    // Evict if at capacity
-    while (meta.length >= MAX_CACHE_ENTRIES) {
-      evictOldest(meta);
+    // Check if entry already exists — update in place
+    const existingIndex = meta.findIndex((e) => e.hash === hash);
+    if (existingIndex >= 0) {
+      meta[existingIndex] = {
+        hash,
+        key,
+        fileMtime,
+        fileSize,
+        accessedAt: Date.now(),
+      };
+    } else {
+      // Evict if at capacity
+      while (meta.length >= MAX_CACHE_ENTRIES) {
+        evictOldest(meta);
+      }
+
+      meta.push({
+        hash,
+        key,
+        fileMtime,
+        fileSize,
+        accessedAt: Date.now(),
+      });
     }
 
-    meta.push({
-      hash,
-      key,
-      fileMtime,
-      fileSize,
-      accessedAt: Date.now(),
-    });
+    // Always write the cache file atomically (even on update, data may have changed)
+    const cacheFile = cacheFilePath(hash);
+    const tmpFile = cacheFile + '.tmp';
+    writeFileSync(tmpFile, JSON.stringify(data), 'utf-8');
+    renameSync(tmpFile, cacheFile);
+
+    saveMeta(meta);
+  } finally {
+    releaseLock();
   }
-
-  // Always write the cache file atomically (even on update, data may have changed)
-  const cacheFile = cacheFilePath(hash);
-  const tmpFile = cacheFile + '.tmp';
-  writeFileSync(tmpFile, JSON.stringify(data), 'utf-8');
-  renameSync(tmpFile, cacheFile);
-
-  saveMeta(meta);
 }
 
 /** Remove the oldest entry from the metadata and its cache file. */
@@ -248,39 +329,44 @@ function evictOldest(meta: MetaEntry[]): void {
 
 /** Clear the entire cache (all graph files and metadata). */
 export function clearCache(): void {
-  const meta = loadMeta();
-
-  // Remove all tracked cache files
-  for (const entry of meta) {
-    try {
-      unlinkSync(cacheFilePath(entry.hash));
-    } catch {
-      // File already gone
-    }
-  }
-
-  // Also remove any orphaned .json and .tmp files not in metadata
+  const releaseLock = acquireLock();
   try {
-    const dir = getCacheDir();
-    const files = readdirSync(dir);
-    for (const file of files) {
-      if ((file.endsWith('.json') || file.endsWith('.tmp')) && file !== '_meta.json') {
-        try {
-          unlinkSync(join(dir, file));
-        } catch {
-          // File already gone
-        }
+    const meta = loadMeta();
+
+    // Remove all tracked cache files
+    for (const entry of meta) {
+      try {
+        unlinkSync(cacheFilePath(entry.hash));
+      } catch {
+        // File already gone
       }
     }
-  } catch {
-    // Directory doesn't exist or isn't readable
-  }
 
-  // Remove metadata
-  try {
-    unlinkSync(metaPath());
-  } catch {
-    // Already gone
+    // Also remove any orphaned .json and .tmp files not in metadata
+    try {
+      const dir = getCacheDir();
+      const files = readdirSync(dir);
+      for (const file of files) {
+        if ((file.endsWith('.json') || file.endsWith('.tmp')) && file !== '_meta.json') {
+          try {
+            unlinkSync(join(dir, file));
+          } catch {
+            // File already gone
+          }
+        }
+      }
+    } catch {
+      // Directory doesn't exist or isn't readable
+    }
+
+    // Remove metadata
+    try {
+      unlinkSync(metaPath());
+    } catch {
+      // Already gone
+    }
+  } finally {
+    releaseLock();
   }
 }
 
