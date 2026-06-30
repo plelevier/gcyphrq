@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { homedir, platform } from 'node:os';
 import { join, resolve as resolvePath } from 'node:path';
-import { tmpdir } from 'node:os';
 import type { GraphInput } from './lib';
 
 // ── Configuration ───────────────────────────────────────────────────────────
@@ -13,14 +13,18 @@ const CACHE_DIR_ENV = 'GCYPHRQ_CACHE_DIR';
 
 /**
  * Get the cache directory path.
- * Uses GCYPHRQ_CACHE_DIR env var if set, otherwise OS temp directory.
+ * Uses GCYPHRQ_CACHE_DIR env var if set, otherwise user cache directory.
  */
 export function getCacheDir(): string {
   const envOverride = process.env[CACHE_DIR_ENV];
   if (envOverride) {
     return envOverride;
   }
-  return join(tmpdir(), 'gcyphrq', 'graphs');
+  const p = platform();
+  if (p === 'win32') {
+    return join(homedir(), 'AppData', 'Local', 'gcyphrq', 'cache', 'graphs');
+  }
+  return join(homedir(), '.cache', 'gcyphrq', 'graphs');
 }
 
 /** Ensure the cache directory exists. */
