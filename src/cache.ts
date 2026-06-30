@@ -263,8 +263,9 @@ export function writeCache(
   fileSize: number,
   data: GraphInput,
 ): void {
-  const releaseLock = acquireLock();
+  let releaseLock: (() => void) | undefined;
   try {
+    releaseLock = acquireLock();
     ensureCacheDir();
 
     const meta = loadMeta();
@@ -301,8 +302,13 @@ export function writeCache(
     renameSync(tmpFile, cacheFile);
 
     saveMeta(meta);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('Timed out')) {
+      process.stderr.write(`Warning: ${err.message}\n`);
+    }
+    throw err;
   } finally {
-    releaseLock();
+    releaseLock?.();
   }
 }
 
