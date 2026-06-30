@@ -14,6 +14,15 @@ description: Create gcyphrq extensions for custom input formats and functions.
 
 gcyphrq supports pluggable extensions for **non-JSON input formats** and **custom Cypher functions**. Extensions are independent npm packages published under the `gcyphrq-ext-*` naming convention.
 
+## Available Extensions
+
+| Package | Type | Description | GitHub |
+|---|---|---|---|
+| [gcyphrq-ext-apoc-commons](https://www.npmjs.com/package/gcyphrq-ext-apoc-commons) | Function | Common APOC utility functions (text, collection, map, math, date) | [plelevier/gcyphrq-ext-apoc-commons](https://github.com/plelevier/gcyphrq-ext-apoc-commons) |
+| [gcyphrq-ext-gexf](https://www.npmjs.com/package/gcyphrq-ext-gexf) | Graph-input | Convert GEXF files to gcyphrq graph format | [plelevier/gcyphrq-ext-gexf](https://github.com/plelevier/gcyphrq-ext-gexf) |
+| [gcyphrq-ext-graphml](https://www.npmjs.com/package/gcyphrq-ext-graphml) | Graph-input | Convert GraphML files to gcyphrq graph format | [plelevier/gcyphrq-ext-graphml](https://github.com/plelevier/gcyphrq-ext-graphml) |
+| [gcyphrq-ext-maven-dependency-tree](https://www.npmjs.com/package/gcyphrq-ext-maven-dependency-tree) | Graph-input | Convert Maven dependency trees to gcyphrq graph format | [plelevier/gcyphrq-ext-maven-dependency-tree](https://github.com/plelevier/gcyphrq-ext-maven-dependency-tree) |
+
 ## Extension Types
 
 | Type | Purpose | Example |
