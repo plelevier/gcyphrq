@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { join, resolve as resolvePath } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { GraphInput } from './lib';
 
@@ -44,13 +44,26 @@ function metaPath(): string {
   return join(getCacheDir(), '_meta.json');
 }
 
+/** Check if a parsed JSON object has the required MetaEntry fields. */
+function isValidMetaEntry(entry: unknown): entry is MetaEntry {
+  if (typeof entry !== 'object' || entry === null) return false;
+  const obj = entry as Record<string, unknown>;
+  return (
+    typeof obj.hash === 'string' &&
+    typeof obj.key === 'string' &&
+    typeof obj.fileMtime === 'number' &&
+    typeof obj.fileSize === 'number' &&
+    typeof obj.accessedAt === 'number'
+  );
+}
+
 /** Load metadata index. Returns empty array if file is missing or corrupted. */
 function loadMeta(): MetaEntry[] {
   try {
     const content = readFileSync(metaPath(), 'utf-8');
     const parsed = JSON.parse(content);
     if (Array.isArray(parsed)) {
-      return parsed;
+      return parsed.filter(isValidMetaEntry);
     }
     return [];
   } catch {
@@ -89,15 +102,6 @@ export function computeCacheKey(
   return { key, hash };
 }
 
-/** Resolve a file path to an absolute path. */
-function resolvePath(filePath: string): string {
-  // Use a simple approach: if it starts with / or a drive letter, it's absolute
-  if (filePath.startsWith('/') || /^[a-zA-Z]:/.test(filePath)) {
-    return filePath;
-  }
-  return join(process.cwd(), filePath);
-}
-
 // ── Cache file path ─────────────────────────────────────────────────────────
 
 function cacheFilePath(hash: string): string {
@@ -114,7 +118,6 @@ function cacheFilePath(hash: string): string {
  */
 export function readCache(
   hash: string,
-  filePath: string,
   expectedMtime: number,
   expectedSize: number,
 ): GraphInput | undefined {
@@ -164,7 +167,6 @@ export function readCache(
 export function writeCache(
   hash: string,
   key: string,
-  filePath: string,
   fileMtime: number,
   fileSize: number,
   data: GraphInput,
@@ -198,7 +200,7 @@ export function writeCache(
     });
   }
 
-  // Write the cache file atomically
+  // Always write the cache file atomically (even on update, data may have changed)
   const cacheFile = cacheFilePath(hash);
   const tmpFile = cacheFile + '.tmp';
   writeFileSync(tmpFile, JSON.stringify(data), 'utf-8');
@@ -235,13 +237,30 @@ function evictOldest(meta: MetaEntry[]): void {
 export function clearCache(): void {
   const meta = loadMeta();
 
-  // Remove all cache files
+  // Remove all tracked cache files
   for (const entry of meta) {
     try {
       unlinkSync(cacheFilePath(entry.hash));
     } catch {
       // File already gone
     }
+  }
+
+  // Also remove any orphaned .json files not in metadata
+  try {
+    const dir = getCacheDir();
+    const files = readdirSync(dir);
+    for (const file of files) {
+      if (file.endsWith('.json') && file !== '_meta.json') {
+        try {
+          unlinkSync(join(dir, file));
+        } catch {
+          // File already gone
+        }
+      }
+    }
+  } catch {
+    // Directory doesn't exist or isn't readable
   }
 
   // Remove metadata

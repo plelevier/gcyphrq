@@ -404,7 +404,7 @@ async function loadGraphWithCache(
   // Try cache first (unless disabled)
   if (!noCache) {
     const { hash } = computeCacheKey(resolvedPath, extensionName, labelProperty, edgeTypeProperty);
-    const cached = readCache(hash, resolvedPath, stat.mtimeMs, stat.size);
+    const cached = readCache(hash, stat.mtimeMs, stat.size);
     if (cached !== undefined) {
       return cached;
     }
@@ -425,7 +425,7 @@ async function loadGraphWithCache(
     const loaded = await loadExtension(extensionName);
     if (loaded.manifest.cacheable !== false) {
       const { hash, key } = computeCacheKey(resolvedPath, extensionName, labelProperty, edgeTypeProperty);
-      writeCache(hash, key, resolvedPath, stat.mtimeMs, stat.size, graphData);
+      writeCache(hash, key, stat.mtimeMs, stat.size, graphData);
     }
   }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, unlinkSync, rmSync, statSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { mkdirSync, writeFileSync, unlinkSync, rmSync, statSync, readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   computeCacheKey,
@@ -100,8 +100,8 @@ describe('cache read/write', () => {
     const stat = statSync(filePath);
     const { hash, key } = computeCacheKey(filePath, 'gexf');
 
-    writeCache(hash, key, filePath, stat.mtimeMs, stat.size, TEST_GRAPH);
-    const result = readCache(hash, filePath, stat.mtimeMs, stat.size);
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
+    const result = readCache(hash, stat.mtimeMs, stat.size);
 
     expect(result).toEqual(TEST_GRAPH);
   });
@@ -111,7 +111,7 @@ describe('cache read/write', () => {
     const stat = statSync(filePath);
     const { hash } = computeCacheKey(filePath, 'gexf');
 
-    const result = readCache(hash, filePath, stat.mtimeMs, stat.size);
+    const result = readCache(hash, stat.mtimeMs, stat.size);
     expect(result).toBeUndefined();
   });
 
@@ -120,7 +120,7 @@ describe('cache read/write', () => {
     const stat = statSync(filePath);
     const { hash, key } = computeCacheKey(filePath, 'gexf');
 
-    writeCache(hash, key, filePath, stat.mtimeMs, stat.size, TEST_GRAPH);
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
 
     // Wait a bit and modify the file
     await sleep(10);
@@ -128,7 +128,7 @@ describe('cache read/write', () => {
     const newStat = statSync(filePath);
 
     // Cache should detect the change and return undefined
-    const result = readCache(hash, filePath, newStat.mtimeMs, newStat.size);
+    const result = readCache(hash, newStat.mtimeMs, newStat.size);
     expect(result).toBeUndefined();
   });
 
@@ -137,14 +137,14 @@ describe('cache read/write', () => {
     const stat = statSync(filePath);
     const { hash, key } = computeCacheKey(filePath, 'gexf');
 
-    writeCache(hash, key, filePath, stat.mtimeMs, stat.size, TEST_GRAPH);
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
 
     // Wait a bit and modify the file (different size)
     await sleep(10);
     writeFileSync(filePath, '<gexf>much longer content here</gexf>', 'utf-8');
     const newStat = statSync(filePath);
 
-    const result = readCache(hash, filePath, newStat.mtimeMs, newStat.size);
+    const result = readCache(hash, newStat.mtimeMs, newStat.size);
     expect(result).toBeUndefined();
   });
 
@@ -153,15 +153,15 @@ describe('cache read/write', () => {
     const stat = statSync(filePath);
     const { hash, key } = computeCacheKey(filePath, 'gexf');
 
-    writeCache(hash, key, filePath, stat.mtimeMs, stat.size, TEST_GRAPH);
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
     const metaPath = join(getCacheDir(), '_meta.json');
-    const metaBefore = JSON.parse(require('node:fs').readFileSync(metaPath, 'utf-8'));
+    const metaBefore = JSON.parse(readFileSync(metaPath, 'utf-8'));
     const accessedBefore = metaBefore[0].accessedAt;
 
     await sleep(10);
-    readCache(hash, filePath, stat.mtimeMs, stat.size);
+    readCache(hash, stat.mtimeMs, stat.size);
 
-    const metaAfter = JSON.parse(require('node:fs').readFileSync(metaPath, 'utf-8'));
+    const metaAfter = JSON.parse(readFileSync(metaPath, 'utf-8'));
     expect(metaAfter[0].accessedAt).toBeGreaterThan(accessedBefore);
   });
 
@@ -170,12 +170,29 @@ describe('cache read/write', () => {
     const stat = statSync(filePath);
     const { hash, key } = computeCacheKey(filePath, 'gexf');
 
-    writeCache(hash, key, filePath, stat.mtimeMs, stat.size, TEST_GRAPH);
-    writeCache(hash, key, filePath, stat.mtimeMs, stat.size, TEST_GRAPH);
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
 
     const metaPath = join(getCacheDir(), '_meta.json');
-    const meta = JSON.parse(require('node:fs').readFileSync(metaPath, 'utf-8'));
+    const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
     expect(meta.length).toBe(1); // Still only one entry
+  });
+
+  it('updates the data file on re-write (not just metadata)', () => {
+    const filePath = createTestFile('<gexf>test</gexf>');
+    const stat = statSync(filePath);
+    const { hash, key } = computeCacheKey(filePath, 'gexf');
+
+    const graphA: GraphInput = { nodes: [{ key: 'a', attributes: {} }], edges: [] };
+    const graphB: GraphInput = { nodes: [{ key: 'b', attributes: {} }], edges: [] };
+
+    writeCache(hash, key, stat.mtimeMs, stat.size, graphA);
+    let result = readCache(hash, stat.mtimeMs, stat.size);
+    expect(result?.nodes[0]?.key).toBe('a');
+
+    writeCache(hash, key, stat.mtimeMs, stat.size, graphB);
+    result = readCache(hash, stat.mtimeMs, stat.size);
+    expect(result?.nodes[0]?.key).toBe('b'); // Data file was updated
   });
 });
 
@@ -191,21 +208,21 @@ describe('LRU eviction', () => {
       const filePath = createTestFile(`<gexf>file${i}</gexf>`, `file${i}.gexf`);
       const stat = statSync(filePath);
       const { hash, key } = computeCacheKey(filePath, 'gexf');
-      writeCache(hash, key, filePath, stat.mtimeMs, stat.size, TEST_GRAPH);
+      writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
       await sleep(1); // Ensure different timestamps
     }
 
     // Verify 10 entries
-    let meta = JSON.parse(require('node:fs').readFileSync(metaPath, 'utf-8'));
+    let meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
     expect(meta.length).toBe(10);
 
     // Write 11th entry — should evict the oldest (first one written)
     const filePath11 = createTestFile('<gexf>file11</gexf>', 'file11.gexf');
     const stat11 = statSync(filePath11);
     const { hash: hash11, key: key11 } = computeCacheKey(filePath11, 'gexf');
-    writeCache(hash11, key11, filePath11, stat11.mtimeMs, stat11.size, TEST_GRAPH);
+    writeCache(hash11, key11, stat11.mtimeMs, stat11.size, TEST_GRAPH);
 
-    meta = JSON.parse(require('node:fs').readFileSync(metaPath, 'utf-8'));
+    meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
     expect(meta.length).toBe(10); // Still 10 (one was evicted)
     expect(meta.some((e) => e.hash === hash11)).toBe(true); // New entry is present
   });
@@ -220,14 +237,14 @@ describe('LRU eviction', () => {
       const stat = statSync(filePath);
       const { hash, key } = computeCacheKey(filePath, 'gexf');
       hashes.push(hash);
-      writeCache(hash, key, filePath, stat.mtimeMs, stat.size, TEST_GRAPH);
+      writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
       await sleep(1);
     }
 
     // Access the first entry to make it recently used
     const filePath0 = join(TEST_FILE_DIR, 'file0.gexf');
     const stat0 = statSync(filePath0);
-    readCache(hashes[0]!, filePath0, stat0.mtimeMs, stat0.size);
+    readCache(hashes[0]!, stat0.mtimeMs, stat0.size);
 
     await sleep(1);
 
@@ -235,9 +252,9 @@ describe('LRU eviction', () => {
     const filePath11 = createTestFile('<gexf>file11</gexf>', 'file11.gexf');
     const stat11 = statSync(filePath11);
     const { hash: hash11, key: key11 } = computeCacheKey(filePath11, 'gexf');
-    writeCache(hash11, key11, filePath11, stat11.mtimeMs, stat11.size, TEST_GRAPH);
+    writeCache(hash11, key11, stat11.mtimeMs, stat11.size, TEST_GRAPH);
 
-    const meta = JSON.parse(require('node:fs').readFileSync(metaPath, 'utf-8'));
+    const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
     expect(meta.some((e) => e.hash === hashes[0])).toBe(true); // Entry #0 still there (recently accessed)
     expect(meta.some((e) => e.hash === hashes[1])).toBe(false); // Entry #1 evicted (oldest)
     expect(meta.some((e) => e.hash === hash11)).toBe(true); // New entry present
@@ -253,13 +270,30 @@ describe('clearCache', () => {
     const stat = statSync(filePath);
     const { hash, key } = computeCacheKey(filePath, 'gexf');
 
-    writeCache(hash, key, filePath, stat.mtimeMs, stat.size, TEST_GRAPH);
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
     expect(cacheExists()).toBe(true);
 
     clearCache();
 
-    const result = readCache(hash, filePath, stat.mtimeMs, stat.size);
+    const result = readCache(hash, stat.mtimeMs, stat.size);
     expect(result).toBeUndefined();
+  });
+
+  it('removes orphaned cache files not in metadata', () => {
+    const filePath = createTestFile('<gexf>test</gexf>');
+    const stat = statSync(filePath);
+    const { hash, key } = computeCacheKey(filePath, 'gexf');
+
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
+
+    // Create an orphaned file not tracked in metadata
+    const orphanPath = join(getCacheDir(), 'orphan.json');
+    writeFileSync(orphanPath, '{"orphan": true}', 'utf-8');
+    expect(existsSync(orphanPath)).toBe(true);
+
+    clearCache();
+
+    expect(existsSync(orphanPath)).toBe(false); // Orphan removed
   });
 });
 
@@ -286,11 +320,11 @@ describe('GCYPHRQ_CACHE_DIR override', () => {
     const stat = statSync(filePath);
     const { hash, key } = computeCacheKey(filePath, 'gexf');
 
-    writeCache(hash, key, filePath, stat.mtimeMs, stat.size, TEST_GRAPH);
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
 
     // Verify file exists in custom directory
     const cacheFile = join(CUSTOM_CACHE_DIR, `${hash}.json`);
-    expect(require('node:fs').existsSync(cacheFile)).toBe(true);
+    expect(existsSync(cacheFile)).toBe(true);
   });
 });
 
@@ -303,14 +337,14 @@ describe('corrupted metadata', () => {
     const stat = statSync(filePath);
     const { hash, key } = computeCacheKey(filePath, 'gexf');
 
-    writeCache(hash, key, filePath, stat.mtimeMs, stat.size, TEST_GRAPH);
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
 
     // Corrupt the metadata file
     const metaPath = join(getCacheDir(), '_meta.json');
     writeFileSync(metaPath, 'not valid json{{{', 'utf-8');
 
     // Should treat as empty cache
-    const result = readCache(hash, filePath, stat.mtimeMs, stat.size);
+    const result = readCache(hash, stat.mtimeMs, stat.size);
     expect(result).toBeUndefined();
   });
 
@@ -319,15 +353,37 @@ describe('corrupted metadata', () => {
     const stat = statSync(filePath);
     const { hash, key } = computeCacheKey(filePath, 'gexf');
 
-    writeCache(hash, key, filePath, stat.mtimeMs, stat.size, TEST_GRAPH);
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
 
     // Delete the metadata file
     const metaPath = join(getCacheDir(), '_meta.json');
     unlinkSync(metaPath);
 
     // Should treat as empty cache
-    const result = readCache(hash, filePath, stat.mtimeMs, stat.size);
+    const result = readCache(hash, stat.mtimeMs, stat.size);
     expect(result).toBeUndefined();
+  });
+
+  it('filters out entries with invalid shape', () => {
+    const filePath = createTestFile('<gexf>test</gexf>');
+    const stat = statSync(filePath);
+    const { hash, key } = computeCacheKey(filePath, 'gexf');
+
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
+
+    // Write metadata with a mix of valid and invalid entries
+    const metaPath = join(getCacheDir(), '_meta.json');
+    const mixedMeta = [
+      { hash: 'bad-hash', key: 'orphan', fileMtime: 0, fileSize: 0, accessedAt: 0 }, // valid shape, different entry
+      'not-an-object',                                                          // invalid
+      { hash: hash, key: key, fileMtime: stat.mtimeMs, fileSize: stat.size, accessedAt: Date.now() }, // valid
+      { hash: 'missing-fields' },                                                // invalid
+    ];
+    writeFileSync(metaPath, JSON.stringify(mixedMeta, null, 2), 'utf-8');
+
+    // Should still find the valid entry
+    const result = readCache(hash, stat.mtimeMs, stat.size);
+    expect(result).toEqual(TEST_GRAPH);
   });
 });
 
