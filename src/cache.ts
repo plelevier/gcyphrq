@@ -239,8 +239,11 @@ export function readCache(
     try { saveMeta(meta); } catch { /* write failure — non-fatal */ }
 
     return data as GraphInput;
-  } catch {
+  } catch (err) {
     // Cache file missing, corrupted, or I/O error — treat as miss
+    if (err instanceof Error && err.message.includes('Timed out')) {
+      process.stderr.write(`Warning: ${err.message}\n`);
+    }
     return undefined;
   } finally {
     releaseLock?.();
@@ -342,12 +345,12 @@ export function clearCache(): void {
       }
     }
 
-    // Also remove any orphaned .json and .tmp files not in metadata
+    // Also remove any orphaned .json, .tmp, and .lock files not in metadata
     try {
       const dir = getCacheDir();
       const files = readdirSync(dir);
       for (const file of files) {
-        if ((file.endsWith('.json') || file.endsWith('.tmp')) && file !== '_meta.json') {
+        if ((file.endsWith('.json') || file.endsWith('.tmp') || file === '.lock') && file !== '_meta.json') {
           try {
             unlinkSync(join(dir, file));
           } catch {

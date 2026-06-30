@@ -329,7 +329,7 @@ describe('getBaseCacheDir', () => {
       const dir = getBaseCacheDir();
       expect(dir).toBe(join(homedir(), '.cache', 'gcyphrq'));
     } finally {
-      if (origEnv) process.env.GCYPHRQ_CACHE_DIR = origEnv;
+      process.env.GCYPHRQ_CACHE_DIR = origEnv; // Restore (undefined if it wasn't set)
     }
   });
 });
@@ -457,5 +457,40 @@ describe('concurrent access protection', () => {
 
     // Lock file should be cleaned up after operation
     expect(existsSync(lockPath)).toBe(false);
+  });
+
+  it('readCache returns undefined on lock timeout (non-fatal)', () => {
+    // Simulate a lock held by the current process (which will never release)
+    const lockPath = join(getCacheDir(), '.lock');
+    writeFileSync(lockPath, String(process.pid), 'utf-8');
+
+    const filePath = createTestFile('<gexf>test</gexf>');
+    const stat = statSync(filePath);
+    const { hash } = computeCacheKey(filePath, 'gexf');
+
+    // readCache should time out and return undefined (not throw)
+    // Takes ~5s for lock timeout, so allow enough time
+    const result = readCache(hash, stat.mtimeMs, stat.size);
+    expect(result).toBeUndefined();
+
+    // Clean up
+    try { unlinkSync(lockPath); } catch { /* already removed */ }
+  }, 10000); // 10s timeout to accommodate 5s lock timeout
+
+  it('clearCache removes .lock file', () => {
+    const filePath = createTestFile('<gexf>test</gexf>');
+    const stat = statSync(filePath);
+    const { hash, key } = computeCacheKey(filePath, 'gexf');
+
+    writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
+
+    // Create a stale lock file
+    const lockPath = join(getCacheDir(), '.lock');
+    writeFileSync(lockPath, '99999', 'utf-8');
+    expect(existsSync(lockPath)).toBe(true);
+
+    clearCache();
+
+    expect(existsSync(lockPath)).toBe(false); // Lock file removed
   });
 });
