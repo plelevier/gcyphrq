@@ -14,7 +14,9 @@
     "esModuleInterop": true,
     "declaration": true,
     "sourceMap": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    // TypeScript 7 no longer pulls in every `@types/*` package implicitly.
+    "types": ["node"]
   },
   "include": ["src", "test"]
 }

@@ -11,7 +11,7 @@ await build({
   entryPoints: ['src/index.ts'],
   bundle: true,
   platform: 'node',
-  target: 'node20',
+  target: 'node24',
   format: 'esm',
   outfile: 'dist/index.js',
   banner: {
@@ -30,7 +30,7 @@ await build({
   entryPoints: ['src/lib.ts'],
   bundle: true,
   platform: 'node',
-  target: 'node20',
+  target: 'node24',
   format: 'esm',
   outfile: 'dist/lib.js',
   external: ['graphology', 'antlr4', '@neo4j-cypher/antlr4'],
