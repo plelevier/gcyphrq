@@ -85,12 +85,20 @@ export { GraphError };
  */
 function resolveConfig(opts?: IndexBuildOptions): GraphConfig {
   const c = opts?.config;
-  return {
+  const config: GraphConfig = {
     labelProperty: c?.labelProperty ?? DEFAULT_CONFIG.labelProperty,
     edgeTypeProperty: c?.edgeTypeProperty ?? DEFAULT_CONFIG.edgeTypeProperty,
-    maxVariableLengthDepth: c?.maxVariableLengthDepth,
-    maxVariableLengthPaths: c?.maxVariableLengthPaths,
   };
+  // `exactOptionalPropertyTypes` forbids assigning `undefined` to an optional
+  // property, so the traversal limits are only forwarded when they were given.
+  // Downstream reads them with `?? default`, so omitting them is equivalent.
+  if (c?.maxVariableLengthDepth !== undefined) {
+    config.maxVariableLengthDepth = c.maxVariableLengthDepth;
+  }
+  if (c?.maxVariableLengthPaths !== undefined) {
+    config.maxVariableLengthPaths = c.maxVariableLengthPaths;
+  }
+  return config;
 }
 
 // ── Graph construction ───────────────────────────────────────────────────────

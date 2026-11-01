@@ -54,6 +54,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Shape of an entry in the cache metadata index (`_meta.json`). */
+interface MetaEntry {
+  hash: string;
+  key: string;
+  fileMtime: number;
+  fileSize: number;
+  accessedAt: number;
+}
+
+/** Read the cache metadata index with a useful type instead of `any`. */
+function readMeta(path: string): MetaEntry[] {
+  return JSON.parse(readFileSync(path, 'utf-8')) as MetaEntry[];
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('computeCacheKey', () => {
@@ -158,14 +172,14 @@ describe('cache read/write', () => {
 
     writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
     const metaPath = join(getCacheDir(), '_meta.json');
-    const metaBefore = JSON.parse(readFileSync(metaPath, 'utf-8'));
-    const accessedBefore = metaBefore[0].accessedAt;
+    const metaBefore = readMeta(metaPath);
+    const accessedBefore = metaBefore[0]!.accessedAt;
 
     await sleep(10);
     readCache(hash, stat.mtimeMs, stat.size);
 
-    const metaAfter = JSON.parse(readFileSync(metaPath, 'utf-8'));
-    expect(metaAfter[0].accessedAt).toBeGreaterThan(accessedBefore);
+    const metaAfter = readMeta(metaPath);
+    expect(metaAfter[0]!.accessedAt).toBeGreaterThan(accessedBefore);
   });
 
   it('updates existing entry on re-write', () => {
@@ -177,7 +191,7 @@ describe('cache read/write', () => {
     writeCache(hash, key, stat.mtimeMs, stat.size, TEST_GRAPH);
 
     const metaPath = join(getCacheDir(), '_meta.json');
-    const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+    const meta = readMeta(metaPath);
     expect(meta.length).toBe(1); // Still only one entry
   });
 
@@ -216,7 +230,7 @@ describe('LRU eviction', () => {
     }
 
     // Verify 10 entries
-    let meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+    let meta = readMeta(metaPath);
     expect(meta.length).toBe(10);
 
     // Write 11th entry — should evict the oldest (first one written)
@@ -225,7 +239,7 @@ describe('LRU eviction', () => {
     const { hash: hash11, key: key11 } = computeCacheKey(filePath11, 'gexf');
     writeCache(hash11, key11, stat11.mtimeMs, stat11.size, TEST_GRAPH);
 
-    meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+    meta = readMeta(metaPath);
     expect(meta.length).toBe(10); // Still 10 (one was evicted)
     expect(meta.some((e) => e.hash === hash11)).toBe(true); // New entry is present
   });
@@ -257,7 +271,7 @@ describe('LRU eviction', () => {
     const { hash: hash11, key: key11 } = computeCacheKey(filePath11, 'gexf');
     writeCache(hash11, key11, stat11.mtimeMs, stat11.size, TEST_GRAPH);
 
-    const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+    const meta = readMeta(metaPath);
     expect(meta.some((e) => e.hash === hashes[0])).toBe(true); // Entry #0 still there (recently accessed)
     expect(meta.some((e) => e.hash === hashes[1])).toBe(false); // Entry #1 evicted (oldest)
     expect(meta.some((e) => e.hash === hash11)).toBe(true); // New entry present

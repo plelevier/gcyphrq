@@ -52,6 +52,33 @@ describe('executeQuery', () => {
     expect(results).toEqual([{ 'COUNT(u)': 3 }]);
   });
 
+  it('forwards traversal limits from config', async () => {
+    const chain: GraphInput = {
+      nodes: ['a', 'b', 'c', 'd'].map((name) => ({ key: name, attributes: { label: 'Node', name } })),
+      edges: [
+        { source: 'a', target: 'b', attributes: { type: 'NEXT' } },
+        { source: 'b', target: 'c', attributes: { type: 'NEXT' } },
+        { source: 'c', target: 'd', attributes: { type: 'NEXT' } },
+      ],
+    };
+    const warnings: string[] = [];
+    const limited = await executeQuery(
+      chain,
+      'MATCH (a:Node {name: "a"})-[*1..]->(b:Node) RETURN b.name AS name',
+      { config: { maxVariableLengthDepth: 2 }, onWarning: (w) => warnings.push(w) },
+    );
+    expect(limited.map((r) => r.name).sort()).toEqual(['b', 'c']);
+    expect(warnings.some((w) => w.includes('max depth of 2'))).toBe(true);
+
+    // Absent limits must fall back to the engine defaults, not be dropped.
+    const unlimited = await executeQuery(
+      chain,
+      'MATCH (a:Node {name: "a"})-[*1..]->(b:Node) RETURN b.name AS name',
+      { onWarning: () => {} },
+    );
+    expect(unlimited.map((r) => r.name).sort()).toEqual(['b', 'c', 'd']);
+  });
+
   it('throws GraphError for invalid graph data', async () => {
     await expect(executeQuery({ nodes: [{ key: '', attributes: {} }], edges: [] }, 'MATCH (n) RETURN n')).rejects.toThrow(GraphError);
   });
