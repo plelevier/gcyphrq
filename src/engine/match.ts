@@ -447,8 +447,11 @@ export function executeMatch(
         }
       }
 
-      if (nextStates.length === 0) break;
+      // Assign before the early exit so an exhausted hop is never silently
+      // dropped: `chainStates` must reflect "no path survived this hop"
+      // rather than retaining the previous hop's stale candidates.
       chainStates = nextStates;
+      if (nextStates.length === 0) break;
     }
 
     if (chainStates.length > 0) {
@@ -726,8 +729,11 @@ export async function* executeMatchStream(
         }
       }
 
-      if (nextStates.length === 0) break;
+      // Assign before the early exit so an exhausted hop is never silently
+      // dropped: `chainStates` must reflect "no path survived this hop"
+      // rather than retaining the previous hop's stale candidates.
       chainStates = nextStates;
+      if (nextStates.length === 0) break;
     }
 
     if (chainStates.length > 0) {
